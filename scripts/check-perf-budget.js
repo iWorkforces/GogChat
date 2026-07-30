@@ -3,11 +3,13 @@
 /**
  * CI Performance Regression Gate (PI1)
  *
- * Reads a `performance-metrics.json` file produced by GogChat at startup
- * (see `src/main/utils/account/cacheWarmer.ts → runDevPostDeferred`) and compares
- * 9 metrics against fixed budgets. Exits 1 if any **gated** metric fails.
+ * Reads a versioned `performance-metrics.json` produced by the startup
+ * finalizer (document-load + deferred + renderer sample) and compares metrics
+ * against fixed budgets. Exits 1 if any **gated** metric fails or is missing.
  * Prints GitHub Actions annotations (`::error` / `::warning`) so failures
  * surface inline on PRs.
+ *
+ * Memory values are always megabytes (MB) end-to-end — never bytes.
  *
  * Usage:
  *   node scripts/check-perf-budget.js [path/to/performance-metrics.json]
@@ -15,8 +17,8 @@
  * Defaults to `./performance-metrics.json` when no argument is given.
  *
  * Exit codes:
- *   0 — all gated budgets met
- *   1 — at least one gated budget exceeded (or metrics file unreadable)
+ *   0 — all gated budgets met (warn-only metrics may warn)
+ *   1 — gated budget exceeded, gated metric missing, or schema/unit incompatible
  *
  * Side effects:
  *   - Writes `.perf-history.json` (last 20 runs) for trend tracking.
@@ -26,11 +28,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
+
+/** Must match PERF_EXPORT_SCHEMA_VERSION in performanceTypes.ts */
+export const PERF_EXPORT_SCHEMA_VERSION = 1;
 
 // ---------------------------------------------------------------------------
 // Budget definitions
@@ -38,11 +43,12 @@ const repoRoot = path.resolve(__dirname, '..');
 
 /** @typedef {{ name: string, budget: number, unit: string, gated: boolean, extract: (m: object) => number | null, describe: string }} BudgetSpec */
 
-const MB = 1024 * 1024;
+// Memory budgets are in MB (matching producer export). Bundle sizes remain bytes
+// internally and are formatted as KB for display.
 const KB = 1024;
 
 /** @type {BudgetSpec[]} */
-const BUDGETS = [
+export const BUDGETS = [
   {
     name: 'totalStartup',
     budget: 2000,
@@ -52,11 +58,13 @@ const BUDGETS = [
     extract: (m) => diffMarkers(m, 'app-start', 'all-features-loaded'),
   },
   {
-    name: 'windowFirstPaint',
+    // Native window readiness (BrowserWindow constructed + account-0 registered).
+    // Not first paint and not first interaction.
+    name: 'nativeWindowReady',
     budget: 1500,
     unit: 'ms',
     gated: true,
-    describe: 'app-ready → account-0-ready',
+    describe: 'app-ready → account-0-ready (native window readiness)',
     extract: (m) => diffMarkers(m, 'app-ready', 'account-0-ready'),
   },
   {
@@ -69,18 +77,18 @@ const BUDGETS = [
   },
   {
     name: 'heapBaseline',
-    budget: 150 * MB,
+    budget: 150, // MB
     unit: 'MB',
     gated: true,
-    describe: 'last memorySnapshot.heapUsed',
+    describe: 'last memorySnapshot.heapUsed (MB)',
     extract: (m) => lastMemoryField(m, 'heapUsed'),
   },
   {
     name: 'rssBaseline',
-    budget: 350 * MB,
+    budget: 350, // MB
     unit: 'MB',
     gated: false, // WARN only
-    describe: 'last memorySnapshot.rss',
+    describe: 'last memorySnapshot.rss (MB)',
     extract: (m) => lastMemoryField(m, 'rss'),
   },
   {
@@ -115,18 +123,13 @@ const BUDGETS = [
     describe: 'last entry of .build-history.json',
     extract: () => lastBuildTimeMs(),
   },
-  // ---------------------------------------------------------------------------
-  // Wave-0 additive budgets (introduced for content-paint / store / deferred /
-  // IPC visibility). New metrics start as WARN-only until measurement maturity
-  // is established. `contentFirstPaint` is the only addition currently gated
-  // because the underlying `did-finish-load` event is robust on Electron 41.
-  // ---------------------------------------------------------------------------
+  // Document-load completion (did-finish-load). Not authenticated first interaction.
   {
-    name: 'contentFirstPaint',
+    name: 'contentDocumentLoaded',
     budget: 4000,
     unit: 'ms',
     gated: true,
-    describe: 'app-ready → account-0-content-loaded (did-finish-load)',
+    describe: 'app-ready → account-0-content-loaded (document load, not first interaction)',
     extract: (m) => diffMarkers(m, 'app-ready', 'account-0-content-loaded'),
   },
   {
@@ -147,17 +150,17 @@ const BUDGETS = [
   },
   {
     name: 'memoryGrowth',
-    budget: 50 * MB,
+    budget: 50, // MB
     unit: 'MB',
-    gated: false, // WARN only — placeholder until growth-tracking is wired
-    describe: 'last memorySnapshot.heapUsed − first memorySnapshot.heapUsed',
+    gated: false, // WARN only
+    describe: 'last − first memorySnapshot.heapUsed (MB)',
     extract: (m) => memoryGrowth(m, 'heapUsed'),
   },
   {
     name: 'ipcLatencyP50',
     budget: 5,
     unit: 'ms',
-    gated: false, // WARN only — placeholder; extractor returns null until IPC sampling exports
+    gated: false, // WARN only — no established baseline; never gate without producer
     describe: 'placeholder for future ipc-latency.p50 export',
     extract: (m) => ipcLatencyP50(m),
   },
@@ -275,7 +278,8 @@ function formatValue(value, unit) {
     case 'ms':
       return `${Math.round(value)}ms`;
     case 'MB':
-      return `${(value / MB).toFixed(2)}MB`;
+      // Values are already megabytes from the producer contract.
+      return `${Number(value).toFixed(2)}MB`;
     case 'KB':
       return `${(value / KB).toFixed(2)}KB`;
     case 'count':
@@ -283,6 +287,86 @@ function formatValue(value, unit) {
     default:
       return String(value);
   }
+}
+
+/**
+ * Validate schema version + unit metadata before comparing budgets.
+ * @returns {{ ok: boolean, errors: string[] }}
+ */
+export function validateMetricsContract(metrics) {
+  const errors = [];
+  if (!metrics || typeof metrics !== 'object') {
+    return { ok: false, errors: ['metrics is not an object'] };
+  }
+  if (metrics.schemaVersion !== PERF_EXPORT_SCHEMA_VERSION) {
+    errors.push(
+      `schemaVersion mismatch: expected ${PERF_EXPORT_SCHEMA_VERSION}, got ${metrics.schemaVersion}`
+    );
+  }
+  if (metrics.units?.memory !== 'MB') {
+    errors.push(`units.memory must be "MB" (got ${metrics.units?.memory})`);
+  }
+  if (metrics.units?.time !== 'ms') {
+    errors.push(`units.time must be "ms" (got ${metrics.units?.time})`);
+  }
+  if (metrics.capture && metrics.capture.valid === false) {
+    errors.push(
+      `capture.valid is false${metrics.capture.reason ? `: ${metrics.capture.reason}` : ''}`
+    );
+  }
+  // Empty renderer evidence must not pass as measured zero for gated rendererCount.
+  const snaps = metrics.rendererSnapshots;
+  if (!Array.isArray(snaps) || snaps.filter((s) => s?.type === 'renderer').length === 0) {
+    errors.push('empty renderer evidence (no renderer-type samples)');
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+/**
+ * Evaluate budgets against metrics. Pure helper for tests.
+ * @returns {{ results: object[], failed: number, warned: number, skipped: number, contractErrors: string[] }}
+ */
+export function evaluateBudgets(metrics, options = {}) {
+  const contract = validateMetricsContract(metrics);
+  const results = BUDGETS.map((spec) => {
+    let actual = null;
+    try {
+      actual = spec.extract(metrics);
+    } catch (err) {
+      if (!options.silent) {
+        process.stderr.write(`[perf-budget] extractor "${spec.name}" threw: ${err.message}\n`);
+      }
+    }
+
+    let status;
+    if (actual == null) {
+      // Missing gated metrics FAIL; warn-only stay non-blocking WARN/SKIP.
+      status = spec.gated ? 'FAIL' : 'SKIP';
+    } else if (actual <= spec.budget) {
+      status = 'PASS';
+    } else {
+      status = spec.gated ? 'FAIL' : 'WARN';
+    }
+
+    return { ...spec, actual, status };
+  });
+
+  // If the contract is invalid, force every gated metric to FAIL so CI never
+  // silently accepts incomplete or unit-mismatched artifacts.
+  if (!contract.ok) {
+    for (const r of results) {
+      if (r.gated && r.status === 'PASS') {
+        r.status = 'FAIL';
+      } else if (r.gated && r.status === 'SKIP') {
+        r.status = 'FAIL';
+      }
+    }
+  }
+
+  const failed = results.filter((r) => r.status === 'FAIL').length;
+  const warned = results.filter((r) => r.status === 'WARN').length;
+  const skipped = results.filter((r) => r.status === 'SKIP').length;
+  return { results, failed, warned, skipped, contractErrors: contract.errors };
 }
 
 function pct(actual, budget) {
@@ -326,10 +410,12 @@ function writeHistory(results) {
   }
 }
 
-function maybeUpdateBaseline(results) {
+function maybeUpdateBaseline(results, metrics) {
   if (process.env.PERF_UPDATE_BASELINE !== '1') return;
   const file = path.join(repoRoot, '.perf-baseline.json');
   const baseline = {
+    schemaVersion: PERF_EXPORT_SCHEMA_VERSION,
+    units: { memory: 'MB', time: 'ms' },
     timestamp: new Date().toISOString(),
     sha: process.env.GITHUB_SHA || null,
     metrics: Object.fromEntries(results.map((r) => [r.name, r.actual])),
@@ -340,18 +426,38 @@ function maybeUpdateBaseline(results) {
   } catch (err) {
     process.stderr.write(`[perf-budget] Failed to write baseline: ${err.message}\n`);
   }
+  void metrics;
 }
 
+/**
+ * Load baseline only when schema/units are compatible. Incompatible baselines
+ * (e.g. old byte-based memory) are rejected — regenerate with PERF_UPDATE_BASELINE=1.
+ */
 function loadBaseline() {
-  return loadJSONSafe(path.join(repoRoot, '.perf-baseline.json'));
+  const baseline = loadJSONSafe(path.join(repoRoot, '.perf-baseline.json'));
+  if (!baseline) return null;
+  if (baseline.schemaVersion !== PERF_EXPORT_SCHEMA_VERSION) {
+    process.stderr.write(
+      `[perf-budget] Ignoring incompatible baseline schemaVersion=${baseline.schemaVersion} ` +
+        `(expected ${PERF_EXPORT_SCHEMA_VERSION}); re-generate with PERF_UPDATE_BASELINE=1\n`
+    );
+    return null;
+  }
+  if (baseline.units?.memory !== 'MB') {
+    process.stderr.write(
+      `[perf-budget] Ignoring baseline with non-MB memory units; re-generate with PERF_UPDATE_BASELINE=1\n`
+    );
+    return null;
+  }
+  return baseline;
 }
 
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
-function main() {
-  const arg = process.argv[2] || './performance-metrics.json';
+export function main(argv = process.argv.slice(2)) {
+  const arg = argv[0] || './performance-metrics.json';
   const metricsPath = path.isAbsolute(arg) ? arg : path.resolve(process.cwd(), arg);
 
   let metrics;
@@ -359,40 +465,32 @@ function main() {
     metrics = JSON.parse(fs.readFileSync(metricsPath, 'utf8'));
   } catch (err) {
     annotate('error', `Cannot read metrics file ${metricsPath}: ${err.message}`);
-    process.exit(1);
+    process.exitCode = 1;
+    return 1;
   }
 
   const baseline = loadBaseline();
   const baselineMetrics = baseline?.metrics || {};
 
-  const results = BUDGETS.map((spec) => {
-    let actual = null;
-    try {
-      actual = spec.extract(metrics);
-    } catch (err) {
-      process.stderr.write(`[perf-budget] extractor "${spec.name}" threw: ${err.message}\n`);
-    }
-
-    const baseValue = baselineMetrics[spec.name] ?? null;
-    let status;
-    if (actual == null) {
-      status = 'SKIP';
-    } else if (actual <= spec.budget) {
-      status = 'PASS';
-    } else {
-      status = spec.gated ? 'FAIL' : 'WARN';
-    }
-
-    return { ...spec, actual, baseline: baseValue, status };
-  });
+  const { results, failed, warned, skipped, contractErrors } = evaluateBudgets(metrics);
+  for (const r of results) {
+    r.baseline = baselineMetrics[r.name] ?? null;
+  }
 
   // ---------- Report ----------
-  const COL = { name: 22, status: 6, actual: 14, budget: 14, util: 8, delta: 14 };
+  const COL = { name: 26, status: 6, actual: 14, budget: 14, util: 8, delta: 14 };
   const pad = (s, n) => String(s).padEnd(n);
 
   process.stdout.write('\n');
   process.stdout.write('Performance Budget Report\n');
   process.stdout.write('=========================\n');
+  if (contractErrors.length > 0) {
+    process.stdout.write(`Contract errors:\n`);
+    for (const e of contractErrors) {
+      process.stdout.write(`  - ${e}\n`);
+      annotate('error', `Perf contract — ${e}`);
+    }
+  }
   process.stdout.write(
     `${pad('METRIC', COL.name)}${pad('STATE', COL.status)}${pad('ACTUAL', COL.actual)}` +
       `${pad('BUDGET', COL.budget)}${pad('USED', COL.util)}${pad('Δ vs BASE', COL.delta)}\n`
@@ -419,34 +517,37 @@ function main() {
   process.stdout.write('\n');
 
   // ---------- Annotations ----------
-  let failed = 0;
-  let warned = 0;
-  let skipped = 0;
   for (const r of results) {
     const msg =
       `${r.name} (${r.describe}): actual=${formatValue(r.actual, r.unit)} ` +
       `budget=${formatValue(r.budget, r.unit)} (${pct(r.actual, r.budget)})`;
     if (r.status === 'FAIL') {
-      failed++;
-      annotate('error', `Perf budget exceeded — ${msg}`);
+      annotate(
+        'error',
+        r.actual == null ? `Perf gated metric missing — ${msg}` : `Perf budget exceeded — ${msg}`
+      );
     } else if (r.status === 'WARN') {
-      warned++;
       annotate('warning', `Perf budget exceeded (warn-only) — ${msg}`);
     } else if (r.status === 'SKIP') {
-      skipped++;
-      annotate('warning', `Perf metric unavailable — ${msg}`);
+      annotate('warning', `Perf metric unavailable (warn-only) — ${msg}`);
     }
   }
 
   writeHistory(results);
-  maybeUpdateBaseline(results);
+  maybeUpdateBaseline(results, metrics);
 
+  const exitFailed = failed > 0 || contractErrors.length > 0 ? 1 : 0;
   process.stdout.write(
     `Summary: ${results.filter((r) => r.status === 'PASS').length} pass, ` +
-      `${failed} fail, ${warned} warn, ${skipped} skip\n`
+      `${failed} fail, ${warned} warn, ${skipped} skip` +
+      `${contractErrors.length ? `, ${contractErrors.length} contract error(s)` : ''}\n`
   );
 
-  process.exit(failed > 0 ? 1 : 0);
+  process.exitCode = exitFailed;
+  return exitFailed;
 }
 
-main();
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  const code = main();
+  process.exit(code);
+}
