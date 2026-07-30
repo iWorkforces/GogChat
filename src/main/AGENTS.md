@@ -32,7 +32,7 @@
 - Do not call `shell.openExternal()` directly. Use `validateExternalURL()` and `utils/security/shellWrapper.ts`.
 - Never log credentials, OAuth tokens, cookies, or full Google auth URLs; strip or validate first.
 - Do not add raw timers/listeners in main. Use tracked helpers from `utils/lifecycle/resourceCleanup.ts`.
-- macOS notification permission lives in `utils/security/notificationAccess.ts`; `windowWrapper` calls `ensureNotificationPermission()` after permission handlers. Persist `app.notificationPermissionRequested` only after the probe Notification emits `show` (meaning the OS request path completed — not that banners are currently allowed). Clear the in-memory guard on `failed` so a later launch can retry. Skip interactive probes in CI. Prefer Preferences → Notification Settings… (or `showNotificationSettingsDialog`) over re-prompt loops when the user needs System Settings.
+- macOS notification permission lives in `utils/security/notificationAccess.ts`; `windowWrapper` and WCV host call `ensureNotificationPermission({ parentWindow })` on `ready-to-show` (first-run in-app dialog, then silent OS probe). Persist `app.notificationPermissionRequested` only after the probe Notification emits `show` (request path completed — not that banners are currently allowed). “Not Now” skips for the process session only. Clear the in-memory guard on `failed` so a later launch can retry. Skip interactive probes in CI. Prefer Preferences → Notification Settings… when the user needs System Settings after a prior grant/deny.
 - Keep feature-to-feature imports out of `features/`, except the existing `menuActionRegistry.ts` decoupling point.
 - Keep typed errors and `{ cause }`; use shared `ErrorCode` when crossing module boundaries.
 
