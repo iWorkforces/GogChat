@@ -39,7 +39,7 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 
 - `verify-remediation-evidence.js` - validates Todo evidence receipts and distinguishes core-remediation vs release-readiness approval.
 - `verify-performance-claims.js` - rejects unsupported runtime-savings claims (package bytes ≠ startup wins).
-- `check-doc-claims.js` - audits documented AGENTS claims against source (singleton destroyers, lazy cleanups, branded helpers, feature isolation).
+- `check-doc-claims.js` - audits documented AGENTS claims against source (singleton destroyers, lazy cleanups, branded helpers, feature isolation). Pure config readers (for example `accountLabelStore` get helpers) belong on the destroyer allowlist when they are not process singletons.
 - `hooks/pre-push` - blocks pushes on lint/check failures.
 
 ## Build invariants

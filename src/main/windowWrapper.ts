@@ -67,16 +67,15 @@ export default (url: string, partition?: string): BrowserWindow => {
   // Chromium-level permission handlers (media TCC + non-media allowlist)
   installPermissionHandlers(window);
 
-  // Request macOS notification authorization once per profile (non-blocking).
-  // Implementation and process/config guards live in notificationAccess.ts.
-  ensureNotificationPermission();
-
   window.once('ready-to-show', () => {
     const defaults = getWindowDefaults();
     if (!defaults.startHidden) {
       window.show();
     }
     window.webContents.session.setSpellCheckerEnabled(!defaults.disableSpellChecker);
+    // After the window is ready (and preferably shown): first-run dialog + OS probe.
+    // Parent window makes the in-app prompt visible; probe may surface the OS sheet.
+    ensureNotificationPermission({ parentWindow: window });
   });
 
   attachEventLogging(window);

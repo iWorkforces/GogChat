@@ -8,9 +8,10 @@
 
 - Main-process startup, features, utilities, account windows, security, or IPC handlers: `main/AGENTS.md`.
 - Cross-process constants, validators, and types: `shared/AGENTS.md`.
-- Sandboxed bridge or page-observation code: `preload/AGENTS.md` (includes offline recovery bridge in `preload/offline.ts`).
+- Sandboxed bridge or page-observation code: `preload/AGENTS.md` (includes offline recovery bridge in `preload/offline.ts` and `notificationBridge.ts`).
 - Static network-loss fallback assets: `offline/AGENTS.md` (DOM-only retry UI; no Electron APIs).
 - Performance monitors / final export: `main/utils/lifecycle/AGENTS.md`.
+- OS notification permission: `main/utils/security/AGENTS.md`; presentation/labels/focus: `main/utils/platform/AGENTS.md`.
 
 ## Process boundaries
 

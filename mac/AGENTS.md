@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-`mac/` contains macOS packaging assets and DMG scripts for dual-arch Electron packaging (Apple Silicon `arm64` and Intel `x64`) as **separate** DMGs. Windows release engineering/preparation lives outside this directory and is not a public support claim.
+`mac/` contains macOS packaging assets and DMG scripts for dual-arch Electron packaging (Apple Silicon `arm64` and Intel `x64`) as **separate** DMGs. Product version for artifact names comes from root `package.json`. Windows release engineering/preparation lives outside this directory and is not a public support claim.
 
 ## Commands
 

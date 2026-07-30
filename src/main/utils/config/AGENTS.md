@@ -7,9 +7,18 @@ This directory owns typed electron-store access and read-through caching for app
 ## Boundaries
 
 - Shared config shape lives in `src/shared/types/config.ts`.
-- Main-process schema/defaults/accessors live in `src/main/config.ts`.
-- Cache helpers here are for normal app config only.
+- Main-process schema and defaults live in `configSchema.ts` (imported by `src/main/config.ts`).
+- Encrypted electron-store init and `configGet` / `configSet` accessors live in `src/main/config.ts`.
+- Cache helpers here (`configCache.ts`) are for normal app config only.
 - SafeStorage-backed security flags live in `src/main/utils/security/secureFlags.ts`, not config.
+
+## Notification-related keys (`app.*`)
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `notificationPermissionRequested` | `false` | Probe path completed once (`show`); not live OS grant status |
+| `unreadDeltaNotifications` | `false` | Opt-in badge-increase OS banners (Preferences) |
+| `accountLabels` | `{}` | Optional per-account subtitle strings for multi-account banners |
 
 ## Cache behavior
 
@@ -20,9 +29,9 @@ This directory owns typed electron-store access and read-through caching for app
 
 ## Change workflow
 
-1. Add the field to shared `AppConfig`.
-2. Add validation/defaults in `src/main/config.ts`.
-3. Add typed accessor/mutation helpers if needed.
+1. Add the field to shared `AppConfig` (`src/shared/types/config.ts`).
+2. Add schema validation and defaults in `configSchema.ts`.
+3. Ensure `src/main/config.ts` still exports typed accessors if needed (usually `configGet`/`configSet` suffice).
 4. Update tests for schema, defaults, and cache invalidation.
 
 ## Performance note

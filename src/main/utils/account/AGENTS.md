@@ -10,7 +10,7 @@ This directory owns multi-account window/view backends and per-account session p
 - `accountViewManager.ts` is the opt-in WebContentsView host backend selected by `app.useWebContentsView`.
 - Both implement `IAccountWindowManager` from `src/shared/types/window.ts`.
 - `focusAccount(accountIndex)` brings that account’s UI forward (BW: show/focus window; WCV: switch visible view + focus host). Used by notification click routing.
-- WCV host creation must call `ensureNotificationPermission()` (same first-run probe as `windowWrapper`).
+- WCV host `ready-to-show` must call `ensureNotificationPermission({ parentWindow })` (same first-run dialog + probe as `windowWrapper`).
 - Shared routing/registry/bootstrap helpers live in `accountRouter.ts`, `accountWindowRegistry.ts`, `bootstrapTracker.ts`, `bootstrapWatcher.ts`, `accountSessionMaintenance.ts`, `cacheWarmer.ts`, and `deepLinkUtils.ts`.
 - Do **not** change the default backend or WebContentsView hide/throttle/destroy semantics without controlled multi-account evidence and an explicit policy decision.
 

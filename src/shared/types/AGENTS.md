@@ -8,7 +8,7 @@ This directory defines contracts crossing main, preload, tests, and shared valid
 
 - `branded.ts` - allowed branded casts and helpers such as `asValidatedURL`, `asAccountIndex`, `toPartition`, and `asWebContentsId`.
 - `bridge.ts` - preload-exposed API surface.
-- `config.ts` - shared config shape.
+- `config.ts` - shared config shape (includes `notificationPermissionRequested`, `unreadDeltaNotifications`, `accountLabels`).
 - `domain.ts` - app domain payload types.
 - `errors.ts` - typed error codes and app error shapes.
 - `ipc.ts` - IPC payload/response maps.
