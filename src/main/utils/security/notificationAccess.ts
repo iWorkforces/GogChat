@@ -27,11 +27,7 @@ export const NOTIFICATION_SETTINGS_URL_LEGACY =
   'x-apple.systempreferences:com.apple.preference.notifications';
 
 export type NotificationPermissionEnsureResult =
-  | 'unsupported'
-  | 'skipped-ci'
-  | 'already-requested'
-  | 'scheduled'
-  | 'failed-to-schedule';
+  'unsupported' | 'skipped-ci' | 'already-requested' | 'scheduled' | 'failed-to-schedule';
 
 /**
  * Process-level guard: collapses same-tick multi-window bursts so only one

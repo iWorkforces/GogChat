@@ -6,12 +6,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getAccountForWebContentsMock = vi.fn();
 const getStoredAccountLabelMock = vi.fn();
+const contextState = vi.hoisted(() => ({
+  manager: {
+    getAccountForWebContents: (...args: unknown[]) => getAccountForWebContentsMock(...args),
+  } as { getAccountForWebContents: (...args: unknown[]) => unknown } | undefined,
+}));
 
 vi.mock('../lifecycle/featureContextStore.js', () => ({
   getSharedFeatureContext: () => ({
-    accountWindowManager: {
-      getAccountForWebContents: getAccountForWebContentsMock,
-    },
+    accountWindowManager: contextState.manager,
   }),
 }));
 
@@ -29,6 +32,9 @@ describe('accountNotificationIdentity', () => {
     getAccountForWebContentsMock.mockReset();
     getStoredAccountLabelMock.mockReset();
     getStoredAccountLabelMock.mockReturnValue(undefined);
+    contextState.manager = {
+      getAccountForWebContents: (...args: unknown[]) => getAccountForWebContentsMock(...args),
+    };
   });
 
   it('formatAccountNotificationLabel prefers custom override then stored then default', async () => {
@@ -37,9 +43,12 @@ describe('accountNotificationIdentity', () => {
     expect(formatAccountNotificationLabel(1 as never)).toBe('Account 2');
     expect(formatAccountNotificationLabel(null)).toBe('GogChat');
     expect(formatAccountNotificationLabel(0 as never, ' Work ')).toBe('Work');
+    // Whitespace-only override falls through to default / stored
+    expect(formatAccountNotificationLabel(0 as never, '   ')).toBe('Account 1');
 
     getStoredAccountLabelMock.mockReturnValue('Personal');
     expect(formatAccountNotificationLabel(1 as never)).toBe('Personal');
+    expect(formatAccountNotificationLabel(1 as never, '')).toBe('Personal');
   });
 
   it('namespaceNotificationTag isolates accounts and preserves prefix', async () => {
@@ -65,5 +74,28 @@ describe('accountNotificationIdentity', () => {
     const event = { sender: { id: 42, isDestroyed: () => false } };
     expect(resolveAccountIndexFromIpcEvent(event as never)).toBe(3);
     expect(getAccountForWebContentsMock).toHaveBeenCalledWith(42);
+  });
+
+  it('resolveAccountIndexFromIpcEvent returns null for missing sender or manager', async () => {
+    const { resolveAccountIndexFromIpcEvent } = await import('./accountNotificationIdentity.js');
+    expect(resolveAccountIndexFromIpcEvent(undefined)).toBeNull();
+    expect(
+      resolveAccountIndexFromIpcEvent({
+        sender: { id: 1, isDestroyed: () => true },
+      } as never)
+    ).toBeNull();
+
+    contextState.manager = undefined;
+    expect(
+      resolveAccountIndexFromIpcEvent({
+        sender: { id: 1, isDestroyed: () => false },
+      } as never)
+    ).toBeNull();
+  });
+
+  it('namespaceNotificationTag handles empty tag', async () => {
+    const { namespaceNotificationTag } = await import('./accountNotificationIdentity.js');
+    const withDefault = namespaceNotificationTag(0 as never, undefined);
+    expect(withDefault.startsWith('a0:')).toBe(true);
   });
 });

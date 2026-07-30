@@ -23,7 +23,7 @@ function buildAccountLabelsSubmenu(parentWindow: BrowserWindow): MenuItemConstru
   try {
     accountCount = getAccountWindowManager().getAccountCount();
   } catch {
-    accountCount = 0;
+    // Manager may be unavailable during early menu build in tests.
   }
   const stored = getAllStoredAccountLabels();
   const maxFromLabels = Object.keys(stored)

@@ -99,4 +99,69 @@ describe('notificationFocus', () => {
     const resolved = resolveNotificationFocusWindow(event as never, fallback as never);
     expect(resolved).toBe(accountWin);
   });
+
+  it('resolveNotificationFocusWindow falls back to fromWebContents then fallback', async () => {
+    const { resolveNotificationFocusWindow } = await import('./notificationFocus.js');
+    const senderWin = makeWindow();
+    fromWebContentsMock.mockReturnValue(senderWin);
+    const fallback = makeWindow();
+    const event = { sender: { id: 3, isDestroyed: () => false } };
+    expect(resolveNotificationFocusWindow(event as never, fallback as never)).toBe(senderWin);
+
+    fromWebContentsMock.mockReturnValue(null);
+    expect(resolveNotificationFocusWindow(event as never, fallback as never)).toBe(fallback);
+    expect(resolveNotificationFocusWindow(undefined, fallback as never)).toBe(fallback);
+  });
+
+  it('restores minimized windows when focusing', async () => {
+    const senderWin = makeWindow();
+    senderWin.isMinimized.mockReturnValue(true);
+    fromWebContentsMock.mockReturnValue(senderWin);
+    const { focusNotificationSource } = await import('./notificationFocus.js');
+    focusNotificationSource(
+      { sender: { id: 1, isDestroyed: () => false } } as never,
+      makeWindow() as never
+    );
+    expect(senderWin.restore).toHaveBeenCalled();
+    expect(senderWin.show).toHaveBeenCalled();
+    expect(senderWin.focus).toHaveBeenCalled();
+  });
+
+  it('swallows focus errors', async () => {
+    focusAccountMock.mockImplementation(() => {
+      throw new Error('focus failed');
+    });
+    getAccountForWebContentsMock.mockReturnValue(1);
+    const { focusNotificationSource } = await import('./notificationFocus.js');
+    expect(() =>
+      focusNotificationSource(
+        { sender: { id: 1, isDestroyed: () => false } } as never,
+        makeWindow() as never
+      )
+    ).not.toThrow();
+  });
+
+  it('skips destroyed fallback window', async () => {
+    const fallback = makeWindow();
+    fallback.isDestroyed.mockReturnValue(true);
+    const { focusNotificationSource } = await import('./notificationFocus.js');
+    focusNotificationSource(undefined, fallback as never);
+    expect(fallback.show).not.toHaveBeenCalled();
+  });
+
+  it('resolveNotificationFocusWindow skips destroyed account window', async () => {
+    const destroyed = makeWindow();
+    destroyed.isDestroyed.mockReturnValue(true);
+    getAccountForWebContentsMock.mockReturnValue(1);
+    getAccountWindowMock.mockReturnValue(destroyed);
+    fromWebContentsMock.mockReturnValue(null);
+    const fallback = makeWindow();
+    const { resolveNotificationFocusWindow } = await import('./notificationFocus.js');
+    expect(
+      resolveNotificationFocusWindow(
+        { sender: { id: 1, isDestroyed: () => false } } as never,
+        fallback as never
+      )
+    ).toBe(fallback);
+  });
 });

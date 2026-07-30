@@ -79,47 +79,47 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 
 ## Where to look
 
-| Task                           | Start here                                                                      | Notes                                                            |
-| ------------------------------ | ------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| App entry                      | `src/main/index.ts`                                                             | Thin orchestrator only. Do not add feature logic here.           |
-| App-ready sequence             | `src/main/initializers/registerAppReady.ts`                                     | Owns `app.whenReady()` work.                                     |
-| Feature specs                  | `src/main/initializers/{security,ui,deferred}.spec.ts`                          | Declarative `FeatureSpec[]`; edit these to add/reorder features. |
-| Feature codegen                | `scripts/featurePlanPlugin.js`                                                  | Parses specs and topo-sorts dependency batches at build time.    |
-| Runtime feature runner         | `src/main/utils/lifecycle/featureRunner.ts`                                     | Runs security/critical/ui/deferred phases.                       |
-| Shared feature context         | `src/main/utils/lifecycle/featureContextStore.ts`                               | Stores `mainWindow` and account manager after bootstrap.         |
-| Shutdown                       | `src/main/initializers/registerShutdown.ts`                                     | Async cleanup before `app.exit()`.                               |
-| BrowserWindow accounts         | `src/main/utils/account/accountWindowManager.ts`                                | Default multi-account backend.                                   |
-| WebContentsView accounts       | `src/main/utils/account/accountViewManager.ts`                                  | Opt-in backend behind `app.useWebContentsView`.                  |
-| Account contract               | `src/shared/types/window.ts`                                                    | `IAccountWindowManager` boundary.                                |
-| IPC helpers                    | `src/main/utils/ipc/`                                                           | Rate limit, validate, dedup/fast-path, catch.                    |
-| IPC channel names              | `src/shared/constants.ts`                                                       | Never hardcode channel strings.                                  |
-| Preload bridge                 | `src/preload/index.ts` + `src/shared/types/bridge.ts`                           | Sandboxed CJS preload. No raw `ipcRenderer` exposure.            |
-| Web notification bridge        | `src/preload/notificationBridge.ts` + `src/main/features/handleNotification.ts` | Page `Notification` calls become validated native notifications. |
+| Task                           | Start here                                                                      | Notes                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| App entry                      | `src/main/index.ts`                                                             | Thin orchestrator only. Do not add feature logic here.                        |
+| App-ready sequence             | `src/main/initializers/registerAppReady.ts`                                     | Owns `app.whenReady()` work.                                                  |
+| Feature specs                  | `src/main/initializers/{security,ui,deferred}.spec.ts`                          | Declarative `FeatureSpec[]`; edit these to add/reorder features.              |
+| Feature codegen                | `scripts/featurePlanPlugin.js`                                                  | Parses specs and topo-sorts dependency batches at build time.                 |
+| Runtime feature runner         | `src/main/utils/lifecycle/featureRunner.ts`                                     | Runs security/critical/ui/deferred phases.                                    |
+| Shared feature context         | `src/main/utils/lifecycle/featureContextStore.ts`                               | Stores `mainWindow` and account manager after bootstrap.                      |
+| Shutdown                       | `src/main/initializers/registerShutdown.ts`                                     | Async cleanup before `app.exit()`.                                            |
+| BrowserWindow accounts         | `src/main/utils/account/accountWindowManager.ts`                                | Default multi-account backend.                                                |
+| WebContentsView accounts       | `src/main/utils/account/accountViewManager.ts`                                  | Opt-in backend behind `app.useWebContentsView`.                               |
+| Account contract               | `src/shared/types/window.ts`                                                    | `IAccountWindowManager` boundary.                                             |
+| IPC helpers                    | `src/main/utils/ipc/`                                                           | Rate limit, validate, dedup/fast-path, catch.                                 |
+| IPC channel names              | `src/shared/constants.ts`                                                       | Never hardcode channel strings.                                               |
+| Preload bridge                 | `src/preload/index.ts` + `src/shared/types/bridge.ts`                           | Sandboxed CJS preload. No raw `ipcRenderer` exposure.                         |
+| Web notification bridge        | `src/preload/notificationBridge.ts` + `src/main/features/handleNotification.ts` | Page `Notification` calls become validated native notifications.              |
 | Notification permission        | `src/main/utils/security/notificationAccess.ts`                                 | macOS probe + Settings dialog; `windowWrapper` calls ensure once per profile. |
-| URL validation                 | `src/shared/urlValidators.ts`                                                   | Navigation, external links, deep links, Google auth detection.   |
-| Config                         | `src/shared/types/config.ts` + `src/main/config.ts`                             | Update schema and typed accessors together.                      |
-| Secure flags                   | `src/main/utils/security/secureFlags.ts`                                        | SafeStorage-backed kill switches; not electron-store config.     |
-| Error types                    | `src/shared/types/errors.ts` + `src/main/utils/lifecycle/errors.ts`             | Prefer typed errors and `{ cause }`.                             |
-| Historical webview constraints | `docs/windowWrapper-history.md`                                                 | `webSecurity:false` and CSP exceptions are deliberate.           |
-| Perf types / units / schema    | `src/main/utils/lifecycle/performanceTypes.ts`                                  | Schema version, MB memory, required markers.                     |
-| Perf final export              | `src/main/utils/lifecycle/performanceFinalizer.ts`                              | One-shot after deferred + document load + renderer sample.       |
-| Perf monitor / sampling        | `src/main/utils/lifecycle/performanceMonitor.ts`                                | Markers, memory, account renderer sampling.                      |
-| Headless CI harness            | `scripts/headless-startup.js`                                                   | Multi-run, schema validation, refuses incomplete medians.        |
-| Perf budget gate               | `scripts/check-perf-budget.js`                                                  | Gated missing = FAIL; memory in MB; baseline schema check.       |
-| Package dependency closure     | `scripts/verify-packaged-dependency-closure.js`                                 | Prove runtime vs build-only before package pruning.              |
-| macOS arch package helper      | `scripts/package-mac-arch.sh`                                                   | Single-arch release package + signing preflight.                 |
-| macOS DMG arch verify          | `scripts/verify-macos-package-artifacts.js`                                     | Require arm64/x64 DMG basenames; forbid amd64/universal.         |
-| macOS trust verify             | `scripts/verify-mac-release-signing.js`                                         | codesign / spctl / stapler on signed release legs.               |
-| Aggregate release verify       | `scripts/verify-release-artifacts.js`                                           | Both mac DMGs + both Windows setups before publish.              |
-| Account backend benchmark      | `scripts/account-backend-benchmark.js`                                          | BW/WCV matrix contract; no policy winner from harness alone.     |
-| Candidate thresholds           | `scripts/performance-candidate-benchmark.js`                                    | Measure-first; `NO CHANGE` when thresholds unmet.                |
-| Remediation evidence           | `scripts/verify-remediation-evidence.js`                                        | Todo receipts, core vs release-readiness approval.               |
-| Performance claims             | `scripts/verify-performance-claims.js`                                          | Reject unsupported runtime-savings claims.                       |
-| Perf plan                      | `docs/plans/performance-remediation.md`                                         | Phased remediation work plan and guardrails.                     |
-| macOS Intel x64 plan           | `docs/plans/macos-intel-x64-dmg.md`                                             | Dual-arch DMG production plan and acceptance criteria.           |
-| Tests                          | `tests/AGENTS.md`                                                               | Unit/integration/e2e/perf/packaging contract guidance.           |
-| Packaging                      | `mac/AGENTS.md` + `scripts/AGENTS.md`                                           | DMG, signing, notarization, dual-arch, perf gates.               |
-| Icons / resources              | `resources/AGENTS.md`                                                           | Icon variants, generation, extraResources.                       |
+| URL validation                 | `src/shared/urlValidators.ts`                                                   | Navigation, external links, deep links, Google auth detection.                |
+| Config                         | `src/shared/types/config.ts` + `src/main/config.ts`                             | Update schema and typed accessors together.                                   |
+| Secure flags                   | `src/main/utils/security/secureFlags.ts`                                        | SafeStorage-backed kill switches; not electron-store config.                  |
+| Error types                    | `src/shared/types/errors.ts` + `src/main/utils/lifecycle/errors.ts`             | Prefer typed errors and `{ cause }`.                                          |
+| Historical webview constraints | `docs/windowWrapper-history.md`                                                 | `webSecurity:false` and CSP exceptions are deliberate.                        |
+| Perf types / units / schema    | `src/main/utils/lifecycle/performanceTypes.ts`                                  | Schema version, MB memory, required markers.                                  |
+| Perf final export              | `src/main/utils/lifecycle/performanceFinalizer.ts`                              | One-shot after deferred + document load + renderer sample.                    |
+| Perf monitor / sampling        | `src/main/utils/lifecycle/performanceMonitor.ts`                                | Markers, memory, account renderer sampling.                                   |
+| Headless CI harness            | `scripts/headless-startup.js`                                                   | Multi-run, schema validation, refuses incomplete medians.                     |
+| Perf budget gate               | `scripts/check-perf-budget.js`                                                  | Gated missing = FAIL; memory in MB; baseline schema check.                    |
+| Package dependency closure     | `scripts/verify-packaged-dependency-closure.js`                                 | Prove runtime vs build-only before package pruning.                           |
+| macOS arch package helper      | `scripts/package-mac-arch.sh`                                                   | Single-arch release package + signing preflight.                              |
+| macOS DMG arch verify          | `scripts/verify-macos-package-artifacts.js`                                     | Require arm64/x64 DMG basenames; forbid amd64/universal.                      |
+| macOS trust verify             | `scripts/verify-mac-release-signing.js`                                         | codesign / spctl / stapler on signed release legs.                            |
+| Aggregate release verify       | `scripts/verify-release-artifacts.js`                                           | Both mac DMGs + both Windows setups before publish.                           |
+| Account backend benchmark      | `scripts/account-backend-benchmark.js`                                          | BW/WCV matrix contract; no policy winner from harness alone.                  |
+| Candidate thresholds           | `scripts/performance-candidate-benchmark.js`                                    | Measure-first; `NO CHANGE` when thresholds unmet.                             |
+| Remediation evidence           | `scripts/verify-remediation-evidence.js`                                        | Todo receipts, core vs release-readiness approval.                            |
+| Performance claims             | `scripts/verify-performance-claims.js`                                          | Reject unsupported runtime-savings claims.                                    |
+| Perf plan                      | `docs/plans/performance-remediation.md`                                         | Phased remediation work plan and guardrails.                                  |
+| macOS Intel x64 plan           | `docs/plans/macos-intel-x64-dmg.md`                                             | Dual-arch DMG production plan and acceptance criteria.                        |
+| Tests                          | `tests/AGENTS.md`                                                               | Unit/integration/e2e/perf/packaging contract guidance.                        |
+| Packaging                      | `mac/AGENTS.md` + `scripts/AGENTS.md`                                           | DMG, signing, notarization, dual-arch, perf gates.                            |
+| Icons / resources              | `resources/AGENTS.md`                                                           | Icon variants, generation, extraResources.                                    |
 
 ## Architecture invariants
 

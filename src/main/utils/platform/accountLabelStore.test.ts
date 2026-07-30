@@ -4,11 +4,20 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const labelsStore: { value: Record<string, string> } = { value: {} };
+const labelsStore: { value: unknown } = { value: {} };
 
 vi.mock('../../config.js', () => ({
   configGet: vi.fn((key: string) => {
-    if (key === 'app.accountLabels') return { ...labelsStore.value };
+    if (key === 'app.accountLabels') {
+      if (labelsStore.value === undefined) return undefined;
+      if (Array.isArray(labelsStore.value) || labelsStore.value === null) {
+        return labelsStore.value;
+      }
+      if (typeof labelsStore.value === 'object') {
+        return { ...(labelsStore.value as Record<string, string>) };
+      }
+      return labelsStore.value;
+    }
     return undefined;
   }),
   configSet: vi.fn((key: string, value: Record<string, string>) => {
@@ -50,5 +59,19 @@ describe('accountLabelStore', () => {
     expect(getAllStoredAccountLabels()).toEqual({});
 
     expect(sanitizeAccountLabelInput('x'.repeat(50)).length).toBe(40);
+  });
+
+  it('treats non-object config values as empty labels', async () => {
+    const { getAllStoredAccountLabels, getStoredAccountLabel } =
+      await import('./accountLabelStore.js');
+
+    labelsStore.value = null;
+    expect(getAllStoredAccountLabels()).toEqual({});
+    labelsStore.value = ['not', 'object'];
+    expect(getAllStoredAccountLabels()).toEqual({});
+    labelsStore.value = { '0': 123, '1': 'Ok', '2': '  ' };
+    expect(getStoredAccountLabel(0 as never)).toBeUndefined();
+    expect(getStoredAccountLabel(1 as never)).toBe('Ok');
+    expect(getStoredAccountLabel(2 as never)).toBeUndefined();
   });
 });

@@ -143,6 +143,26 @@ describe('notificationAccess', () => {
       );
     });
 
+    it('releases guard when probe constructor throws inside setImmediate', async () => {
+      NotificationCtor.mockImplementationOnce(function fail() {
+        throw new Error('ctor failed');
+      });
+      expect(ensureNotificationPermission()).toBe('scheduled');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      // Guard released so a later call can schedule again
+      NotificationCtor.mockImplementation(function MockNotification(this: {
+        on: ReturnType<typeof vi.fn>;
+        show: ReturnType<typeof vi.fn>;
+        close: ReturnType<typeof vi.fn>;
+      }) {
+        this.on = vi.fn();
+        this.show = vi.fn();
+        this.close = vi.fn();
+      });
+      expect(ensureNotificationPermission()).toBe('scheduled');
+    });
+
     it('persists config flag only after probe show', async () => {
       ensureNotificationPermission();
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -156,8 +176,7 @@ describe('notificationAccess', () => {
       expect(mockConfigSet).not.toHaveBeenCalled();
 
       const showHandler = instance.on.mock.calls.find((call) => call[0] === 'show')?.[1] as
-        | (() => void)
-        | undefined;
+        (() => void) | undefined;
       expect(showHandler).toBeDefined();
       showHandler?.();
 
@@ -173,14 +192,10 @@ describe('notificationAccess', () => {
         on: ReturnType<typeof vi.fn>;
       };
       const failedHandler = instance.on.mock.calls.find((call) => call[0] === 'failed')?.[1] as
-        | (() => void)
-        | undefined;
+        (() => void) | undefined;
       failedHandler?.();
 
-      expect(mockConfigSet).not.toHaveBeenCalledWith(
-        'app.notificationPermissionRequested',
-        true
-      );
+      expect(mockConfigSet).not.toHaveBeenCalledWith('app.notificationPermissionRequested', true);
 
       // After failure, a later ensure can schedule again
       expect(ensureNotificationPermission()).toBe('scheduled');
@@ -206,6 +221,16 @@ describe('notificationAccess', () => {
       expect(mockValidateURL).toHaveBeenCalledWith(NOTIFICATION_SETTINGS_URL);
       expect(mockValidateURL).toHaveBeenCalledWith(NOTIFICATION_SETTINGS_URL_LEGACY);
       expect(mockOpenPath).toHaveBeenCalledWith('/System/Applications/System Settings.app');
+    });
+
+    it('logs when System Settings app fallback also fails', async () => {
+      mockOpenExternal
+        .mockRejectedValueOnce(new Error('primary failed'))
+        .mockRejectedValueOnce(new Error('legacy failed'));
+      mockOpenPath.mockRejectedValueOnce(new Error('no settings app'));
+
+      await openNotificationSystemSettings();
+      expect(mockOpenPath).toHaveBeenCalled();
     });
   });
 

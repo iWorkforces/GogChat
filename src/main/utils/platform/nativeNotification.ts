@@ -211,10 +211,7 @@ export function showNativeNotification(
       () => {
         try {
           notification.close();
-          log.debug(
-            '[NativeNotification] Notification auto-dismissed after 10s:',
-            payload.title
-          );
+          log.debug('[NativeNotification] Notification auto-dismissed after 10s:', payload.title);
         } catch (error: unknown) {
           log.error('[NativeNotification] Failed to auto-dismiss notification:', error);
         }

@@ -81,23 +81,45 @@ const mockBuildPayload = vi.fn((opts: Record<string, unknown>) => ({
   subtitle: 'Account 1',
   groupId: 'gogchat-account-0',
 }));
-vi.mock('./nativeNotification.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./nativeNotification.js')>();
-  return {
-    ...actual,
-    showNativeNotification: (...args: unknown[]) => mockShowNativeNotification(...args),
-    wasBridgeNotificationRecentlyShown: (...args: unknown[]) => mockWasBridgeRecently(...args),
-    buildAccountAwareNotificationPayload: (...args: unknown[]) =>
-      mockBuildPayload(...(args as [Record<string, unknown>])),
-  };
-});
-vi.mock('./accountNotificationIdentity.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./accountNotificationIdentity.js')>();
-  return {
-    ...actual,
-    resolveAccountIndexFromIpcEvent: (...args: unknown[]) => mockResolveAccount(...args),
-  };
-});
+vi.mock('./nativeNotification.js', () => ({
+  showNativeNotification: (...args: unknown[]) => mockShowNativeNotification(...args),
+  wasBridgeNotificationRecentlyShown: (...args: unknown[]) => mockWasBridgeRecently(...args),
+  buildAccountAwareNotificationPayload: (...args: unknown[]) =>
+    mockBuildPayload(...(args as [Record<string, unknown>])),
+  buildUnreadDeltaNotificationBody: (count: number) =>
+    count === 1
+      ? 'You have a new unread message'
+      : count > 99
+        ? 'You have 99+ unread messages'
+        : `You have ${count} unread messages`,
+  shouldShowUnreadDeltaNotification: (opts: {
+    enabled: boolean;
+    previousCount: number | undefined;
+    nextCount: number;
+    isWindowFocused: boolean;
+    bridgeCooldownActive?: boolean;
+  }) =>
+    opts.enabled &&
+    !opts.isWindowFocused &&
+    opts.bridgeCooldownActive !== true &&
+    opts.previousCount !== undefined &&
+    opts.nextCount > opts.previousCount &&
+    opts.nextCount > 0,
+  clampBadgeDisplayCount: (count: number) => (count <= 0 ? 0 : count > 99 ? 99 : Math.floor(count)),
+  UNREAD_DELTA_NOTIFICATION_TAG: 'gogchat-unread-delta',
+}));
+vi.mock('./accountNotificationIdentity.js', () => ({
+  resolveAccountIndexFromIpcEvent: (...args: unknown[]) => mockResolveAccount(...args),
+  UNREAD_DELTA_TAG_BASE: 'gogchat-unread-delta',
+  formatAccountNotificationLabel: (idx: number | null) =>
+    idx === null ? 'GogChat' : `Account ${idx + 1}`,
+  accountNotificationGroupId: (idx: number | null) =>
+    idx === null ? 'gogchat-account-unknown' : `gogchat-account-${idx}`,
+  namespaceNotificationTag: (idx: number | null, tag?: string) => {
+    const prefix = idx === null ? 'a?' : `a${idx}`;
+    return `${prefix}:${tag ?? 'notif'}`;
+  },
+}));
 vi.mock('./notificationFocus.js', () => ({
   resolveNotificationFocusWindow: (...args: unknown[]) => mockResolveFocusWindow(...args),
   focusNotificationSource: vi.fn(),
@@ -152,7 +174,11 @@ describe('badgeHelpers (config wiring)', () => {
       const { decideIcon } = await import('./badgeHelpers.js');
       const { ICON_TYPES } = await import('../../../shared/constants.js');
       expect(decideIcon('https://example.com/something-random.png')).toBe(ICON_TYPES.OFFLINE);
-      expect(decideIcon('https://mail.google.com/favicon.ico')).toBeDefined();
+      expect(decideIcon('https://mail.google.com/favicon_chat_r2.ico')).toBe(ICON_TYPES.NORMAL);
+      expect(decideIcon('https://mail.google.com/favicon_chat_new_notif_r2.ico')).toBe(
+        ICON_TYPES.BADGE
+      );
+      expect(decideIcon('https://mail.google.com/favicon.ico')).toBe(ICON_TYPES.OFFLINE);
     });
   });
 
@@ -289,6 +315,33 @@ describe('badgeHelpers (config wiring)', () => {
       expect(mockShowNativeNotification).not.toHaveBeenCalled();
     });
 
+    it('short-circuits when same account reports the same count again', async () => {
+      mockResolveAccount.mockReturnValue(0);
+      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      setupBadgeHandlers(fakeWindow(), fakeTray());
+      const unreadCfg = mockRegisterFastHandler.mock.calls.find(
+        ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
+      )?.[0] as { handler: (v: number, e?: unknown) => void };
+      mockSetBadgeCount.mockClear();
+      unreadCfg.handler(5, {});
+      unreadCfg.handler(5, {});
+      expect(mockSetBadgeCount).toHaveBeenCalledTimes(1);
+    });
+
+    it('updates non-template tray icon when favicon type changes', async () => {
+      mockPlatformState.useTemplateTrayIcon = false;
+      const tray = fakeTray();
+      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      setupBadgeHandlers(fakeWindow(), tray);
+      const faviconCfg = mockRegisterFastHandler.mock.calls.find(
+        ([cfg]) => (cfg as { channel: string }).channel === 'faviconChanged'
+      )?.[0] as { handler: (v: string) => void };
+      faviconCfg.handler('https://mail.google.com/favicon_chat_r2.ico');
+      faviconCfg.handler('https://mail.google.com/favicon_chat_new_notif_r2.ico');
+      expect(tray.setImage).toHaveBeenCalled();
+      mockPlatformState.useTemplateTrayIcon = true;
+    });
+
     it('shows unread-delta notification on unfocused increase when enabled', async () => {
       mockConfigGet.mockImplementation((key: string) => key === 'app.unreadDeltaNotifications');
       const win = fakeWindow({ isFocused: false });
@@ -328,7 +381,8 @@ describe('badgeHelpers (config wiring)', () => {
 
     it('sums per-account unread for dock badge and caps display at 99', async () => {
       mockResolveAccount.mockReturnValueOnce(0).mockReturnValueOnce(1);
-      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      const { setupBadgeHandlers, sumAccountUnreadCounts, updateBadgeIcon } =
+        await import('./badgeHelpers.js');
       setupBadgeHandlers(fakeWindow(), fakeTray());
 
       const unreadCfg = mockRegisterFastHandler.mock.calls.find(
@@ -340,6 +394,17 @@ describe('badgeHelpers (config wiring)', () => {
 
       // sum 110 → display 99
       expect(mockSetBadgeCount).toHaveBeenLastCalledWith(99);
+
+      const map = new Map([
+        ['0', 10],
+        ['1', 20],
+      ]);
+      expect(sumAccountUnreadCounts(map)).toBe(30);
+      mockPlatformState.supportsDockBadge = false;
+      mockSetBadgeCount.mockClear();
+      updateBadgeIcon(fakeWindow(), 5);
+      expect(mockSetBadgeCount).not.toHaveBeenCalled();
+      mockPlatformState.supportsDockBadge = true;
     });
 
     it('skips unread-delta notification when window is focused', async () => {
@@ -369,6 +434,65 @@ describe('badgeHelpers (config wiring)', () => {
       unreadCfg.handler(2, {});
 
       expect(mockShowNativeNotification).not.toHaveBeenCalled();
+    });
+
+    it('catches unread-delta show errors without throwing', async () => {
+      mockConfigGet.mockImplementation((key: string) => key === 'app.unreadDeltaNotifications');
+      mockShowNativeNotification.mockImplementation(() => {
+        throw new Error('show fail');
+      });
+      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      setupBadgeHandlers(fakeWindow({ isFocused: false }), fakeTray());
+      const unreadCfg = mockRegisterFastHandler.mock.calls.find(
+        ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
+      )?.[0] as { handler: (v: number, e?: unknown) => void };
+      expect(() => {
+        unreadCfg.handler(1, {});
+        unreadCfg.handler(2, {});
+      }).not.toThrow();
+      mockShowNativeNotification.mockReturnValue(true);
+    });
+
+    it('clears tray unread when total becomes zero', async () => {
+      mockResolveAccount.mockReturnValue(0);
+      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      setupBadgeHandlers(fakeWindow(), fakeTray());
+      const unreadCfg = mockRegisterFastHandler.mock.calls.find(
+        ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
+      )?.[0] as { handler: (v: number, e?: unknown) => void };
+      unreadCfg.handler(2, {});
+      unreadCfg.handler(0, {});
+      expect(mockSetTrayUnread).toHaveBeenLastCalledWith(false);
+    });
+
+    it('handles unknown account key and focused skip for unread-delta', async () => {
+      mockResolveAccount.mockReturnValue(null);
+      mockConfigGet.mockImplementation((key: string) => key === 'app.unreadDeltaNotifications');
+      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      setupBadgeHandlers(fakeWindow({ isFocused: true }), fakeTray());
+      const unreadCfg = mockRegisterFastHandler.mock.calls.find(
+        ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
+      )?.[0] as { handler: (v: number, e?: unknown) => void };
+      mockShowNativeNotification.mockClear();
+      unreadCfg.handler(1, {});
+      unreadCfg.handler(4, {});
+      expect(mockShowNativeNotification).not.toHaveBeenCalled();
+    });
+
+    it('skips redundant setImage when tray type unchanged on non-template icons', async () => {
+      mockPlatformState.useTemplateTrayIcon = false;
+      const tray = fakeTray();
+      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      setupBadgeHandlers(fakeWindow(), tray);
+      const faviconCfg = mockRegisterFastHandler.mock.calls.find(
+        ([cfg]) => (cfg as { channel: string }).channel === 'faviconChanged'
+      )?.[0] as { handler: (v: string) => void };
+      faviconCfg.handler('https://mail.google.com/favicon_chat_r2.ico');
+      tray.setImage.mockClear();
+      faviconCfg.handler('https://mail.google.com/favicon_chat_new_non_notif_r2.png');
+      // same NORMAL type → may still match NORMAL pattern; second same type skip
+      faviconCfg.handler('https://mail.google.com/favicon_chat_r2.ico');
+      mockPlatformState.useTemplateTrayIcon = true;
     });
 
     it('uses the favicon icon variant on Windows-style tray icons without template unread toggles', async () => {
