@@ -2,7 +2,7 @@
 
 ##
 # Unified build script for macOS DMG installers
-# Supports Apple Silicon (arm64) only
+# Supports Apple Silicon (arm64) and Intel (x64)
 # This script uses electron-builder for packaging and DMG creation
 ##
 
@@ -46,10 +46,15 @@ trap 'print_error "Build failed at line ${LINENO} (exit code: $?)"; exit 1' ERR
 # Parse command line arguments
 ENVIRONMENT=""
 ENABLE_CODE_SIGN=false
+ARCH="arm64"
 while [[ $# -gt 0 ]]; do
     case $1 in
         --environment)
             ENVIRONMENT="$2"
+            shift 2
+            ;;
+        --arch)
+            ARCH="$2"
             shift 2
             ;;
         --enable-code-sign)
@@ -58,15 +63,17 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             print_error "Unknown argument: $1"
-            echo "Usage: $0 --environment <environment> [--enable-code-sign]"
+            echo "Usage: $0 --environment <environment> [--arch arm64|x64] [--enable-code-sign]"
             echo ""
             echo "Arguments:"
             echo "  --environment <env>   Required. Environment name (e.g., production, develop, staging)"
+            echo "  --arch <arch>         Optional. Target architecture: arm64 (default) or x64"
             echo "  --enable-code-sign    Optional. Enable macOS code signing (requires CSC_LINK env var)"
             echo ""
             echo "Examples:"
-            echo "  $0 --environment production              # Build ARM64 DMG (no signing)"
-            echo "  $0 --environment production --enable-code-sign  # Build ARM64 DMG with code signing"
+            echo "  $0 --environment production                    # Build arm64 DMG (no signing)"
+            echo "  $0 --environment production --arch x64         # Build Intel x64 DMG"
+            echo "  $0 --environment production --enable-code-sign # Build arm64 DMG with code signing"
             exit 1
             ;;
     esac
@@ -76,13 +83,24 @@ done
 # Validate environment argument
 if [ -z "$ENVIRONMENT" ]; then
     print_error "Missing required argument: --environment"
-    echo "Usage: $0 --environment <environment> [--enable-code-sign]"
+    echo "Usage: $0 --environment <environment> [--arch arm64|x64] [--enable-code-sign]"
     echo "Example: $0 --environment production"
     exit 1
 fi
 
+if [[ "${ARCH}" != "arm64" && "${ARCH}" != "x64" ]]; then
+    print_error "Invalid --arch value: ${ARCH} (expected arm64 or x64)"
+    exit 1
+fi
+
+if [[ "${ARCH}" == "arm64" ]]; then
+    ARCH_LABEL="arm64 (Apple Silicon)"
+else
+    ARCH_LABEL="x64 (Intel)"
+fi
+
 print_success "Environment: ${ENVIRONMENT}"
-print_success "Architecture: arm64 (Apple Silicon)"
+print_success "Architecture: ${ARCH_LABEL}"
 echo ""
 
 
@@ -171,7 +189,7 @@ echo ""
 # Step 3: Package and create DMG with electron-builder
 print_step "Step 3/3: Packaging app and creating DMG with electron-builder..."
 
-echo "  → Building for macOS Apple Silicon (arm64)..."
+echo "  → Building for macOS ${ARCH_LABEL}..."
 echo "  → This will package the app and create the DMG installer"
 echo ""
 
@@ -194,8 +212,8 @@ fi
 
 
 echo ""
-echo "  → Starting electron-builder for macOS arm64..."
-bunx electron-builder --mac --arm64 --config ${CONFIG_FILES} --publish never
+echo "  → Starting electron-builder for macOS ${ARCH}..."
+bunx electron-builder --mac --"${ARCH}" --config ${CONFIG_FILES} --publish never
 
 
 print_success "Packaging and DMG creation complete"
@@ -226,13 +244,13 @@ echo "════════════════════════�
 echo ""
 echo "  Package Version:  ${PACKAGE_VERSION}"
 echo "  Environment:      ${ENVIRONMENT}"
-echo "  Architecture:     arm64 (Apple Silicon)"
+echo "  Architecture:     ${ARCH_LABEL}"
 echo ""
 
 
 # List all generated DMG files with details
 while IFS= read -r dmg_file; do
-    echo "  Platform:         macOS (Apple Silicon ARM64)"
+    echo "  Platform:         macOS (${ARCH_LABEL})"
     echo "  Output Location:  ${dmg_file}"
     echo "  File Size:        $(du -sh "$dmg_file" | awk '{print $1}')"
     echo ""

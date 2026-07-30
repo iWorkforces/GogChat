@@ -82,6 +82,10 @@ afterPack: scripts/after-pack.cjs
 afterSign: scripts/notarize.cjs
 
 # macOS Configuration
+# Supported packaging arches: arm64 (Apple Silicon) and x64 (Intel).
+# Do not list both under target.arch — electron-builder then builds every listed
+# arch even when the CLI passes a single --arm64/--x64 pin. CI and package
+# scripts always pass exactly one arch flag.
 mac:
   category: public.app-category.social-networking
   icon: resources/icons/normal/mac.icns
