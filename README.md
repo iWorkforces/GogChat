@@ -2,7 +2,7 @@
 
 GogChat is an unofficial macOS desktop wrapper for Google Chat, built with Electron and TypeScript. It loads `https://mail.google.com/chat/u/0` in isolated Electron sessions, adds native desktop integrations, and keeps the main-process startup path small through build-time feature planning.
 
-> **Platform:** macOS on Apple Silicon (`arm64`, M1 or later).
+> **Platform:** macOS — production packages both Apple Silicon (`arm64`) and Intel (`x64`) DMGs. Primary development and CI runners target Apple Silicon.
 
 ## Features
 
@@ -85,7 +85,7 @@ The preload build must remain CommonJS because Electron sandboxed preload script
 
 ### Prerequisites
 
-- macOS on Apple Silicon
+- macOS (Apple Silicon preferred for local development; Intel packaging supported)
 - Node.js `>=24.16.0 <25.0.0`
 - Bun `>=1.3.13` (repository package manager: `bun@1.3.14`)
 
@@ -129,11 +129,15 @@ bun run lint:all
 # Auto-fix lint/format issues
 bun run lint:all:fix
 
-# Build an ARM64 macOS DMG
+# Build an arm64 macOS DMG (default)
 bun run build:mac
 
-# Build the current macOS release package without publishing
-bun run package:mac:release
+# Build an Intel x64 macOS DMG
+bun run build:mac:x64
+
+# Arch-pinned macOS release packages (no publish side effect)
+bun run package:mac:arm64
+bun run package:mac:x64
 ```
 
 ## Testing and quality gates
@@ -148,14 +152,17 @@ bun run package:mac:release
 ## Packaging and releases
 
 ```bash
-# Production DMG, macOS-specific
+# Production DMGs, macOS-specific (arm64 default; pass --arch or use aliases)
 bun run build:mac
+bun run build:mac:x64
 
 # Development DMG, macOS-specific
 bun run build:mac:dev
 
-# Current macOS release package flow, no publish side effect
-bun run package:mac:release
+# Arch-pinned macOS release package flows, no publish side effect
+bun run package:mac:arm64
+bun run package:mac:x64
+bun run package:mac:artifacts
 
 # Windows release-engineering preparation only, not a public support claim
 bun run package:win:x64
@@ -164,13 +171,13 @@ bun run package:win:artifacts
 bun run package:win:signing-policy
 ```
 
-Release automation runs on GitHub Actions for `main` and `v*` tags. The split workflow prepares the tag, packages macOS, runs native Windows CI packaging, verifies aggregated artifacts, and uses one `publish-release` job for release upload.
+Release automation runs on GitHub Actions for `main` and `v*` tags. The split workflow prepares the tag, packages **both** macOS DMGs (`arm64` and `x64`) and native Windows CI installers, verifies aggregated artifacts, and uses one `publish-release` job for release upload.
 
-The public platform remains macOS on Apple Silicon. Windows release engineering/preparation is guarded and is not a public support claim. Support or publication claims require clean packaged smoke evidence on Windows x64 and real Windows arm64 before any user-facing wording changes.
+macOS release assets are separate DMGs named `${productName}-${version}-arm64.dmg` and `${productName}-${version}-x64.dmg`. The public product remains a macOS desktop app; Windows release engineering/preparation is guarded and is not a public support claim. Support or publication claims for Windows require clean packaged smoke evidence on Windows x64 and real Windows arm64 before any user-facing wording changes.
 
 Windows preparation uses separate NSIS installers named `${productName}-${version}-windows-x64-setup.exe` and `${productName}-${version}-windows-arm64-setup.exe`. Use `x64` in user-facing architecture labels, not `amd64`.
 
-Native Windows CI packaging uses `windows-latest` for x64 with an AMD64 runner proof and `windows-11-arm` for arm64 with an ARM64 runner proof. Windows release publication requires a Windows Authenticode signing route through `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` or explicit owner opt-in for unsigned Windows assets through the existing signing policy gate.
+macOS CI packaging uses `macos-latest` with an arm64/x64 matrix (x64 is cross-packaged via electron-builder). Native Windows CI packaging uses `windows-latest` for x64 with an AMD64 runner proof and `windows-11-arm` for arm64 with an ARM64 runner proof. Windows release publication requires a Windows Authenticode signing route through `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` or explicit owner opt-in for unsigned Windows assets through the existing signing policy gate.
 
 The Windows electron-builder overlay registers only the `gogchat` protocol. The base macOS config may still include HTTPS protocol handling for the macOS app.
 

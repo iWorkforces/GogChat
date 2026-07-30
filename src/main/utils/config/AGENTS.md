@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-This directory owns typed electron-store access and read-through caching for app config.
+This directory owns typed electron-store access and read-through caching for app config. Config schema is packaging-arch independent.
 
 ## Boundaries
 

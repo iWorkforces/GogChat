@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-This directory defines contracts crossing main, preload, tests, and shared validators.
+This directory defines contracts crossing main, preload, tests, and shared validators. Types stay packaging-arch neutral.
 
 ## Important files
 

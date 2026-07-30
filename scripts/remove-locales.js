@@ -4,7 +4,8 @@
  * Remove unused Electron locales to reduce package size
  * Keeps only en-US locale, removes all others (100+ languages)
  * Expected savings: 15-25MB
- * Note: ARM64 only - Intel x64 is no longer supported
+ * Supports macOS arm64 and x64 unpack directories.
+ * Prefer scripts/after-pack.cjs for release packaging; this is a standalone helper.
  */
 
 import fs from 'fs';
@@ -14,24 +15,31 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Parse command line arguments
-const [, , platform] = process.argv;
+// Parse command line arguments: platform [arch]
+const [, , platform, archArg] = process.argv;
+const arch = archArg ?? 'arm64';
 
 if (!platform) {
-  console.error('Usage: node remove-locales.js <platform>');
-  console.error('Example: node remove-locales.js mac');
+  console.error('Usage: node remove-locales.js <platform> [arch]');
+  console.error('Example: node remove-locales.js mac arm64');
+  console.error('Example: node remove-locales.js mac x64');
+  process.exit(1);
+}
+
+if (arch !== 'arm64' && arch !== 'x64') {
+  console.error(`Invalid arch: ${arch} (expected arm64 or x64)`);
   process.exit(1);
 }
 
 // macOS locales to keep (.lproj directories)
 const KEEP_LPROJ = ['en.lproj', 'en-US.lproj', 'en_US.lproj'];
 
-// Get the locales directory path for macOS (arm64 only)
-function getLocalesPath(platform) {
+// Get the locales directory path for macOS (arm64 or x64)
+function getLocalesPath(platformName, targetArch) {
   const distDir = path.join(__dirname, '..', 'dist');
 
-  if (platform === 'mac' || platform === 'darwin') {
-    const appPath = path.join(distDir, 'GogChat-darwin-arm64', 'GogChat.app');
+  if (platformName === 'mac' || platformName === 'darwin') {
+    const appPath = path.join(distDir, `GogChat-darwin-${targetArch}`, 'GogChat.app');
     // On macOS, locale files are in .lproj directories in Resources
     return {
       path: path.join(
@@ -47,7 +55,7 @@ function getLocalesPath(platform) {
     };
   }
 
-  throw new Error(`Unsupported platform: ${platform}. This script only supports macOS.`);
+  throw new Error(`Unsupported platform: ${platformName}. This script only supports macOS.`);
 }
 
 // Helper function to get directory size
@@ -73,10 +81,10 @@ function getDirectorySize(dirPath) {
 
 // Main function
 function removeUnusedLocales() {
-  const localesInfo = getLocalesPath(platform);
+  const localesInfo = getLocalesPath(platform, arch);
   const localesPath = localesInfo.path;
 
-  console.log(`[Locale Cleanup] Platform: ${platform}, Arch: arm64`);
+  console.log(`[Locale Cleanup] Platform: ${platform}, Arch: ${arch}`);
   console.log(`[Locale Cleanup] Locales path: ${localesPath}`);
 
   if (!fs.existsSync(localesPath)) {

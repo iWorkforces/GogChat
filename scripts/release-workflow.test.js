@@ -72,9 +72,15 @@ describe('release workflow publish-once contract', () => {
     const buildWindowsJob = workflowJob(workflow, 'build-windows');
 
     expect(buildMacJob).toContain('runs-on: macos-latest');
+    expect(buildMacJob).toContain(`matrix:
+        include:
+          - arch: arm64
+          - arch: x64`);
+    expect(buildMacJob).toContain('fail-fast: false');
     expect(buildMacJob).toContain('bun-version: "1.3.14"');
     expect(buildMacJob).toContain("node-version: '24.16.0'");
-    expect(buildMacJob).toContain('bun run package:mac:release');
+    expect(buildMacJob).toContain('bun run package:mac:${{ matrix.arch }}');
+    expect(buildMacJob).not.toContain('bun run package:mac:release');
     expect(buildMacJob).toContain('MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}');
     expect(buildMacJob).toContain('MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}');
     expect(buildMacJob).toContain('APPLE_ID: ${{ secrets.APPLE_ID }}');
@@ -86,7 +92,7 @@ describe('release workflow publish-once contract', () => {
     expect(buildMacJob).toContain('id: mac-signing');
     const macSigningPreflight = buildMacJob.slice(
       buildMacJob.indexOf('- name: Determine macOS signing configuration'),
-      buildMacJob.indexOf('- name: Build macOS DMG')
+      buildMacJob.indexOf('- name: Build macOS ${{ matrix.arch }} DMG')
     );
     expect(macSigningPreflight).toContain(
       'if [[ -n "${MAC_CSC_LINK}" && -n "${MAC_CSC_KEY_PASSWORD}" ]]; then'
@@ -101,8 +107,14 @@ describe('release workflow publish-once contract', () => {
     );
     expect(macSigningPreflight).toContain('exit 1');
     expect(buildMacJob).not.toContain('bun run package -- --publish never');
+    expect(buildMacJob).toContain(
+      'bun scripts/verify-macos-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }}'
+    );
+    expect(buildMacJob).toContain('name: release-macos-${{ matrix.arch }}');
+    expect(buildMacJob).toContain('path: dist/*-${{ matrix.arch }}.dmg');
     expect(buildMacJob).toContain('actions/upload-artifact@');
     expect(buildMacJob).not.toContain('softprops/action-gh-release');
+    expect(buildMacJob).not.toMatch(/\b(amd64|ia32|universal)\b/);
 
     expect(buildWindowsJob).toContain('runs-on: ${{ matrix.runner }}');
     expect(buildWindowsJob).toContain(`matrix:
@@ -166,15 +178,19 @@ describe('release workflow publish-once contract', () => {
     const buildWindowsJob = workflowJob(workflow, 'build-windows');
     const verifyJob = workflowJob(workflow, 'verify-release-artifacts');
     const verifierCommand = 'bun scripts/verify-mac-release-signing.js --dist dist';
+    const packageCommand = 'bun run package:mac:${{ matrix.arch }}';
 
     expect(workflow.match(/verify-mac-release-signing\.js/g) ?? []).toHaveLength(1);
     expect(buildMacJob).toContain(verifierCommand);
     expect(buildMacJob).toContain("if: steps.mac-signing.outputs.signing_configured == 'true'");
     expect(buildMacJob.indexOf(verifierCommand)).toBeGreaterThan(
-      buildMacJob.indexOf('bun run package:mac:release')
+      buildMacJob.indexOf(packageCommand)
     );
     expect(buildMacJob.indexOf(verifierCommand)).toBeLessThan(
       buildMacJob.indexOf('actions/upload-artifact@')
+    );
+    expect(buildMacJob.indexOf(verifierCommand)).toBeLessThan(
+      buildMacJob.indexOf('bun scripts/verify-macos-package-artifacts.js')
     );
     expect(buildWindowsJob).not.toContain('verify-mac-release-signing.js');
     expect(verifyJob).not.toContain('verify-mac-release-signing.js');

@@ -24,7 +24,7 @@
 
 - Offline assets are copied to `lib/offline` by the build scripts.
 - `src/offline/index.html` references the built script through `../../lib/offline/index.js`.
-- Do not change output paths without updating `scripts/build-rsbuild.js` and packaging checks.
+- Do not change output paths without updating `scripts/build-rsbuild.js` and packaging checks. Offline assets ship inside both macOS packaging arches the same way.
 
 ## Anti-patterns
 

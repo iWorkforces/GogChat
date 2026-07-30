@@ -1,27 +1,37 @@
 /**
- * after-pack.cjs — ARM64-only binary optimizations
+ * after-pack.cjs — macOS binary optimizations for arm64 and x64
  *
  * This hook runs after Electron packages the app but before DMG creation.
  * It strips debug symbols and removes unused locale files to reduce app size.
  *
- * Only runs for macOS ARM64 builds (single-architecture target).
+ * Runs for darwin arm64 and darwin x64 single-arch targets only (not universal).
  */
 const { execSync } = require("node:child_process");
 const { join } = require("node:path");
 const { rm, readdir } = require("node:fs/promises");
 
 // Arch enum from electron-builder: ia32=0, x64=1, armv7l=2, arm64=3, universal=4
+const ARCH_X64 = 1;
 const ARCH_ARM64 = 3;
 
-module.exports = async function (context) {
-  // Only optimize for macOS ARM64
-  // Note: context.arch is an enum value, not a string
-  const isDarwinArm64 =
-    context.electronPlatformName === "darwin" &&
-    (context.arch === ARCH_ARM64 || context.arch === "arm64");
+function resolveDarwinArchLabel(arch) {
+  if (arch === ARCH_ARM64 || arch === "arm64") {
+    return "arm64";
+  }
+  if (arch === ARCH_X64 || arch === "x64") {
+    return "x64";
+  }
+  return null;
+}
 
-  if (!isDarwinArm64) {
-    console.log("[after-pack] Skipping non-ARM64 macOS build");
+module.exports = async function (context) {
+  const archLabel =
+    context.electronPlatformName === "darwin"
+      ? resolveDarwinArchLabel(context.arch)
+      : null;
+
+  if (archLabel === null) {
+    console.log("[after-pack] Skipping non-darwin single-arch macOS build");
     return;
   }
 
@@ -30,7 +40,7 @@ module.exports = async function (context) {
   const appPath = join(appOutDir, `${appName}.app`);
   const frameworksDir = join(appPath, "Contents", "Frameworks");
 
-  console.log("\n[after-pack] ARM64 binary optimizations starting...");
+  console.log(`\n[after-pack] ${archLabel} binary optimizations starting...`);
 
   // 1. Remove .DS_Store and AppleDouble files
   try {
@@ -158,5 +168,5 @@ module.exports = async function (context) {
     /* ignore */
   }
 
-  console.log("[after-pack] ARM64 optimizations complete\n");
+  console.log(`[after-pack] ${archLabel} optimizations complete\n`);
 };

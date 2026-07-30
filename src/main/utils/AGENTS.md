@@ -21,7 +21,7 @@
 - `lifecycle/` owns feature execution, cleanup tracking, errors, performance monitors/export/finalizer, and context storage.
 - `ipc/` owns main-side handler wrappers, rate limiting, dedup, fast-path send helpers, and validators.
 - `security/` owns shell wrappers, secure flags, permission/CSP helpers, media access, and encryption key utilities.
-- `platform/` owns macOS app menu, tray, badges, icon cache, dock/menu helpers, and window defaults.
+- `platform/` owns macOS app menu, tray, badges, icon cache, dock/menu helpers, and window defaults (shared across arm64/x64 packaging arches).
 - `config/` owns typed electron-store access/cache only; secure flags are not config.
 
 ## Resource rules

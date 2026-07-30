@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-Tests cover unit, integration, e2e, and performance behavior for an Electron app. Use `bun` commands only.
+Tests cover unit, integration, e2e, performance, and packaging-contract behavior for an Electron app. Use `bun` commands only.
 
 ## Commands
 
@@ -12,6 +12,7 @@ bun run test:run
 bun run test:coverage
 bun run typecheck
 bun run build:prod
+bun run check:doc-claims
 ```
 
 ## Test tiers
@@ -43,6 +44,12 @@ bun run build:prod
   - Package closure: missing runtime external fails fixture; build-only packages classified.
   - Candidate thresholds: incomplete evidence → `NO CHANGE` with no product diff.
   - Claim validators: overclaim fixtures must reject.
+- Packaging / release contract changes (TDD preferred):
+  - `package-scaffold.test.js` — arch-pinned mac scripts, signing helper, Windows NSIS names, no `amd64`.
+  - `release-workflow.test.js` — mac arm64/x64 matrix, Windows matrix, single publish job, no write tokens on build legs.
+  - `verify-macos-package-artifacts.test.js` — require arm64+x64 DMGs; forbid bad labels/duplicates.
+  - `verify-release-artifacts.test.js` — aggregate requires both mac DMGs + both Windows setups.
+  - mac signing policy / trust verifier tests when changing credential or stapler gates.
 
 ## Live harnesses (not Vitest)
 
@@ -53,6 +60,10 @@ node scripts/check-perf-budget.js performance-metrics.json
 bun scripts/verify-packaged-dependency-closure.js
 bun scripts/account-backend-benchmark.js --verify-contract
 bun scripts/release-auth-readiness-benchmark.js --record-blocked
+# Local dual-arch package smoke (unsigned when credentials absent):
+bun run package:mac:x64
+bun run package:mac:arm64
+bun run package:mac:artifacts
 ```
 
 CI remains unauthenticated. Authenticated first-interaction is credential-isolated; without credentials expect `[blocked: credentials unavailable]`.
@@ -65,3 +76,4 @@ CI remains unauthenticated. Authenticated first-interaction is credential-isolat
 - Do not make e2e tests order-dependent; workers are one today but tests should remain isolated.
 - Do not invent measured medians or claim backend winners without valid benchmark cells.
 - Do not treat package-byte reductions as startup improvements in assertions or fixtures.
+- Do not accept a single macOS DMG as a complete release set after dual-arch packaging landed.

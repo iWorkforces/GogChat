@@ -23,7 +23,7 @@ This directory owns runtime lifecycle mechanics: feature execution, shared featu
 ### Units and schema
 
 - Memory is always **MB**; time is always **ms**. Embed `units` on every export.
-- `PERF_EXPORT_SCHEMA_VERSION` must stay in lockstep with `scripts/headless-startup.js` and `scripts/check-perf-budget.js`.
+- `PERF_EXPORT_SCHEMA_VERSION` must stay in lockstep with `scripts/headless-startup.js` and `scripts/check-perf-budget.js`. Packaging arch (arm64 vs x64) does not change the schema.
 - Required unauthenticated markers include `app-start`, `app-ready`, `account-0-ready`, `account-0-content-loaded`, `features-loaded`, `all-features-loaded`.
 - `account-0-ready` is native window readiness only. `account-0-content-loaded` is document load (`did-finish-load`). Neither is first paint nor first interaction.
 

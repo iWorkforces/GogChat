@@ -28,7 +28,7 @@ This directory contains main-process security wrappers and kill-switch storage. 
 
 - Pinning covers Google/gstatic/googleapis/googleusercontent domains.
 - Validation cache keys must include both hostname and fingerprint.
-- Certificate pinning and related kill switches must remain intact when changing performance or packaging behavior.
+- Certificate pinning and related kill switches must remain intact when changing performance or packaging behavior (including dual-arch macOS DMG work).
 - Kill switches (`disableCertPinning`, `disableCdpTelemetry`) default to safe false behavior on read/decrypt errors.
 
 ## Anti-patterns

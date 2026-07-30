@@ -35,23 +35,36 @@ function readElectronBuilderSigningConfig() {
 
 describe('Windows package scaffold scripts', () => {
   it('preserves the existing macOS package script semantics', () => {
+    // Host-arch pin keeps local `package` to a single DMG even when electron-builder.yml
+    // documents both arm64 and x64 as supported packaging targets.
     expect(packageScript('package')).toBe(
-      'BUILD_ENV=${BUILD_ENV:-production} bun run build:prod && BUILD_ENV=${BUILD_ENV:-production} electron-builder --mac'
+      'BUILD_ENV=${BUILD_ENV:-production} bun run build:prod && BUILD_ENV=${BUILD_ENV:-production} electron-builder --mac --$(if [ "$(uname -m)" = arm64 ]; then echo arm64; else echo x64; fi)'
     );
   });
 
-  it('defines signed and explicitly unsigned macOS release package paths', () => {
-    const releasePackage = packageScript('package:mac:release');
-
-    expect(releasePackage).toContain('bun scripts/mac-release-signing.js --release');
-    expect(releasePackage).toContain('if [ -n "$MAC_CSC_LINK" ]; then');
-    expect(releasePackage).toContain(
-      'env -u MAC_CSC_LINK -u MAC_CSC_KEY_PASSWORD BUILD_ENV=${BUILD_ENV:-production} CSC_LINK="$MAC_CSC_LINK" CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD" electron-builder --config electron-builder.sign.yml --mac --publish never'
-    );
-    expect(releasePackage).toContain(
-      'env -u MAC_CSC_LINK -u MAC_CSC_KEY_PASSWORD -u CSC_LINK -u CSC_KEY_PASSWORD -u CSC_NAME -u CSC_KEYCHAIN -u CSC_INSTALLER_LINK -u CSC_INSTALLER_KEY_PASSWORD -u APPLE_ID -u APPLE_TEAM_ID -u APPLE_APP_PASSWORD BUILD_ENV=${BUILD_ENV:-production} CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.sign.yml --mac --publish never'
+  it('defines arch-pinned macOS release package scripts with shared signing helper', () => {
+    expect(packageScript('package:mac:arm64')).toBe('bash ./scripts/package-mac-arch.sh arm64');
+    expect(packageScript('package:mac:x64')).toBe('bash ./scripts/package-mac-arch.sh x64');
+    // package:mac:release remains an arm64 alias for local/backward-compatible use.
+    expect(packageScript('package:mac:release')).toBe('bash ./scripts/package-mac-arch.sh arm64');
+    expect(packageScript('package:mac:artifacts')).toBe(
+      'bun scripts/verify-macos-package-artifacts.js --dist dist --manifest --require-arch arm64 --require-arch x64'
     );
     expect(packageScript('package')).not.toContain('--publish never');
+
+    const packageHelper = fs.readFileSync(
+      path.join(PROJECT_ROOT, 'scripts/package-mac-arch.sh'),
+      'utf-8'
+    );
+    expect(packageHelper).toContain('bun scripts/mac-release-signing.js --release');
+    expect(packageHelper).toContain('if [[ -n "${MAC_CSC_LINK:-}" ]]; then');
+    expect(packageHelper).toContain(
+      'electron-builder --config electron-builder.sign.yml --mac --"${ARCH}" --publish never'
+    );
+    expect(packageHelper).toContain('CSC_IDENTITY_AUTO_DISCOVERY=false');
+    expect(packageHelper).toContain('arm64');
+    expect(packageHelper).toContain('x64');
+    expect(packageHelper).not.toContain('amd64');
   });
 
   it('uses the signing overlay with hardened runtime and entitlements for macOS release packages', () => {
@@ -73,8 +86,12 @@ describe('Windows package scaffold scripts', () => {
   });
 
   it('uses Electron builder arch names and never release-publishing modes', () => {
+    const packageHelper = fs.readFileSync(
+      path.join(PROJECT_ROOT, 'scripts/package-mac-arch.sh'),
+      'utf-8'
+    );
     const builderScripts = [
-      packageScript('package:mac:release'),
+      packageHelper,
       packageScript('package:win:x64'),
       packageScript('package:win:arm64'),
     ];
@@ -112,6 +129,17 @@ describe('Windows package scaffold scripts', () => {
     expect(config).toContain("artifactName: '${productName}-${version}-${arch}.${ext}'");
     expect(config).not.toMatch(/\n\s+- (ia32|universal)\b/i);
     expect(config).not.toMatch(/\n\s+- target: (portable|msi|msix|zip)\b/i);
+  });
+
+  it('keeps macOS dmg target free of multi-arch lists so CLI pins stay single-arch', () => {
+    const config = readElectronBuilderConfig();
+
+    // Listing both arches under target.arch makes electron-builder build all of
+    // them even when the CLI only passes --x64 or --arm64.
+    expect(config).toContain('  target:\n    - target: dmg');
+    expect(config).not.toMatch(/target:\s*\n\s+- target: dmg\s*\n\s+arch:/);
+    expect(config).not.toMatch(/\n\s+- (ia32|universal)\b/i);
+    expect(config).toContain('Supported packaging arches: arm64');
   });
 
   it('keeps the base mac protocol registration unchanged', () => {
