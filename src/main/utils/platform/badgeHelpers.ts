@@ -36,7 +36,9 @@ import {
   buildUnreadDeltaNotificationBody,
   shouldShowUnreadDeltaNotification,
   showNativeNotification,
+  wasBridgeNotificationRecentlyShown,
 } from './nativeNotification.js';
+import { resolveNotificationFocusWindow } from './notificationFocus.js';
 import { ensureNotificationPermission } from '../security/notificationAccess.js';
 
 /**
@@ -94,7 +96,7 @@ export function setupBadgeHandlers(window: BrowserWindow, trayIcon: Tray): Badge
     channel: IPC_CHANNELS.FAVICON_CHANGED,
     rateLimit: RATE_LIMITS.IPC_FAVICON,
     validator: validateFaviconURL,
-    handler: (validatedHref) => {
+    handler: (validatedHref, _event) => {
       if (validatedHref === lastFaviconHref) return;
       lastFaviconHref = validatedHref;
 
@@ -124,7 +126,7 @@ export function setupBadgeHandlers(window: BrowserWindow, trayIcon: Tray): Badge
     channel: IPC_CHANNELS.UNREAD_COUNT,
     rateLimit: RATE_LIMITS.IPC_UNREAD_COUNT,
     validator: validateUnreadCount,
-    handler: (validatedCount) => {
+    handler: (validatedCount, event) => {
       if (validatedCount === lastUnreadCount) return;
 
       const previousCount = lastUnreadCount;
@@ -140,15 +142,18 @@ export function setupBadgeHandlers(window: BrowserWindow, trayIcon: Tray): Badge
 
       // Optional Phase 2 fallback: generic OS banner when unread increases while unfocused.
       // Default off via app.unreadDeltaNotifications. Shared tag replaces rapid stacks.
+      // Suppressed shortly after a Chat bridge notification to avoid double banners.
       try {
+        const focusWindow = resolveNotificationFocusWindow(event, window);
         const focused =
-          !window.isDestroyed() && window.isFocused() === true;
+          !focusWindow.isDestroyed() && focusWindow.isFocused() === true;
         if (
           shouldShowUnreadDeltaNotification({
             enabled: configGet('app.unreadDeltaNotifications') === true,
             previousCount,
             nextCount: validatedCount,
             isWindowFocused: focused,
+            bridgeCooldownActive: wasBridgeNotificationRecentlyShown(),
           })
         ) {
           ensureNotificationPermission();
@@ -158,7 +163,11 @@ export function setupBadgeHandlers(window: BrowserWindow, trayIcon: Tray): Badge
               body: buildUnreadDeltaNotificationBody(validatedCount),
               tag: UNREAD_DELTA_NOTIFICATION_TAG,
             },
-            window
+            {
+              focusWindow,
+              ipcEvent: event,
+              source: 'unread-delta',
+            }
           );
         }
       } catch (error: unknown) {

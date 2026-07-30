@@ -70,14 +70,21 @@ vi.mock('../../config.js', () => ({
 }));
 
 const mockShowNativeNotification = vi.fn().mockReturnValue(true);
+const mockWasBridgeRecently = vi.fn().mockReturnValue(false);
 const mockEnsureNotificationPermission = vi.fn().mockReturnValue('already-requested');
+const mockResolveFocusWindow = vi.fn((event: unknown, fallback: unknown) => fallback);
 vi.mock('./nativeNotification.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./nativeNotification.js')>();
   return {
     ...actual,
     showNativeNotification: (...args: unknown[]) => mockShowNativeNotification(...args),
+    wasBridgeNotificationRecentlyShown: (...args: unknown[]) => mockWasBridgeRecently(...args),
   };
 });
+vi.mock('./notificationFocus.js', () => ({
+  resolveNotificationFocusWindow: (...args: unknown[]) => mockResolveFocusWindow(...args),
+  focusNotificationSource: vi.fn(),
+}));
 vi.mock('../security/notificationAccess.js', () => ({
   ensureNotificationPermission: (...args: unknown[]) => mockEnsureNotificationPermission(...args),
 }));
@@ -108,7 +115,10 @@ describe('badgeHelpers (config wiring)', () => {
     mockGetIcon.mockReturnValue('/fake/icon.png');
     mockSetTrayUnread.mockClear();
     mockShowNativeNotification.mockClear();
+    mockWasBridgeRecently.mockClear();
+    mockWasBridgeRecently.mockReturnValue(false);
     mockEnsureNotificationPermission.mockClear();
+    mockResolveFocusWindow.mockImplementation((_e: unknown, fb: unknown) => fb);
     mockConfigGet.mockReturnValue(false);
     mockPlatformState.supportsDockBadge = true;
     mockPlatformState.useTemplateTrayIcon = true;
@@ -252,9 +262,10 @@ describe('badgeHelpers (config wiring)', () => {
 
       const unreadCfg = mockRegisterFastHandler.mock.calls.find(
         ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
-      )?.[0] as { handler: (v: number) => void };
-      unreadCfg.handler(1);
-      unreadCfg.handler(2);
+      )?.[0] as { handler: (v: number, e?: unknown) => void };
+      const event = { sender: { id: 1 } };
+      unreadCfg.handler(1, event);
+      unreadCfg.handler(2, event);
 
       expect(mockShowNativeNotification).not.toHaveBeenCalled();
     });
@@ -267,11 +278,12 @@ describe('badgeHelpers (config wiring)', () => {
 
       const unreadCfg = mockRegisterFastHandler.mock.calls.find(
         ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
-      )?.[0] as { handler: (v: number) => void };
-      unreadCfg.handler(1);
+      )?.[0] as { handler: (v: number, e?: unknown) => void };
+      const event = { sender: { id: 9 } };
+      unreadCfg.handler(1, event);
       expect(mockShowNativeNotification).not.toHaveBeenCalled(); // first observation
 
-      unreadCfg.handler(3);
+      unreadCfg.handler(3, event);
       expect(mockEnsureNotificationPermission).toHaveBeenCalled();
       expect(mockShowNativeNotification).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -279,7 +291,11 @@ describe('badgeHelpers (config wiring)', () => {
           body: 'You have 3 unread messages',
           tag: 'gogchat-unread-delta',
         }),
-        win
+        expect.objectContaining({
+          focusWindow: win,
+          ipcEvent: event,
+          source: 'unread-delta',
+        })
       );
     });
 
@@ -290,9 +306,24 @@ describe('badgeHelpers (config wiring)', () => {
 
       const unreadCfg = mockRegisterFastHandler.mock.calls.find(
         ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
-      )?.[0] as { handler: (v: number) => void };
-      unreadCfg.handler(1);
-      unreadCfg.handler(2);
+      )?.[0] as { handler: (v: number, e?: unknown) => void };
+      unreadCfg.handler(1, {});
+      unreadCfg.handler(2, {});
+
+      expect(mockShowNativeNotification).not.toHaveBeenCalled();
+    });
+
+    it('skips unread-delta when bridge cooldown is active', async () => {
+      mockConfigGet.mockImplementation((key: string) => key === 'app.unreadDeltaNotifications');
+      mockWasBridgeRecently.mockReturnValue(true);
+      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      setupBadgeHandlers(fakeWindow({ isFocused: false }), fakeTray());
+
+      const unreadCfg = mockRegisterFastHandler.mock.calls.find(
+        ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
+      )?.[0] as { handler: (v: number, e?: unknown) => void };
+      unreadCfg.handler(1, {});
+      unreadCfg.handler(2, {});
 
       expect(mockShowNativeNotification).not.toHaveBeenCalled();
     });

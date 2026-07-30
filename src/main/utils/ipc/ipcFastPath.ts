@@ -8,7 +8,7 @@
  * For request/response or async work, use `createSecureIPCHandler` instead.
  */
 
-import { ipcMain } from 'electron';
+import { ipcMain, type IpcMainEvent } from 'electron';
 import type { IPCChannelName } from '../../../shared/constants.js';
 import { getRateLimiter } from './rateLimiter.js';
 import { logger } from '../lifecycle/logger.js';
@@ -19,8 +19,11 @@ export interface FastHandlerConfig<T> {
   rateLimit: number;
   /** Throw-based validator: returns validated value or throws. */
   validator: (data: unknown) => T;
-  /** Synchronous handler — must not return a Promise. */
-  handler: (data: T) => void;
+  /**
+   * Synchronous handler — must not return a Promise.
+   * Receives the validated payload and the originating IPC event (for sender routing).
+   */
+  handler: (data: T, event: IpcMainEvent) => void;
 }
 
 /**
@@ -31,7 +34,7 @@ export function registerFastHandler<T>(config: FastHandlerConfig<T>): () => void
   const { channel, rateLimit, validator, handler } = config;
   const rateLimiter = getRateLimiter();
 
-  const listener = (_event: Electron.IpcMainEvent, data: unknown): void => {
+  const listener = (event: IpcMainEvent, data: unknown): void => {
     if (!rateLimiter.isAllowed(channel, rateLimit)) return;
 
     let validated: T;
@@ -43,7 +46,7 @@ export function registerFastHandler<T>(config: FastHandlerConfig<T>): () => void
     }
 
     try {
-      handler(validated);
+      handler(validated, event);
     } catch (error: unknown) {
       logger.ipc.error(`Fast-handler ${channel} error:`, error);
     }

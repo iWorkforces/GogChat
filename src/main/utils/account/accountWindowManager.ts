@@ -271,6 +271,29 @@ export class AccountWindowManager implements IAccountWindowManager {
   }
 
   /**
+   * Show and focus the BrowserWindow for `accountIndex` (hydrate if dehydrated).
+   */
+  focusAccount(accountIndex: AccountIndex): void {
+    let window = this.getAccountWindow(accountIndex);
+    if (!window || window.isDestroyed()) {
+      try {
+        window = this.hydrateAccount(accountIndex);
+      } catch (error: unknown) {
+        log.warn(`[AccountWindowManager] focusAccount hydrate failed for ${accountIndex}:`, error);
+        return;
+      }
+    }
+    if (!window || window.isDestroyed()) {
+      return;
+    }
+    if (window.isMinimized()) {
+      window.restore();
+    }
+    window.show();
+    window.focus();
+  }
+
+  /**
    * Enumerate each live account window's WebContents (BrowserWindow backend).
    * Skips dehydrated and destroyed windows.
    */

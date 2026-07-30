@@ -549,6 +549,33 @@ Only after smoke evidence.
 6. Automated tests cover permission + show + focus.  
 7. Phase 2 fallback only with evidence; otherwise explicit **NO CHANGE**.
 
+## Review follow-ups (landed)
+
+| Gap | Fix |
+| --- | --- |
+| WCV host never requested notification permission | `ensureNotificationPermission()` in `AccountViewManager.ensureHostWindow` |
+| Tag replace race (old close wipes new map entry) | Identity check + delete-before-close order in `nativeNotification` |
+| Untagged notifications escaped cleanup | Always assign internal tracking keys |
+| Multi-account / WCV click focus | `IAccountWindowManager.focusAccount` + `notificationFocus` from IPC sender |
+| Unread-delta ignored sender | `registerFastHandler` passes `event`; unread-delta uses `resolveNotificationFocusWindow` + `ipcEvent` |
+| Double banner bridge + unread-delta | `TIMING.NOTIFICATION_BRIDGE_COOLDOWN_MS` + `wasBridgeNotificationRecentlyShown` |
+
+## Signed smoke checklist (manual)
+
+Record results under evidence root when available (signed build preferred):
+
+```text
+[ ] Fresh profile: first launch shows macOS notification permission dialog
+[ ] Allow → subsequent launches no repeated probe
+[ ] Preferences → Notification Settings… opens System Settings
+[ ] Manual: new Notification('GogChat test', { body: 'hello' }) → OS banner
+[ ] Chat desktop notifications on; unfocus; real message → bridge banner? (yes/no)
+[ ] Click banner → correct account focused (BW multi-account + WCV if enabled)
+[ ] Notify on Unread Badge Increase ON; unfocus; badge rises → generic banner
+[ ] After bridge banner, unread rise within 8s → no second generic banner
+[ ] Flag OFF → no unread-delta banners
+```
+
 ---
 
 ## Key Decisions (summary)

@@ -1,5 +1,4 @@
-import type { BrowserWindow, IpcMainEvent } from 'electron';
-import { BrowserWindow as ElectronBrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
 import log from 'electron-log';
 import { IPC_CHANNELS, RATE_LIMITS } from '../../shared/constants.js';
 import { defineIPC } from '../utils/ipc/defineIPC.js';
@@ -9,48 +8,13 @@ import {
   cleanupActiveNativeNotifications,
   showNativeNotification,
 } from '../utils/platform/nativeNotification.js';
+import {
+  focusNotificationSource,
+  resolveNotificationFocusWindow,
+} from '../utils/platform/notificationFocus.js';
 
 let notificationShowCleanup: (() => void) | null = null;
 let notificationClickedCleanup: (() => void) | null = null;
-
-function restoreAndFocusWindow(window: BrowserWindow): void {
-  if (window.isDestroyed()) {
-    return;
-  }
-  if (window.isMinimized()) {
-    window.restore();
-  }
-  window.show();
-  window.focus();
-}
-
-/**
- * Prefer the BrowserWindow that owns the IPC sender (correct multi-account
- * account). Fall back to the feature-init window when the sender has no
- * owning window (e.g. WebContentsView host edge cases).
- */
-function resolveNotificationFocusWindow(
-  event: IpcMainEvent | undefined,
-  fallback: BrowserWindow
-): BrowserWindow {
-  if (event?.sender && !event.sender.isDestroyed()) {
-    const fromSender = ElectronBrowserWindow.fromWebContents(event.sender);
-    if (fromSender && !fromSender.isDestroyed()) {
-      return fromSender;
-    }
-  }
-  return fallback;
-}
-
-function focusIfNeeded(window: BrowserWindow): void {
-  if (window.isDestroyed()) {
-    return;
-  }
-  if (!window.isVisible() || !window.isFocused()) {
-    restoreAndFocusWindow(window);
-    log.debug('[Notification] Window shown from notification click');
-  }
-}
 
 export default (window: BrowserWindow) => {
   void getRateLimiter();
@@ -71,7 +35,11 @@ export default (window: BrowserWindow) => {
           ...(validated.icon !== undefined && { icon: validated.icon }),
           ...(validated.tag !== undefined && { tag: validated.tag }),
         },
-        focusWindow
+        {
+          focusWindow,
+          ipcEvent: event,
+          source: 'bridge',
+        }
       );
     },
   });
@@ -84,12 +52,7 @@ export default (window: BrowserWindow) => {
     rateLimit: 5,
     description: 'Notification clicked',
     handler: (_validated, event) => {
-      try {
-        const focusWindow = resolveNotificationFocusWindow(event, window);
-        focusIfNeeded(focusWindow);
-      } catch (error: unknown) {
-        log.error('[Notification] Failed to handle notification click:', error);
-      }
+      focusNotificationSource(event, window);
     },
   });
 };

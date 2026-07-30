@@ -259,6 +259,10 @@ vi.mock('../security/permissionHandler.js', () => ({
   installPermissionHandlers: vi.fn(),
 }));
 
+vi.mock('../security/notificationAccess.js', () => ({
+  ensureNotificationPermission: vi.fn().mockReturnValue('scheduled'),
+}));
+
 vi.mock('../security/cspHeaderHandler.js', () => ({
   installHeaderFix: vi.fn(),
 }));
@@ -390,6 +394,17 @@ describe('AccountViewManager — createAccountWindow', () => {
     const m = new AccountViewManager();
     const result = m.createAccountWindow('https://x/', asAccountIndex(0));
     expect(result).toBe(lastWindow());
+  });
+
+  it('requests notification permission when the host window is first created', async () => {
+    const { ensureNotificationPermission } = await import('../security/notificationAccess.js');
+    vi.mocked(ensureNotificationPermission).mockClear();
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://x/', asAccountIndex(0));
+    expect(ensureNotificationPermission).toHaveBeenCalledTimes(1);
+    m.createAccountWindow('https://y/', asAccountIndex(1));
+    // Host reused — ensure still only from first host create (one call total)
+    expect(ensureNotificationPermission).toHaveBeenCalledTimes(1);
   });
 
   it('attaches a WebContentsView per account to host.contentView', () => {

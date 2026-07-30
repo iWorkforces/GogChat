@@ -58,6 +58,11 @@ export const TIMING = {
   CONNECTIVITY_CHECK: 5000,
   CONNECTIVITY_CHECK_FAST: 3000,
   NOTIFICATION_AUTO_DISMISS: 10000, // 10 seconds
+  /**
+   * After a Chat Web Notification bridge show, suppress unread-delta
+   * synthetic banners for this long to avoid double banners.
+   */
+  NOTIFICATION_BRIDGE_COOLDOWN_MS: 8000,
 
   // Re-guard timer for external links
   EXTERNAL_LINKS_REGUARD: 5 * 60 * 1000, // 5 minutes

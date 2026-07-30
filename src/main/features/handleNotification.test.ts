@@ -1,7 +1,5 @@
 /**
- * Unit tests for handleNotification feature — IPC wiring + focus routing
- *
- * Display/auto-dismiss/tag de-dupe live in nativeNotification.ts (unit-tested there).
+ * Unit tests for handleNotification feature — IPC wiring to nativeNotification
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -44,9 +42,10 @@ function makeFakeWindow() {
   return win;
 }
 
-const fromWebContentsMock = vi.fn();
 const showNativeNotificationMock = vi.fn().mockReturnValue(true);
 const cleanupActiveNativeNotificationsMock = vi.fn();
+const focusNotificationSourceMock = vi.fn();
+const resolveNotificationFocusWindowMock = vi.fn();
 
 const ipcMainMock = {
   on: vi.fn(),
@@ -55,7 +54,7 @@ const ipcMainMock = {
 
 vi.mock('electron', () => ({
   BrowserWindow: Object.assign(vi.fn(), {
-    fromWebContents: fromWebContentsMock,
+    fromWebContents: vi.fn(),
   }),
   ipcMain: ipcMainMock,
 }));
@@ -102,6 +101,12 @@ vi.mock('../utils/platform/nativeNotification.js', () => ({
   cleanupActiveNativeNotifications: () => cleanupActiveNativeNotificationsMock(),
 }));
 
+vi.mock('../utils/platform/notificationFocus.js', () => ({
+  focusNotificationSource: (...args: unknown[]) => focusNotificationSourceMock(...args),
+  resolveNotificationFocusWindow: (...args: unknown[]) =>
+    resolveNotificationFocusWindowMock(...args),
+}));
+
 describe('handleNotification feature', () => {
   let fakeWindow: ReturnType<typeof makeFakeWindow>;
 
@@ -110,46 +115,28 @@ describe('handleNotification feature', () => {
     vi.clearAllMocks();
     showNativeNotificationMock.mockReturnValue(true);
     fakeWindow = makeFakeWindow();
-    fromWebContentsMock.mockReturnValue(null);
-
-    createSecureIPCHandlerMock.mockImplementation(
-      (config: {
-        channel: string;
-        validator: (data: unknown) => unknown;
-        rateLimit?: number;
-        description?: string;
-        handler: (data: unknown, event?: unknown) => void;
-      }) => {
-        return () => {
-          // cleanup
-        };
-      }
+    resolveNotificationFocusWindowMock.mockImplementation(
+      (_event: unknown, fallback: unknown) => fallback
     );
+
+    createSecureIPCHandlerMock.mockImplementation(() => () => {
+      // cleanup
+    });
   });
 
-  it('sets up NOTIFICATION_SHOW IPC handler', async () => {
+  it('sets up NOTIFICATION_SHOW and NOTIFICATION_CLICKED handlers', async () => {
     const feature = await import('./handleNotification.js');
     feature.default(fakeWindow as unknown as Electron.BrowserWindow);
 
     expect(createSecureIPCHandlerMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: 'notificationShow',
-      })
+      expect.objectContaining({ channel: 'notificationShow' })
     );
-  });
-
-  it('sets up NOTIFICATION_CLICKED IPC handler', async () => {
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
     expect(createSecureIPCHandlerMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: 'notificationClicked',
-      })
+      expect.objectContaining({ channel: 'notificationClicked' })
     );
   });
 
-  it('forwards validated payload to showNativeNotification with fallback window', async () => {
+  it('forwards bridge payload with source bridge and resolved focus window', async () => {
     const feature = await import('./handleNotification.js');
     feature.default(fakeWindow as unknown as Electron.BrowserWindow);
 
@@ -157,14 +144,18 @@ describe('handleNotification feature', () => {
       (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
     )?.[0] as { handler: (data: unknown, event?: unknown) => void };
 
-    const notificationData = {
-      title: 'Test Title',
-      body: 'Test body',
-      icon: 'test-icon.png',
-      tag: 'tag1',
-    };
-    handlerConfig.handler(notificationData);
+    const event = { sender: { id: 42, isDestroyed: () => false } };
+    handlerConfig.handler(
+      {
+        title: 'Test Title',
+        body: 'Test body',
+        icon: 'test-icon.png',
+        tag: 'tag1',
+      },
+      event
+    );
 
+    expect(resolveNotificationFocusWindowMock).toHaveBeenCalledWith(event, fakeWindow);
     expect(showNativeNotificationMock).toHaveBeenCalledWith(
       {
         title: 'Test Title',
@@ -172,37 +163,15 @@ describe('handleNotification feature', () => {
         icon: 'test-icon.png',
         tag: 'tag1',
       },
-      fakeWindow
+      {
+        focusWindow: fakeWindow,
+        ipcEvent: event,
+        source: 'bridge',
+      }
     );
   });
 
-  it('uses sender window when fromWebContents resolves', async () => {
-    const senderWindow = makeFakeWindow();
-    fromWebContentsMock.mockReturnValue(senderWindow);
-
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
-    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
-      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
-    )?.[0] as { handler: (data: unknown, event?: unknown) => void };
-
-    handlerConfig.handler({ title: 'From account-1' }, {
-      sender: { isDestroyed: () => false },
-    });
-
-    expect(showNativeNotificationMock).toHaveBeenCalledWith(
-      { title: 'From account-1' },
-      senderWindow
-    );
-  });
-
-  it('NOTIFICATION_CLICKED focuses sender window when not visible', async () => {
-    const senderWindow = makeFakeWindow();
-    senderWindow.isVisible.mockReturnValue(false);
-    senderWindow.isFocused.mockReturnValue(false);
-    fromWebContentsMock.mockReturnValue(senderWindow);
-
+  it('NOTIFICATION_CLICKED uses focusNotificationSource', async () => {
     const feature = await import('./handleNotification.js');
     feature.default(fakeWindow as unknown as Electron.BrowserWindow);
 
@@ -210,10 +179,10 @@ describe('handleNotification feature', () => {
       (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationClicked'
     )?.[0] as { handler: (data: unknown, event?: unknown) => void };
 
-    handlerConfig.handler(undefined, { sender: { isDestroyed: () => false } });
+    const event = { sender: { id: 7, isDestroyed: () => false } };
+    handlerConfig.handler(undefined, event);
 
-    expect(senderWindow.show).toHaveBeenCalled();
-    expect(senderWindow.focus).toHaveBeenCalled();
+    expect(focusNotificationSourceMock).toHaveBeenCalledWith(event, fakeWindow);
   });
 
   it('cleanupNotificationHandler closes native notifications and removes IPC', async () => {
