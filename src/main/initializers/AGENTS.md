@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-This directory is the canonical home for app startup/shutdown sequencing and build-time feature specs.
+This directory is the canonical home for app startup/shutdown sequencing and build-time feature specs. Packaging arches do not change initializer contracts.
 
 ## Files
 
