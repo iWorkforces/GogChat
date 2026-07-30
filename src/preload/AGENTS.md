@@ -39,6 +39,7 @@ The preload is sandboxed and built as CommonJS because Electron sandboxed preloa
 ## Notification override
 
 - `notificationBridge.ts` is the context-isolated notification path used by `index.ts`: it installs the page-world `Notification` wrapper with `webFrame.executeJavaScript`, listens for its custom event in isolated preload, validates with `validateNotificationData`, then sends `IPC_CHANNELS.NOTIFICATION_SHOW`.
+- Main shows OS banners via `handleNotification` → `nativeNotification`; multi-account identity is resolved from the IPC sender in main, not from preload.
 - Do not replace this with script-tag injection; Google CSP is intentionally preserved and inline page injection is fragile.
 - `overrideNotifications.ts` is an intentional separate preload with `contextIsolation: false`.
 - Do not import it from `index.ts`.

@@ -58,6 +58,7 @@ vi.mock('./shellWrapper.js', () => ({
 
 import type { BrowserWindow } from 'electron';
 import { Notification, dialog, shell } from 'electron';
+import log from 'electron-log';
 import { configGet, configSet } from '../../config.js';
 import { validateAppleSystemPreferencesURL } from '../../../shared/urlValidators.js';
 import { openExternal } from './shellWrapper.js';
@@ -76,9 +77,24 @@ const mockShowMessageBox = dialog.showMessageBox as Mock;
 const mockOpenExternal = openExternal as Mock;
 const mockOpenPath = shell.openPath as Mock;
 const mockValidateURL = validateAppleSystemPreferencesURL as Mock;
+const mockLogDebug = log.debug as Mock;
+const mockLogInfo = log.info as Mock;
 const NotificationCtor = Notification as unknown as ReturnType<typeof vi.fn> & {
   isSupported: ReturnType<typeof vi.fn>;
 };
+
+function parentWindow(destroyed = false): BrowserWindow {
+  return {
+    isDestroyed: vi.fn().mockReturnValue(destroyed),
+  } as unknown as BrowserWindow;
+}
+
+async function flushImmediates(): Promise<void> {
+  // Drain setImmediate + dialog promise microtasks from the async first-run path
+  for (let i = 0; i < 6; i++) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
 
 describe('notificationAccess', () => {
   const originalCI = process.env.CI;
@@ -92,6 +108,7 @@ describe('notificationAccess', () => {
     mockValidateURL.mockImplementation((url: string) => url);
     mockOpenExternal.mockResolvedValue(undefined);
     mockOpenPath.mockResolvedValue('');
+    mockShowMessageBox.mockResolvedValue({ response: 0 });
     delete process.env.CI;
   });
 
@@ -102,10 +119,13 @@ describe('notificationAccess', () => {
   });
 
   describe('ensureNotificationPermission', () => {
-    it('returns unsupported on non-mac', () => {
+    it('returns unsupported on non-mac and logs', () => {
       mockPlatformState.isMac = false;
       expect(ensureNotificationPermission()).toBe('unsupported');
       expect(NotificationCtor).not.toHaveBeenCalled();
+      expect(mockLogDebug).toHaveBeenCalledWith(
+        expect.stringContaining('ensure → unsupported')
+      );
     });
 
     it('returns unsupported when Notification.isSupported is false', () => {
@@ -118,20 +138,23 @@ describe('notificationAccess', () => {
       process.env.CI = 'true';
       expect(ensureNotificationPermission()).toBe('skipped-ci');
       expect(NotificationCtor).not.toHaveBeenCalled();
+      expect(mockLogInfo).toHaveBeenCalledWith(expect.stringContaining('ensure → skipped-ci'));
     });
 
-    it('returns already-requested when config flag is true', () => {
+    it('returns already-requested when config flag is true and logs', () => {
       mockConfigGet.mockReturnValue(true);
       expect(ensureNotificationPermission()).toBe('already-requested');
       expect(NotificationCtor).not.toHaveBeenCalled();
+      expect(mockLogDebug).toHaveBeenCalledWith(
+        expect.stringContaining('ensure → already-requested')
+      );
     });
 
-    it('schedules at most one probe for same-process multi-calls', async () => {
+    it('schedules at most one probe for same-process multi-calls (no parent)', async () => {
       expect(ensureNotificationPermission()).toBe('scheduled');
       expect(ensureNotificationPermission()).toBe('already-requested');
 
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await flushImmediates();
 
       expect(NotificationCtor).toHaveBeenCalledTimes(1);
       expect(NotificationCtor).toHaveBeenCalledWith(
@@ -141,6 +164,62 @@ describe('notificationAccess', () => {
           silent: true,
         })
       );
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+    });
+
+    it('shows first-run dialog then probes when parentWindow is provided', async () => {
+      const window = parentWindow();
+      mockShowMessageBox.mockResolvedValue({ response: 0 });
+
+      expect(ensureNotificationPermission({ parentWindow: window })).toBe('scheduled');
+      await flushImmediates();
+
+      expect(mockShowMessageBox).toHaveBeenCalledWith(
+        window,
+        expect.objectContaining({
+          title: 'Enable Notifications',
+          message: 'Get notified about new Chat messages',
+          buttons: ['Enable', 'System Settings', 'Not Now'],
+        })
+      );
+      expect(NotificationCtor).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens System Settings and probes when user chooses Open System Settings', async () => {
+      const window = parentWindow();
+      mockShowMessageBox.mockResolvedValue({ response: 1 });
+
+      ensureNotificationPermission({ parentWindow: window });
+      await flushImmediates();
+
+      expect(mockOpenExternal).toHaveBeenCalled();
+      expect(NotificationCtor).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not probe when user chooses Not Now; later calls return prompt-declined', async () => {
+      const window = parentWindow();
+      mockShowMessageBox.mockResolvedValue({ response: 2 });
+
+      expect(ensureNotificationPermission({ parentWindow: window })).toBe('scheduled');
+      await flushImmediates();
+
+      expect(NotificationCtor).not.toHaveBeenCalled();
+      expect(mockConfigSet).not.toHaveBeenCalledWith(
+        'app.notificationPermissionRequested',
+        true
+      );
+
+      expect(ensureNotificationPermission({ parentWindow: window })).toBe('prompt-declined');
+      expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
+    });
+
+    it('probes without dialog when parent window is already destroyed', async () => {
+      const window = parentWindow(true);
+      expect(ensureNotificationPermission({ parentWindow: window })).toBe('scheduled');
+      await flushImmediates();
+
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(NotificationCtor).toHaveBeenCalledTimes(1);
     });
 
     it('releases guard when probe constructor throws inside setImmediate', async () => {
@@ -148,8 +227,7 @@ describe('notificationAccess', () => {
         throw new Error('ctor failed');
       });
       expect(ensureNotificationPermission()).toBe('scheduled');
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await flushImmediates();
       // Guard released so a later call can schedule again
       NotificationCtor.mockImplementation(function MockNotification(this: {
         on: ReturnType<typeof vi.fn>;
@@ -165,7 +243,7 @@ describe('notificationAccess', () => {
 
     it('persists config flag only after probe show', async () => {
       ensureNotificationPermission();
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await flushImmediates();
 
       const instance = NotificationCtor.mock.instances[0] as {
         on: ReturnType<typeof vi.fn>;
@@ -176,7 +254,8 @@ describe('notificationAccess', () => {
       expect(mockConfigSet).not.toHaveBeenCalled();
 
       const showHandler = instance.on.mock.calls.find((call) => call[0] === 'show')?.[1] as
-        (() => void) | undefined;
+        | (() => void)
+        | undefined;
       expect(showHandler).toBeDefined();
       showHandler?.();
 
@@ -186,13 +265,14 @@ describe('notificationAccess', () => {
 
     it('does not persist config flag when probe fails', async () => {
       ensureNotificationPermission();
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await flushImmediates();
 
       const instance = NotificationCtor.mock.instances[0] as {
         on: ReturnType<typeof vi.fn>;
       };
       const failedHandler = instance.on.mock.calls.find((call) => call[0] === 'failed')?.[1] as
-        (() => void) | undefined;
+        | (() => void)
+        | undefined;
       failedHandler?.();
 
       expect(mockConfigSet).not.toHaveBeenCalledWith('app.notificationPermissionRequested', true);

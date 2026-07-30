@@ -435,14 +435,34 @@ describe('windowWrapper', () => {
   });
 
   describe('notification permission gating', () => {
-    it('calls ensureNotificationPermission for each window create', async () => {
+    it('calls ensureNotificationPermission on ready-to-show with parentWindow', async () => {
       const { ensureNotificationPermission } = await import('./utils/security/notificationAccess');
       vi.mocked(ensureNotificationPermission).mockClear();
 
       createWindow('https://chat.google.com', 'persist:account-0');
-      createWindow('https://chat.google.com', 'persist:account-1');
+      const win0 = lastCreatedWindow as {
+        once: ReturnType<typeof vi.fn>;
+      };
+      expect(ensureNotificationPermission).not.toHaveBeenCalled();
 
+      const ready0 = win0.once.mock.calls.find((call) => call[0] === 'ready-to-show')?.[1] as
+        | (() => void)
+        | undefined;
+      expect(ready0).toBeDefined();
+      ready0?.();
+      expect(ensureNotificationPermission).toHaveBeenCalledTimes(1);
+      expect(ensureNotificationPermission).toHaveBeenCalledWith({ parentWindow: win0 });
+
+      createWindow('https://chat.google.com', 'persist:account-1');
+      const win1 = lastCreatedWindow as {
+        once: ReturnType<typeof vi.fn>;
+      };
+      const ready1 = win1.once.mock.calls.find((call) => call[0] === 'ready-to-show')?.[1] as
+        | (() => void)
+        | undefined;
+      ready1?.();
       expect(ensureNotificationPermission).toHaveBeenCalledTimes(2);
+      expect(ensureNotificationPermission).toHaveBeenLastCalledWith({ parentWindow: win1 });
     });
   });
 });

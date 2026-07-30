@@ -21,9 +21,16 @@ This directory contains main-process security wrappers and kill-switch storage. 
 
 ## Permissions and media
 
-- `permissionHandler.ts` allowlists only expected permissions such as notifications, mediaKeySystem, and geolocation.
-- `mediaAccess.ts` deduplicates macOS TCC prompts and returns false in CI/headless contexts.
-- `notificationAccess.ts` owns macOS notification authorization: silent probe Notification (once per profile via `app.notificationPermissionRequested` after `show`), CI skip, process de-dupe, and System Settings open/dialog helpers. Flag means “request path completed,” not live grant status.
+- `permissionHandler.ts` allowlists only expected Chromium permissions such as notifications, mediaKeySystem, and geolocation (web permission layer — separate from OS notification authorization).
+- `mediaAccess.ts` deduplicates macOS TCC camera/mic prompts via `systemPreferences` and returns false in CI/headless contexts.
+- `notificationAccess.ts` owns **macOS OS-level** notification authorization (Electron has no `getNotificationAccessStatus` API):
+  - Call `ensureNotificationPermission({ parentWindow })` from `windowWrapper` / WCV host on **`ready-to-show`**.
+  - First-run short dialog when config flag is false and a parent window is provided: **Enable** / **System Settings** / **Not Now**.
+  - Then silent probe `Notification` (triggers `requestAuthorization` when still undetermined).
+  - Persist `app.notificationPermissionRequested` only after probe `show`.
+  - Log every `ensure →` result (`unsupported` | `skipped-ci` | `already-requested` | `prompt-declined` | `scheduled` | `failed-to-schedule`).
+  - Session “Not Now”, process de-dupe, CI skip; Preferences → Notification Settings… via `showNotificationSettingsDialog` / `openNotificationSystemSettings`.
+  - Flag means “request path completed,” not live grant status.
 
 ## Certificate pinning gotchas
 

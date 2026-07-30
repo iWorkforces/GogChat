@@ -6,9 +6,9 @@
 
 ## Ownership
 
-- `constants.ts` owns channel names, selectors, timings, icon/badge constants, URL patterns, allowlisted hosts, and deep-link constants.
-- `urlValidators.ts` owns parse-once URL validation for navigation, external links, deep links, and Google auth detection.
-- `dataValidators.ts` owns non-URL payload validation.
+- `constants.ts` owns channel names, selectors, timings, icon/badge constants (`BADGE.DISPLAY_MAX` = 99), notification timing/cooldowns, account-label max length, URL patterns, allowlisted hosts, and deep-link constants.
+- `urlValidators.ts` owns parse-once URL validation for navigation, external links, deep links, Google auth detection, and Apple System Preferences notification deep links.
+- `dataValidators.ts` owns non-URL payload validation (including notification payload shapes used by preload/main).
 - `typeUtils.ts` owns `assertNever`, `asType<T>()`, and documented unsafe-cast helpers.
 - `types/` owns contracts used across process boundaries; see `types/AGENTS.md` (`IAccountWindowManager`, `AccountWebContentsInfo`, bridge API, config, errors, IPC maps).
 

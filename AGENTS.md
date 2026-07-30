@@ -1,12 +1,13 @@
 # GogChat Agent Guide
 
 **Generated:** 2026-07-30
-**Commit:** 8f4c41a
-**Branch:** feat/macos-intel-x64-dmg
+**Commit:** aae1e4e
+**Branch:** support-native-notifications
+**Version:** 3.18.1
 
 ## Project shape
 
-GogChat is a macOS-only Electron desktop wrapper for Google Chat (`https://mail.google.com/chat/u/0`). It is TypeScript-first, packages dual macOS arches (Apple Silicon `arm64` and Intel `x64`) as **separate** DMGs, and is built with a dual Rsbuild pipeline: ESM main process plus CJS preload because Electron sandboxed preloads cannot load ESM.
+GogChat is a macOS-first Electron desktop wrapper for Google Chat (`https://mail.google.com/chat/u/0`). It is TypeScript-first, packages dual macOS arches (Apple Silicon `arm64` and Intel `x64`) as **separate** DMGs, and is built with a dual Rsbuild pipeline: ESM main process plus CJS preload because Electron sandboxed preloads cannot load ESM.
 
 This is **not** a typical Electron app:
 
@@ -47,7 +48,7 @@ bun run package:win:signing-policy
 
 Runtime/toolchain constraints:
 
-- Node `>=24.16.0 <25.0.0`; Bun `>=1.3.13`; package manager `bun@1.3.14`.
+- Node `>=24.16.0 <25.0.0`; Bun `>=1.3.0`; package manager pin `bun@1.3.14`.
 - Electron `^43.2.0`.
 - TypeScript strict mode with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noUncheckedSideEffectImports`, `noUnusedLocals`, and `noUnusedParameters`.
 - Prettier: 100 columns, single quotes, semicolons, trailing commas ES5, LF.
@@ -94,10 +95,13 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | IPC helpers                    | `src/main/utils/ipc/`                                                           | Rate limit, validate, dedup/fast-path, catch.                                 |
 | IPC channel names              | `src/shared/constants.ts`                                                       | Never hardcode channel strings.                                               |
 | Preload bridge                 | `src/preload/index.ts` + `src/shared/types/bridge.ts`                           | Sandboxed CJS preload. No raw `ipcRenderer` exposure.                         |
-| Web notification bridge        | `src/preload/notificationBridge.ts` + `src/main/features/handleNotification.ts` | Page `Notification` calls become validated native notifications.              |
-| Notification permission        | `src/main/utils/security/notificationAccess.ts`                                 | macOS probe + Settings dialog; `windowWrapper` calls ensure once per profile. |
+| Web notification bridge        | `src/preload/notificationBridge.ts` + `src/main/features/handleNotification.ts` | Page `Notification` calls become validated native OS notifications.           |
+| Native notification show       | `src/main/utils/platform/nativeNotification.ts`                                 | Tag de-dupe, auto-dismiss, subtitle/groupId, bridge vs unread-delta sources.  |
+| Notification click focus       | `src/main/utils/platform/notificationFocus.ts`                                  | Route click → `IAccountWindowManager.focusAccount` (BW + WCV).                |
+| Notification permission        | `src/main/utils/security/notificationAccess.ts`                                 | First-run dialog + silent OS probe on `ready-to-show`; Settings helpers.      |
+| Account notification identity  | `src/main/utils/platform/accountNotificationIdentity.ts` + `accountLabelStore`  | Subtitle/groupId/tag namespace; Preferences → Account Labels.                  |
 | URL validation                 | `src/shared/urlValidators.ts`                                                   | Navigation, external links, deep links, Google auth detection.                |
-| Config                         | `src/shared/types/config.ts` + `src/main/config.ts`                             | Update schema and typed accessors together.                                   |
+| Config                         | `src/shared/types/config.ts` + `src/main/utils/config/configSchema.ts` + `src/main/config.ts` | Update shared types, schema/defaults, and accessors together.          |
 | Secure flags                   | `src/main/utils/security/secureFlags.ts`                                        | SafeStorage-backed kill switches; not electron-store config.                  |
 | Error types                    | `src/shared/types/errors.ts` + `src/main/utils/lifecycle/errors.ts`             | Prefer typed errors and `{ cause }`.                                          |
 | Historical webview constraints | `docs/windowWrapper-history.md`                                                 | `webSecurity:false` and CSP exceptions are deliberate.                        |
@@ -117,6 +121,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | Performance claims             | `scripts/verify-performance-claims.js`                                          | Reject unsupported runtime-savings claims.                                    |
 | Perf plan                      | `docs/plans/performance-remediation.md`                                         | Phased remediation work plan and guardrails.                                  |
 | macOS Intel x64 plan           | `docs/plans/macos-intel-x64-dmg.md`                                             | Dual-arch DMG production plan and acceptance criteria.                        |
+| Native notifications plan      | `docs/plans/native-os-notifications.md`                                         | Permission, bridge, multi-account banners, unread-delta fallback.             |
 | Tests                          | `tests/AGENTS.md`                                                               | Unit/integration/e2e/perf/packaging contract guidance.                        |
 | Packaging                      | `mac/AGENTS.md` + `scripts/AGENTS.md`                                           | DMG, signing, notarization, dual-arch, perf gates.                            |
 | Icons / resources              | `resources/AGENTS.md`                                                           | Icon variants, generation, extraResources.                                    |
@@ -167,7 +172,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 - IPC handlers must rate-limit, validate, handle, and catch. Dedup only where safe.
 - Use `IPC_CHANNELS`; never string-literal IPC channel names.
 - Google Chat web `Notification` calls are bridged from page world through `src/preload/notificationBridge.ts`; keep raw `ipcRenderer` isolated in preload and validate notification payloads before `NOTIFICATION_SHOW`.
-- macOS notification authorization is requested via `notificationAccess.ensureNotificationPermission()` (silent probe Notification). Persist `app.notificationPermissionRequested` only after probe `show`. Click focus uses the IPC sender window when available (multi-account).
+- macOS notification authorization: `windowWrapper` and WCV host call `ensureNotificationPermission({ parentWindow })` on **`ready-to-show`**. When the config flag is false, show a short first-run dialog (Enable / System Settings / Not Now), then a silent probe `Notification`. Persist `app.notificationPermissionRequested` only after probe `show` (request path completed — not live grant status). Log every `ensure →` result. “Not Now” skips for the process session only; probe `failed` clears the in-flight guard so a later launch can retry. Skip interactive probes in CI. Preferences → Notification Settings… opens System Settings when the user needs to fix grant/deny later.
 - Optional unread-delta OS banners (`app.unreadDeltaNotifications`, default false) live in `badgeHelpers` via `nativeNotification.ts`; primary path remains Chat Web Notification bridge.
 - Multi-account banners always set macOS `subtitle` (`Account N`, 1-based, or `app.accountLabels` custom) and `groupId`; tags are namespaced `a${index}:…` from IPC sender identity only. Dock badge is the sum of per-account unreads capped at `BADGE.DISPLAY_MAX` (99). Labels: Preferences → Account Labels.
 - Use `validateExternalURL()` and `shellWrapper.ts`; never call `shell.openExternal()` directly in main.
@@ -253,4 +258,4 @@ Nested guides supplement this root and are intentionally more specific:
 - `mac/AGENTS.md`
 - `resources/AGENTS.md`
 
-Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans may live under `docs/plans/` (for example performance remediation and macOS Intel x64 DMG).
+Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans under `docs/plans/`: performance remediation, macOS Intel x64 DMG, and native OS notifications.

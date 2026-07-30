@@ -38,6 +38,8 @@ const SINGLETON_DESTROYER_EXEMPT = new Set([
   'cdpMetrics.ts:getMetrics', // reads per-account JSON file on each call
   'secureFlags.ts:getDisableCertPinning', // reads encrypted blob on each call
   'secureFlags.ts:getDisableCdpTelemetry', // reads encrypted blob on each call
+  'accountLabelStore.ts:getStoredAccountLabel', // reads app.accountLabels config on each call
+  'accountLabelStore.ts:getAllStoredAccountLabels', // reads app.accountLabels config on each call
   //
   // ── Pure wrappers around process / electron globals ───────────────────────
   'cspHeaderHandler.ts:getHostname', // pure URL parser, no state

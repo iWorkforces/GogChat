@@ -182,17 +182,16 @@ export class AccountViewManager implements IAccountWindowManager {
       this.destroyAll();
     });
 
-    if (!defaults.startHidden) {
-      window.once('ready-to-show', () => {
-        if (!window.isDestroyed()) {
-          window.show();
-        }
-      });
-    }
+    // Always attach ready-to-show so notification permission runs even when startHidden.
+    window.once('ready-to-show', () => {
+      if (!defaults.startHidden && !window.isDestroyed()) {
+        window.show();
+      }
+      // Same first-run macOS notification UX as windowWrapper (BW path).
+      ensureNotificationPermission({ parentWindow: window });
+    });
 
     this.hostWindow = window;
-    // Same first-run macOS notification authorization as windowWrapper (BW path).
-    ensureNotificationPermission();
     log.info('[AccountViewManager] Host window created');
     return window;
   }

@@ -396,14 +396,19 @@ describe('AccountViewManager — createAccountWindow', () => {
     expect(result).toBe(lastWindow());
   });
 
-  it('requests notification permission when the host window is first created', async () => {
+  it('requests notification permission on host ready-to-show with parentWindow', async () => {
     const { ensureNotificationPermission } = await import('../security/notificationAccess.js');
     vi.mocked(ensureNotificationPermission).mockClear();
     const m = new AccountViewManager();
     m.createAccountWindow('https://x/', asAccountIndex(0));
+    // Deferred until the host is ready-to-show (same as BrowserWindow path)
+    expect(ensureNotificationPermission).not.toHaveBeenCalled();
+    const host = lastWindow();
+    host.emit('ready-to-show');
     expect(ensureNotificationPermission).toHaveBeenCalledTimes(1);
+    expect(ensureNotificationPermission).toHaveBeenCalledWith({ parentWindow: host });
     m.createAccountWindow('https://y/', asAccountIndex(1));
-    // Host reused — ensure still only from first host create (one call total)
+    // Host reused — ready-to-show already fired; no second ensure
     expect(ensureNotificationPermission).toHaveBeenCalledTimes(1);
   });
 
