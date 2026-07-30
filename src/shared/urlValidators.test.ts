@@ -235,6 +235,8 @@ describe('validateAppleSystemPreferencesURL', () => {
     'x-apple.systempreferences:com.apple.preference.security',
     'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
     'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+    'x-apple.systempreferences:com.apple.Notifications-Settings.extension',
+    'x-apple.systempreferences:com.apple.preference.notifications',
   ];
 
   it.each(approved)('accepts approved URL: %s', (url) => {

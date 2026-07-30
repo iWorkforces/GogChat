@@ -9,7 +9,8 @@ GogChat is an unofficial macOS desktop wrapper for Google Chat, built with Elect
 ### Desktop integration
 
 - System tray icon with close-to-tray behavior
-- Native notification handling
+- Native OS notifications (Google Chat web notifications bridged to macOS banners; grant notification permission when prompted, and enable desktop notifications in Chat settings)
+- Preferences → Notification Settings… opens macOS Notifications for GogChat
 - Application menu and search shortcut integration
 - Auto-launch at login
 - Window state persistence

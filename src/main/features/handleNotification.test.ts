@@ -56,6 +56,7 @@ function makeFakeWindow() {
 // Fake Notification class
 class FakeNotification {
   static all: FakeNotification[] = [];
+  static isSupported = vi.fn().mockReturnValue(true);
 
   title: string;
   body?: string;
@@ -99,8 +100,11 @@ class FakeNotification {
 
   static resetAll() {
     FakeNotification.all = [];
+    FakeNotification.isSupported.mockReturnValue(true);
   }
 }
+
+const fromWebContentsMock = vi.fn();
 
 // ─── Module-level mocks ───────────────────────────────────────────────────────
 
@@ -110,7 +114,9 @@ const ipcMainMock = {
 };
 
 vi.mock('electron', () => ({
-  BrowserWindow: vi.fn(),
+  BrowserWindow: Object.assign(vi.fn(), {
+    fromWebContents: fromWebContentsMock,
+  }),
   Notification: FakeNotification,
   ipcMain: ipcMainMock,
 }));
@@ -171,6 +177,8 @@ describe('handleNotification feature', () => {
     FakeNotification.resetAll();
     fakeWindow = makeFakeWindow();
 
+    fromWebContentsMock.mockReturnValue(null);
+
     // Default: createSecureIPCHandler stores the handler config for later inspection
     createSecureIPCHandlerMock.mockImplementation(
       (config: {
@@ -178,12 +186,12 @@ describe('handleNotification feature', () => {
         validator: (data: unknown) => unknown;
         rateLimit?: number;
         description?: string;
-        handler: (data: unknown) => void;
+        handler: (data: unknown, event?: unknown) => void;
       }) => {
-        const _wrappedHandler = (data: unknown) => {
+        const _wrappedHandler = (data: unknown, event?: unknown) => {
           if (!getRateLimiterMock().isAllowed()) return;
           const validated = config.validator(data);
-          config.handler(validated);
+          config.handler(validated, event);
         };
 
         return () => {
@@ -231,7 +239,7 @@ describe('handleNotification feature', () => {
 
     const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
       (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
-    )?.[0] as { handler: (data: unknown) => void };
+    )?.[0] as { handler: (data: unknown, event?: unknown) => void };
 
     const notificationData = {
       title: 'Test Title',
@@ -245,6 +253,46 @@ describe('handleNotification feature', () => {
     expect(FakeNotification.all[0]?.title).toBe('Test Title');
     expect(FakeNotification.all[0]?.body).toBe('Test body');
     expect(FakeNotification.all[0]?.icon).toBe('test-icon.png');
+  });
+
+  it('skips notification creation when Notification.isSupported is false', async () => {
+    FakeNotification.isSupported.mockReturnValue(false);
+    const feature = await import('./handleNotification.js');
+    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
+
+    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
+      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
+    )?.[0] as { handler: (data: unknown, event?: unknown) => void };
+
+    handlerConfig.handler({ title: 'Should not show' });
+
+    expect(FakeNotification.all.length).toBe(0);
+  });
+
+  it('notification click focuses the sender window when different from main', async () => {
+    const senderWindow = makeFakeWindow();
+    senderWindow.isVisible.mockReturnValue(false);
+    senderWindow.isFocused.mockReturnValue(false);
+    fromWebContentsMock.mockReturnValue(senderWindow);
+
+    const feature = await import('./handleNotification.js');
+    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
+
+    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
+      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
+    )?.[0] as { handler: (data: unknown, event?: unknown) => void };
+
+    const event = {
+      sender: { isDestroyed: () => false },
+    };
+    handlerConfig.handler({ title: 'From account-1' }, event);
+
+    const notification = FakeNotification.all[0];
+    notification.simulateClick();
+
+    expect(senderWindow.show).toHaveBeenCalled();
+    expect(senderWindow.focus).toHaveBeenCalled();
+    expect(fakeWindow.show).not.toHaveBeenCalled();
   });
 
   it('notification click brings window to focus when not visible', async () => {

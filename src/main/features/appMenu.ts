@@ -6,6 +6,7 @@ import { IPC_CHANNELS } from '../../shared/constants.js';
 import { getMenuAction } from './menuActionRegistry.js';
 import { buildHelpSubMenu, relaunchApp } from '../utils/platform/helpMenuBuilder.js';
 import { supports } from '../utils/platform/platformDetection.js';
+import { showNotificationSettingsDialog } from '../utils/security/notificationAccess.js';
 
 export default (window: BrowserWindow) => {
   const autoLaunchSupported = supports.autoLaunch();
@@ -179,6 +180,15 @@ export default (window: BrowserWindow) => {
           click: (menuItem: Electron.MenuItem) => {
             window.webContents.session.setSpellCheckerEnabled(!menuItem.checked);
             store.set('app.disableSpellChecker', menuItem.checked);
+          },
+        },
+        {
+          type: 'separator',
+        },
+        {
+          label: 'Notification Settings…',
+          click: () => {
+            void showNotificationSettingsDialog(window);
           },
         },
       ],

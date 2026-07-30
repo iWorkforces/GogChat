@@ -124,12 +124,17 @@ vi.mock('../utils/platform/platformDetection', () => ({
   },
 }));
 
+vi.mock('../utils/security/notificationAccess', () => ({
+  showNotificationSettingsDialog: vi.fn().mockResolvedValue(undefined),
+}));
+
 import appMenu from './appMenu';
 import { _getMenuAction } from './menuActionRegistry';
 import { Menu, app, _dialog, clipboard } from 'electron';
 import store from '../config';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { openNewGitHubIssue } from '../utils/platform/platformHelpers';
+import { showNotificationSettingsDialog } from '../utils/security/notificationAccess';
 
 interface FakeWindow {
   hide: ReturnType<typeof vi.fn>;
@@ -275,6 +280,23 @@ describe('appMenu', () => {
     );
     expect(startHidden).toBeDefined();
     expect(startHidden.checked).toBe(false);
+  });
+
+  it('Preferences includes Notification Settings item that opens the settings dialog', () => {
+    const window = makeFakeWindow();
+    appMenu(window as BrowserWindow);
+
+    const template = Menu.buildFromTemplate.mock.calls[0][0] as MenuItemConstructorOptions[];
+    const prefsMenu = template.find(
+      (item: MenuItemConstructorOptions) => item.label === 'Preferences'
+    );
+    const notificationSettings = prefsMenu.submenu.find(
+      (item: MenuItemConstructorOptions) => item.label === 'Notification Settings…'
+    );
+
+    expect(notificationSettings).toBeDefined();
+    notificationSettings.click();
+    expect(showNotificationSettingsDialog).toHaveBeenCalledWith(window);
   });
 
   it('disables Auto Launch at Login when the platform does not support auto launch', () => {

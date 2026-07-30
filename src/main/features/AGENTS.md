@@ -30,6 +30,12 @@ Known dependencies include `badgeIcons -> trayIcon`, `windowState -> singleInsta
 - Features such as `aboutPanel`, `openAtLogin`, `externalLinks`, and `deepLinkHandler` self-register menu actions at module load time.
 - Consumers retrieve actions with `getMenuAction()` rather than importing feature modules directly.
 
+## Notifications
+
+- `handleNotification.ts` shows Electron (OS) notifications for validated `NOTIFICATION_SHOW` IPC payloads and focuses the account window that produced the event (`BrowserWindow.fromWebContents(event.sender)` with fallback to feature main window).
+- Permission request UX lives in `utils/security/notificationAccess.ts`, not in this feature.
+- Preferences → Notification Settings… is wired in `appMenu.ts` via `showNotificationSettingsDialog`.
+
 ## Feature boundaries
 
 - Security features must be ready before network use.
