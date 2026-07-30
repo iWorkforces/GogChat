@@ -14,12 +14,13 @@ import type { BrowserWindow } from 'electron';
 import log from 'electron-log';
 import { configGet } from '../../config.js';
 import type {
+  AccountWebContentsInfo,
   AccountWindowState,
   WindowFactory,
   IAccountWindowManager,
 } from '../../../shared/types/window.js';
 import type { AccountIndex, WebContentsId } from '../../../shared/types/branded.js';
-import { toPartition } from '../../../shared/types/branded.js';
+import { asWebContentsId, toPartition } from '../../../shared/types/branded.js';
 import {
   markAsBootstrap as _markAsBootstrap,
   isBootstrap as _isBootstrap,
@@ -269,6 +270,36 @@ export class AccountWindowManager implements IAccountWindowManager {
     return this.registry.getAccountForWebContents(webContentsId);
   }
 
+  /**
+   * Enumerate each live account window's WebContents (BrowserWindow backend).
+   * Skips dehydrated and destroyed windows.
+   */
+  enumerateAccountWebContents(): AccountWebContentsInfo[] {
+    const result: AccountWebContentsInfo[] = [];
+    for (const window of this.registry.getAllWindows()) {
+      if (window.isDestroyed()) continue;
+      const wc = window.webContents;
+      if (wc.isDestroyed()) continue;
+      const accountIndex = this.registry.getAccountIndex(window);
+      if (accountIndex === null) continue;
+      if (this.dehydratedAccounts.has(accountIndex)) continue;
+      let osProcessId: number;
+      try {
+        osProcessId = wc.getOSProcessId();
+      } catch {
+        osProcessId = 0;
+      }
+      result.push({
+        accountIndex,
+        webContentsId: asWebContentsId(wc.id),
+        osProcessId,
+        backend: 'browser-window',
+        webContents: wc,
+      });
+    }
+    return result;
+  }
+
   getAllWindows(): BrowserWindow[] {
     return this.registry.getAllWindows();
   }
@@ -443,11 +474,9 @@ export class AccountWindowManager implements IAccountWindowManager {
     if (snapshot.isMaximized) {
       window.maximize();
     }
-    // Explicitly navigate to the saved URL. The factory may already invoke
-    // `loadURL` internally (the live windowWrapper does), but we cannot
-    // depend on factory side effects — the public contract is “the hydrated
-    // window loads the saved URL”, so we make it explicit here.
-    void window.loadURL(snapshot.url);
+    // Navigation is owned solely by the factory (windowWrapper calls loadURL
+    // on create). A second loadURL here would double-navigate restored accounts.
+    // Snapshot URL is factory input only — do not re-dispatch navigation.
     log.info(
       `[AccountWindowManager] Hydrated account ${accountIndex} (partition=${partition}, url=${snapshot.url})`
     );

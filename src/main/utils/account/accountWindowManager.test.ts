@@ -263,6 +263,7 @@ vi.mock('./accountViewManager.js', () => ({
       dehydrateAccount: vi.fn(),
       hydrateAccount: vi.fn(),
       isDehydrated: vi.fn(() => false),
+      enumerateAccountWebContents: vi.fn(() => []),
       __isViewBackend: true,
     };
   }),
@@ -309,9 +310,9 @@ function makeFactory(): WindowFactory & { createWindow: ReturnType<typeof vi.fn>
   const fn = vi.fn((url: string, partition: string): Electron.BrowserWindow => {
     // Build a MockBW with ctorOptions including the partition for inspection.
     const w = new h.MockBW({ webPreferences: { partition }, url });
-    // Mirror windowWrapper behaviour: factory invokes loadURL so that
-    // webContents.getURL() reports the loaded URL afterwards.
-    w.webContents.url = url;
+    // Mirror live windowWrapper contract: factory owns the single restored
+    // URL dispatch via loadURL on creation.
+    void w.loadURL(url);
     return w as unknown as Electron.BrowserWindow;
   });
   return { createWindow: fn };
@@ -748,7 +749,39 @@ describe('AccountWindowManager — dehydrate / hydrate', () => {
       height: 768,
     });
     expect(w2Mock.maximize).toHaveBeenCalled();
+    // Factory owns the sole loadURL; manager must not re-dispatch navigation.
+    expect(w2Mock.loadURL).toHaveBeenCalledTimes(1);
     expect(w2Mock.loadURL).toHaveBeenCalledWith('https://hello/');
+  });
+
+  it('hydrateAccount dispatches exactly one loadURL via the factory (no manager re-nav)', () => {
+    const factory = makeFactory();
+    const m = new AccountWindowManager(factory);
+    m.createAccountWindow('https://chat.example/', asAccountIndex(1));
+    m.dehydrateAccount(asAccountIndex(1));
+
+    factory.createWindow.mockClear();
+    const w2 = m.hydrateAccount(asAccountIndex(1));
+    const w2Mock = w2 as unknown as MockBWInstance;
+
+    // One factory creation → one factory loadURL; manager never calls loadURL.
+    expect(factory.createWindow).toHaveBeenCalledTimes(1);
+    expect(w2Mock.loadURL).toHaveBeenCalledTimes(1);
+    expect(w2Mock.loadURL).toHaveBeenCalledWith('https://chat.example/');
+  });
+
+  it('enumerateAccountWebContents returns each live account and skips dehydrated', () => {
+    const factory = makeFactory();
+    const m = new AccountWindowManager(factory);
+    m.createAccountWindow('https://a/', asAccountIndex(0));
+    m.createAccountWindow('https://b/', asAccountIndex(1));
+    m.dehydrateAccount(asAccountIndex(1));
+
+    const listed = m.enumerateAccountWebContents();
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.accountIndex).toBe(0);
+    expect(listed[0]?.backend).toBe('browser-window');
+    expect(listed[0]?.webContents).toBeDefined();
   });
 
   it('hydrateAccount does not call maximize when snapshot is non-maximized', () => {
