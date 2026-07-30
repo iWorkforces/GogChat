@@ -1,6 +1,8 @@
 /**
  * Offline page handler
- * Manages connectivity checks and page reload when coming back online
+ * Manages connectivity checks and restores the offline UI after a failed
+ * recovery attempt without reloading the document. On the first true reply,
+ * navigates once to the app URL via location.replace.
  */
 
 import urls from '../urls.js';
@@ -8,22 +10,33 @@ import urls from '../urls.js';
 let unsubscribe: (() => void) | null = null;
 
 /**
- * Handle online status response from main process
+ * DOM-only signal that a connectivity check finished with a false reply.
+ * The offline page listens and re-enables the retry control.
+ * Does not reload the document.
  */
-const handleOnlineStatus = (online: boolean) => {
+export const ONLINE_CHECK_FAILED_EVENT = 'app:onlineCheckFailed';
+
+/**
+ * Handle online status response from main process.
+ * True → single app-URL replacement. False → DOM signal only (no reload).
+ * Exported for unit tests.
+ */
+export const handleOnlineStatus = (online: boolean): void => {
   if (online) {
-    // Back online - redirect to GogChat
+    // Back online - redirect to GogChat exactly once
     window.location.replace(urls.appUrl);
   } else {
-    // Still offline - reload offline page
-    window.location.reload();
+    // Still offline - retain the fallback document; signal the page to
+    // restore retry state without a full reload.
+    window.dispatchEvent(new Event(ONLINE_CHECK_FAILED_EVENT));
   }
 };
 
 /**
- * Handle check connectivity button click from offline.html
+ * Handle check connectivity button click from offline.html.
+ * Exported for unit tests.
  */
-const handleCheckOnline = () => {
+export const handleCheckOnline = (): void => {
   if (window.gogchat?.checkIfOnline) {
     window.gogchat.checkIfOnline();
   }
