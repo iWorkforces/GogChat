@@ -153,6 +153,8 @@ export function getStore(): Store<StoreType> | CachedStore<StoreType> {
 const storeProxy = new Proxy(asType<Store<StoreType> | CachedStore<StoreType>>({}), {
   get(_target, prop) {
     const store = getStore();
+    // Store methods are rebound immediately below; access is intentional.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- rebound via .bind(store)
     const value = store[asType<keyof typeof store>(prop)];
     // Bind methods to the actual store instance to preserve 'this' context
     if (typeof value === 'function') {
