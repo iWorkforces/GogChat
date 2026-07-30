@@ -56,6 +56,11 @@ files:
   - '!electron-builder*.yml'
   - '!rsbuild.config.ts'
   - '!build-macOS-*.sh'
+  # Proven build-only toolchain packages (see verify-packaged-dependency-closure).
+  # Moved out of runtime dependencies; belt-and-suspenders exclusion if hoisted.
+  - '!node_modules/@rslib/**/*'
+  - '!node_modules/@rspack/**/*'
+  - '!node_modules/@ast-grep/**/*'
 
 # Compression settings
 compression: maximum

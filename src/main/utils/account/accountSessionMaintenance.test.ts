@@ -107,6 +107,7 @@ function makeManager(overrides: Partial<IAccountWindowManager> = {}): IAccountWi
     dehydrateAccount: vi.fn(),
     hydrateAccount: vi.fn().mockReturnValue(null),
     isDehydrated: vi.fn().mockReturnValue(false),
+    enumerateAccountWebContents: vi.fn().mockReturnValue([]),
     ...overrides,
   };
 }

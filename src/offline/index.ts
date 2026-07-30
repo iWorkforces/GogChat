@@ -5,6 +5,11 @@
   let attemptCount = 0;
   let interval: NodeJS.Timeout;
 
+  const restoreRetryState = () => {
+    btn.disabled = false;
+    btn.innerText = 'Retry';
+  };
+
   const checkIsOnline = () => {
     if (attemptCount > MAX_AUTO_ATTEMPT_COUNT) {
       clearInterval(interval);
@@ -18,6 +23,10 @@
     window.dispatchEvent(new Event('app:checkIfOnline'));
     attemptCount++;
   };
+
+  // Preload signals failed checks via DOM event so we re-enable retry without
+  // reloading the offline document.
+  window.addEventListener('app:onlineCheckFailed', restoreRetryState);
 
   btn.addEventListener('click', checkIsOnline);
   interval = setInterval(checkIsOnline, 1000 * 60);

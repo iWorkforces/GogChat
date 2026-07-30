@@ -16,11 +16,11 @@ This directory owns platform integration: tray, dock/taskbar badges, app menu, h
 
 `iconCache.ts` intentionally warms assets in tiers:
 
-1. INITIAL: immediate startup-critical icons.
-2. SOON_DEFERRED: short-delay warmup, around 2s.
-3. IDLE_DEFERRED: idle/late warmup, around 30s.
+1. INITIAL: immediate startup-critical icons (critical path via `cacheWarmer.warmInitialIcons`).
+2. SOON_DEFERRED: short-delay warmup after critical path (`warmSoonDeferredIcons` on `setImmediate`).
+3. IDLE / ADDITIONAL: later idle warmup (`cacheWarmer` ADDITIONAL set; disjoint from INITIAL and SOON_DEFERRED).
 
-Do not move all icon work into startup; it affects app-ready latency.
+Do not move all icon work into startup; it affects app-ready latency. Keep the triple-set partition disjoint (no overlap between INITIAL, SOON_DEFERRED, and ADDITIONAL).
 
 ## Anti-patterns
 

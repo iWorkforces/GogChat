@@ -156,7 +156,7 @@ export default [
         document: 'readonly',
         navigator: 'readonly',
         MutationObserver: 'readonly',
-        // DOM types used in preload test type annotations
+        // DOM types used in preload/offline test type annotations
         Event: 'readonly',
         EventListener: 'readonly',
         EventListenerOrEventListenerObject: 'readonly',
@@ -165,6 +165,8 @@ export default [
         NodeListOf: 'readonly',
         Element: 'readonly',
         HTMLLinkElement: 'readonly',
+        HTMLButtonElement: 'readonly',
+        HTMLElement: 'readonly',
         DOMException: 'readonly',
         Notification: 'readonly',
       },
@@ -255,6 +257,7 @@ export default [
   // Offline scripts configuration (browser environment)
   {
     files: ['src/offline/**/*.ts'],
+    ignores: ['src/offline/**/*.test.ts'],
     languageOptions: {
       parser: tsparser,
       parserOptions: {

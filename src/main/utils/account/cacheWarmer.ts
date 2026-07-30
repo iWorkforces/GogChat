@@ -9,15 +9,15 @@
  * so the app-ready orchestrator stays lean.
  */
 
-import { app, type BrowserWindow } from 'electron';
+import { type BrowserWindow } from 'electron';
 import log from 'electron-log';
-import path from 'path';
 import { perfMonitor } from '../lifecycle/performanceMonitor.js';
 import { getIconCache, SOON_DEFERRED_ICON_PATHS } from '../platform/iconCache.js';
 import { createTrackedTimeout } from '../lifecycle/resourceCleanup.js';
 import { compareStorePerformance } from '../lifecycle/configProfiler.js';
 import { runPhase } from '../lifecycle/featureRunner.js';
 import type { FeatureContext } from '../lifecycle/featureConfigTypes.js';
+import { notifyDeferredPhaseComplete } from '../lifecycle/performanceFinalizer.js';
 
 /** Delay (ms) before idle cache warming fires after deferred features load. */
 const IDLE_WARM_DELAY_MS = 8000;
@@ -99,16 +99,22 @@ export async function runDeferredPhase(options: DeferredPhaseOptions): Promise<v
   // Log performance summary
   perfMonitor.logSummary();
 
-  // Dev-only post-deferred side effects
+  // Dev-only post-deferred side effects (profiling only — metrics export is
+  // owned by performanceFinalizer after document-load + renderer sample).
   runDevPostDeferred(isDev);
+
+  // Signal that deferred producers finished so the finalizer can export once
+  // account-0 document load (and an immediate renderer sample) also complete.
+  notifyDeferredPhaseComplete();
 
   // ⚡ OPTIMIZATION: Warm caches on idle (after all features loaded)
   scheduleIdleCacheWarming();
 }
 
 /**
- * Run dev-only post-deferred side effects: optional config profiling and
- * performance metrics export. No-op when isDev is false.
+ * Run dev-only post-deferred side effects: optional config profiling.
+ * Metrics export is intentionally NOT performed here — early export omits
+ * `account-0-content-loaded` and renderer evidence. See performanceFinalizer.
  */
 export function runDevPostDeferred(isDev: boolean): void {
   if (!isDev) return;
@@ -117,9 +123,6 @@ export function runDevPostDeferred(isDev: boolean): void {
     log.info('[Main] Running config store performance analysis...');
     compareStorePerformance();
   }
-
-  // Export performance metrics to JSON
-  perfMonitor.exportToJSON(path.join(app.getPath('userData'), 'performance-metrics.json'));
 }
 
 /**

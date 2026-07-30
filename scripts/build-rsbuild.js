@@ -15,7 +15,7 @@
 import { createRsbuild, loadConfig } from '@rsbuild/core';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { generateFeaturePlan } from './featurePlanPlugin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -159,26 +159,44 @@ function copyOfflineAssets() {
 }
 
 /**
- * Track bundle size history with chunk-level details
+ * Collect emitted async chunks under lib/chunks/*.js.
+ * Rsbuild emits named chunks as `*.js` (not the stale `*.chunk.js` suffix).
  */
-function trackBuildHistory(libDir) {
+export function collectEmittedChunks(libDir) {
+  const chunks = [];
+  const chunksDir = path.join(libDir, 'chunks');
+  if (!fs.existsSync(chunksDir)) return chunks;
+  for (const entry of fs.readdirSync(chunksDir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith('.js')) {
+      const relativePath = path.join('chunks', entry.name);
+      const size = fs.statSync(path.join(chunksDir, entry.name)).size;
+      chunks.push({ path: relativePath, size });
+    }
+  }
+  return chunks;
+}
+
+/**
+ * Track bundle size history with chunk-level details.
+ * @param {string} libDir - Path to lib/ output
+ * @param {{ buildTimeMs?: number }} [options] - Optional build duration in ms
+ */
+export function trackBuildHistory(libDir, options = {}) {
   const libSize = getDirectorySize(libDir);
   const libSizeMB = (libSize / 1024 / 1024).toFixed(2);
   const files = getAllFiles(libDir);
 
   console.log(`[Build] Output size: ${libSizeMB} MB (${libSize.toLocaleString()} bytes)`);
 
-  // Separate chunks from regular files
-  const chunks = [];
+  // Count emitted lib/chunks/*.js (not the stale *.chunk.js suffix).
+  const chunks = collectEmittedChunks(libDir);
   const regularFiles = [];
 
   files.forEach((file) => {
-    const relativePath = file.replace(libDir + '/', '');
+    const relativePath = file.replace(libDir + path.sep, '').replace(/\\/g, '/');
     const size = fs.statSync(file).size;
-
-    if (relativePath.includes('chunks/') && relativePath.endsWith('.chunk.js')) {
-      chunks.push({ path: relativePath, size });
-    } else if (relativePath.endsWith('.js')) {
+    if (relativePath.startsWith('chunks/')) return;
+    if (relativePath.endsWith('.js')) {
       regularFiles.push({ path: relativePath, size });
     }
   });
@@ -197,7 +215,7 @@ function trackBuildHistory(libDir) {
       .sort((a, b) => b.size - a.size)
       .forEach((chunk) => {
         const sizeKB = (chunk.size / 1024).toFixed(1);
-        const chunkName = chunk.path.replace('chunks/', '').replace('.chunk.js', '');
+        const chunkName = chunk.path.replace(/^chunks\//, '').replace(/\.js$/, '');
         console.log(`[Build]   - ${chunkName}: ${sizeKB} KB`);
       });
 
@@ -229,6 +247,11 @@ function trackBuildHistory(libDir) {
     }
   }
 
+  const buildTimeMs =
+    typeof options.buildTimeMs === 'number' && Number.isFinite(options.buildTimeMs)
+      ? Math.round(options.buildTimeMs)
+      : undefined;
+
   const buildRecord = {
     timestamp: new Date().toISOString(),
     size: libSize,
@@ -239,10 +262,13 @@ function trackBuildHistory(libDir) {
     chunkCount: chunks.length,
     totalChunkSize: chunks.reduce((sum, c) => sum + c.size, 0),
     chunks: chunks.map((c) => ({
-      name: c.path.replace('chunks/', '').replace('.chunk.js', ''),
+      name: c.path.replace(/^chunks\//, '').replace(/\.js$/, ''),
       size: c.size,
     })),
   };
+  if (buildTimeMs !== undefined) {
+    buildRecord.buildTimeMs = buildTimeMs;
+  }
 
   history.push(buildRecord);
 
@@ -374,11 +400,17 @@ async function build() {
       await preloadRsbuild.build();
       copyOfflineAssets();
       const endTime = Date.now();
-      const duration = ((endTime - startTime) / 1000).toFixed(2);
+      const buildTimeMs = endTime - startTime;
+      const duration = (buildTimeMs / 1000).toFixed(2);
       console.log(`[Build] ✅ Compilation completed in ${duration}s`);
       if (!isDev) {
         const libDir = path.join(__dirname, '../lib');
-        trackBuildHistory(libDir);
+        trackBuildHistory(libDir, { buildTimeMs });
+        // ANALYZE=true: emit deterministic machine-readable build stats under
+        // the evidence root (or .omo/evidence/build-analyze when not set).
+        if (process.env.ANALYZE === 'true') {
+          writeAnalyzeStats(libDir, { buildTimeMs });
+        }
       }
     }
   } catch (error) {
@@ -386,5 +418,37 @@ async function build() {
     process.exit(1);
   }
 }
-// Run build
-build();
+
+/**
+ * Write deterministic machine-readable build stats when ANALYZE=true.
+ * Avoids claiming an Rsbuild analyzer artifact that may not exist.
+ */
+function writeAnalyzeStats(libDir, { buildTimeMs }) {
+  const evidenceRoot =
+    process.env.GOGCHAT_EVIDENCE_ROOT || path.join(__dirname, '../.omo/evidence/build-analyze');
+  fs.mkdirSync(evidenceRoot, { recursive: true });
+  const chunks = collectEmittedChunks(libDir);
+  const stats = {
+    timestamp: new Date().toISOString(),
+    buildTimeMs,
+    libDir,
+    mainBundleSize: (() => {
+      try {
+        return fs.statSync(path.join(libDir, 'main', 'index.js')).size;
+      } catch {
+        return null;
+      }
+    })(),
+    chunkCount: chunks.length,
+    chunks: chunks.map((c) => ({ path: c.path, size: c.size })),
+    totalLibSize: getDirectorySize(libDir),
+  };
+  const outPath = path.join(evidenceRoot, 'build-stats.json');
+  fs.writeFileSync(outPath, JSON.stringify(stats, null, 2) + '\n');
+  console.log(`[Build] ANALYZE stats written to: ${outPath}`);
+}
+
+// Run build only when executed as the main module (not when imported by tests).
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  build();
+}

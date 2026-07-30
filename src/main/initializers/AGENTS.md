@@ -29,6 +29,17 @@ This directory is the canonical home for app startup/shutdown sequencing and bui
 
 Keep the phase boundary meaningful. If a feature can wait, keep it deferred.
 
+## Performance finalizer arming
+
+In `registerAppReady.ts`, after account-0 window construction:
+
+1. Call `armPerformanceFinalizer({ getAccountManager })`.
+2. Mark `account-0-ready` for native window readiness only.
+3. On main-frame `did-finish-load`, mark `account-0-content-loaded` and `notifyDocumentLoadComplete()`.
+4. On main-frame hard `did-fail-load` (not ERR_ABORTED), `notifyDocumentLoadFailed(...)`.
+
+Deferred phase (via `cacheWarmer`) calls `notifyDeferredPhaseComplete()` after features load. Final metrics export is not owned by deferred-only paths.
+
 ## Shutdown
 
 Shutdown order is intentional:
