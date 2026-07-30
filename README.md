@@ -10,7 +10,9 @@ GogChat is an unofficial macOS desktop wrapper for Google Chat, built with Elect
 
 - System tray icon with close-to-tray behavior
 - Native OS notifications (Google Chat web notifications bridged to macOS banners; grant notification permission when prompted, and enable desktop notifications in Chat settings)
-- Optional fallback: Preferences → Notify on Unread Badge Increase (off by default) shows a generic banner when the unread badge rises while unfocused
+- Multi-account banners always show an account subtitle (`Account 1`, `Account 2`, …) and group per account; click opens the matching account
+- Optional fallback: Preferences → Notify on Unread Badge Increase (off by default) shows a generic banner when that account’s unread count rises while unfocused
+- Dock badge shows total unreads across accounts (capped at 99)
 - Preferences → Notification Settings… opens macOS Notifications for GogChat
 - Application menu and search shortcut integration
 - Auto-launch at login

@@ -5,9 +5,11 @@ import { defineIPC } from '../utils/ipc/defineIPC.js';
 import { getRateLimiter } from '../utils/ipc/rateLimiter.js';
 import { validateNotificationData } from '../../shared/dataValidators.js';
 import {
+  buildAccountAwareNotificationPayload,
   cleanupActiveNativeNotifications,
   showNativeNotification,
 } from '../utils/platform/nativeNotification.js';
+import { resolveAccountIndexFromIpcEvent } from '../utils/platform/accountNotificationIdentity.js';
 import {
   focusNotificationSource,
   resolveNotificationFocusWindow,
@@ -28,19 +30,20 @@ export default (window: BrowserWindow) => {
     description: 'Notification show',
     handler: (validated, event) => {
       const focusWindow = resolveNotificationFocusWindow(event, window);
-      showNativeNotification(
-        {
-          title: validated.title,
-          ...(validated.body !== undefined && { body: validated.body }),
-          ...(validated.icon !== undefined && { icon: validated.icon }),
-          ...(validated.tag !== undefined && { tag: validated.tag }),
-        },
-        {
-          focusWindow,
-          ipcEvent: event,
-          source: 'bridge',
-        }
-      );
+      const accountIndex = resolveAccountIndexFromIpcEvent(event);
+      const payload = buildAccountAwareNotificationPayload({
+        title: validated.title,
+        ...(validated.body !== undefined && { body: validated.body }),
+        ...(validated.icon !== undefined && { icon: validated.icon }),
+        ...(validated.tag !== undefined && { chatTag: validated.tag }),
+        accountIndex,
+      });
+      showNativeNotification(payload, {
+        focusWindow,
+        ipcEvent: event,
+        source: 'bridge',
+        accountIndex,
+      });
     },
   });
 

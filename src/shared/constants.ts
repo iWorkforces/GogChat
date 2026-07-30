@@ -99,7 +99,13 @@ export const RATE_LIMITS = {
  * Badge icon limits
  */
 export const BADGE = {
+  /** Max accepted unread count over IPC (validator). */
   MAX_COUNT: 9999,
+  /**
+   * Max count shown on the dock badge and in unread-delta notification copy.
+   * Values above this display as 99 (badge) / "99+" (banner body).
+   */
+  DISPLAY_MAX: 99,
   CACHE_LIMIT: 99, // Cache icons for counts 0-99
 } as const satisfies Record<string, number>;
 

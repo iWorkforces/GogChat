@@ -5,15 +5,25 @@
  *   - handleNotification (Chat web Notification bridge IPC)
  *   - badgeHelpers unread-delta fallback (generic banners when enabled)
  *
- * Owns tag de-dupe, auto-dismiss, click → focus, and bridge/unread cooldown.
+ * Owns tag de-dupe, auto-dismiss, click → focus, and per-account bridge cooldown.
+ * Account identity (subtitle / groupId / namespaced tag) is applied by callers
+ * or via buildAccountAwareNotificationPayload.
  */
 
 import type { BrowserWindow, IpcMainEvent } from 'electron';
 import { Notification } from 'electron';
 import log from 'electron-log';
-import { TIMING } from '../../../shared/constants.js';
+import { BADGE, TIMING } from '../../../shared/constants.js';
+import type { AccountIndex } from '../../../shared/types/branded.js';
 import { createTrackedTimeout } from '../lifecycle/resourceCleanup.js';
 import { focusNotificationSource } from './notificationFocus.js';
+import {
+  UNREAD_DELTA_TAG_BASE,
+  accountNotificationGroupId,
+  formatAccountNotificationLabel,
+  namespaceNotificationTag,
+  resolveAccountIndexFromIpcEvent,
+} from './accountNotificationIdentity.js';
 
 export type NativeNotificationSource = 'bridge' | 'unread-delta';
 
@@ -21,15 +31,22 @@ export type NativeNotificationPayload = {
   readonly title: string;
   readonly body?: string;
   readonly icon?: string;
+  /** Already namespaced when multi-account aware. */
   readonly tag?: string;
+  /** macOS: account label under title (always set when using account-aware builder). */
+  readonly subtitle?: string;
+  /** macOS/Windows: group notifications per account. */
+  readonly groupId?: string;
 };
 
 export type ShowNativeNotificationOptions = {
   readonly focusWindow: BrowserWindow;
   /** When set, click re-resolves account focus from this IPC event's sender. */
   readonly ipcEvent?: IpcMainEvent;
-  /** Origin of the show — bridge marks cooldown; unread-delta respects it. */
+  /** Origin of the show — bridge marks per-account cooldown; unread-delta respects it. */
   readonly source?: NativeNotificationSource;
+  /** Account used for cooldown bookkeeping (derived from sender). */
+  readonly accountIndex?: AccountIndex | null;
 };
 
 type ActiveEntry = {
@@ -43,25 +60,62 @@ const activeNotifications = new Map<string, ActiveEntry>();
 /** Monotonic tracking keys for untagged notifications so cleanup can find them. */
 let trackingIdCounter = 0;
 
-/** Last time a Chat bridge notification was successfully shown (ms epoch). */
-let lastBridgeNotificationAt = 0;
+/** Last bridge notification show time per account (null key = unknown account). */
+const lastBridgeNotificationAtByAccount = new Map<string, number>();
+
+function accountCooldownKey(accountIndex: AccountIndex | null | undefined): string {
+  if (accountIndex === null || accountIndex === undefined) {
+    return 'unknown';
+  }
+  return String(accountIndex);
+}
 
 /**
  * Reset bridge cooldown (unit tests only).
  */
 export function resetBridgeNotificationCooldownForTests(): void {
-  lastBridgeNotificationAt = 0;
+  lastBridgeNotificationAtByAccount.clear();
 }
 
-export function markBridgeNotificationShown(now = Date.now()): void {
-  lastBridgeNotificationAt = now;
+export function markBridgeNotificationShown(
+  accountIndex: AccountIndex | null | undefined,
+  now = Date.now()
+): void {
+  lastBridgeNotificationAtByAccount.set(accountCooldownKey(accountIndex), now);
 }
 
-export function wasBridgeNotificationRecentlyShown(now = Date.now()): boolean {
-  if (lastBridgeNotificationAt === 0) {
+export function wasBridgeNotificationRecentlyShown(
+  accountIndex: AccountIndex | null | undefined,
+  now = Date.now()
+): boolean {
+  const at = lastBridgeNotificationAtByAccount.get(accountCooldownKey(accountIndex));
+  if (at === undefined) {
     return false;
   }
-  return now - lastBridgeNotificationAt < TIMING.NOTIFICATION_BRIDGE_COOLDOWN_MS;
+  return now - at < TIMING.NOTIFICATION_BRIDGE_COOLDOWN_MS;
+}
+
+/**
+ * Build payload with always-on account subtitle, groupId, and namespaced tag.
+ */
+export function buildAccountAwareNotificationPayload(options: {
+  readonly title: string;
+  readonly body?: string;
+  readonly icon?: string;
+  readonly chatTag?: string;
+  readonly accountIndex: AccountIndex | null;
+  readonly customAccountLabel?: string;
+}): NativeNotificationPayload {
+  const { accountIndex } = options;
+  const tag = namespaceNotificationTag(accountIndex, options.chatTag);
+  return {
+    title: options.title,
+    ...(options.body !== undefined && { body: options.body }),
+    ...(options.icon !== undefined && { icon: options.icon }),
+    tag,
+    subtitle: formatAccountNotificationLabel(accountIndex, options.customAccountLabel),
+    groupId: accountNotificationGroupId(accountIndex),
+  };
 }
 
 /**
@@ -79,9 +133,14 @@ export function showNativeNotification(
     }
 
     const source = options.source ?? 'bridge';
-    if (source === 'unread-delta' && wasBridgeNotificationRecentlyShown()) {
+    const accountIndex =
+      options.accountIndex !== undefined
+        ? options.accountIndex
+        : resolveAccountIndexFromIpcEvent(options.ipcEvent);
+
+    if (source === 'unread-delta' && wasBridgeNotificationRecentlyShown(accountIndex)) {
       log.debug(
-        '[NativeNotification] Suppressing unread-delta banner (recent bridge notification)'
+        '[NativeNotification] Suppressing unread-delta banner (recent bridge for this account)'
       );
       return false;
     }
@@ -89,18 +148,22 @@ export function showNativeNotification(
     log.debug(
       '[NativeNotification] Creating notification:',
       payload.title,
+      'subtitle=',
+      payload.subtitle ?? '(none)',
       'tag=',
       payload.tag ?? '(none)',
+      'account=',
+      accountIndex ?? 'unknown',
       'source=',
-      source,
-      'hasBody=',
-      payload.body !== undefined
+      source
     );
 
     const notification = new Notification({
       title: payload.title,
       ...(payload.body !== undefined && { body: payload.body }),
       ...(payload.icon !== undefined && { icon: payload.icon }),
+      ...(payload.subtitle !== undefined && { subtitle: payload.subtitle }),
+      ...(payload.groupId !== undefined && { groupId: payload.groupId }),
       silent: false,
     });
 
@@ -117,8 +180,6 @@ export function showNativeNotification(
     });
 
     notification.on('close', () => {
-      // Only remove our own entry — avoids race when replacing the same tag:
-      // old close must not wipe the newly inserted ActiveEntry.
       const entry = activeNotifications.get(trackingKey);
       if (entry && entry.notification === notification) {
         clearTimeout(entry.timeout);
@@ -127,12 +188,10 @@ export function showNativeNotification(
       log.debug('[NativeNotification] Notification closed:', payload.title);
     });
 
-    // Replace prior tag entry before show so close of old cannot race with new.
     if (payload.tag) {
       const existing = activeNotifications.get(trackingKey);
       if (existing) {
         clearTimeout(existing.timeout);
-        // Detach identity so old close cannot clear the replacement we insert later
         activeNotifications.delete(trackingKey);
         try {
           existing.notification.close();
@@ -145,7 +204,7 @@ export function showNativeNotification(
     notification.show();
 
     if (source === 'bridge') {
-      markBridgeNotificationShown();
+      markBridgeNotificationShown(accountIndex);
     }
 
     const timeout = createTrackedTimeout(
@@ -188,8 +247,8 @@ export function cleanupActiveNativeNotifications(): void {
   activeNotifications.clear();
 }
 
-/** Fixed tag so rapid unread increases replace a single banner instead of stacking. */
-export const UNREAD_DELTA_NOTIFICATION_TAG = 'gogchat-unread-delta';
+/** @deprecated Use UNREAD_DELTA_TAG_BASE + namespaceNotificationTag */
+export const UNREAD_DELTA_NOTIFICATION_TAG = UNREAD_DELTA_TAG_BASE;
 
 /**
  * Pure policy: whether an unread-count transition should produce a synthetic banner.
@@ -217,9 +276,24 @@ export function shouldShowUnreadDeltaNotification(options: {
   return options.nextCount > options.previousCount && options.nextCount > 0;
 }
 
+/**
+ * Cap count for user-facing display (dock + banner body) at BADGE.DISPLAY_MAX (99).
+ */
+export function clampBadgeDisplayCount(count: number): number {
+  if (count <= 0) return 0;
+  if (count > BADGE.DISPLAY_MAX) return BADGE.DISPLAY_MAX;
+  return Math.floor(count);
+}
+
 export function buildUnreadDeltaNotificationBody(count: number): string {
+  if (count <= 0) {
+    return 'You have new unread messages';
+  }
   if (count === 1) {
     return 'You have a new unread message';
+  }
+  if (count > BADGE.DISPLAY_MAX) {
+    return `You have ${BADGE.DISPLAY_MAX}+ unread messages`;
   }
   return `You have ${count} unread messages`;
 }

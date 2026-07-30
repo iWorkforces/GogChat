@@ -73,12 +73,29 @@ const mockShowNativeNotification = vi.fn().mockReturnValue(true);
 const mockWasBridgeRecently = vi.fn().mockReturnValue(false);
 const mockEnsureNotificationPermission = vi.fn().mockReturnValue('already-requested');
 const mockResolveFocusWindow = vi.fn((event: unknown, fallback: unknown) => fallback);
+const mockResolveAccount = vi.fn().mockReturnValue(0);
+const mockBuildPayload = vi.fn((opts: Record<string, unknown>) => ({
+  title: opts['title'],
+  body: opts['body'],
+  tag: `a0:${opts['chatTag']}`,
+  subtitle: 'Account 1',
+  groupId: 'gogchat-account-0',
+}));
 vi.mock('./nativeNotification.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./nativeNotification.js')>();
   return {
     ...actual,
     showNativeNotification: (...args: unknown[]) => mockShowNativeNotification(...args),
     wasBridgeNotificationRecentlyShown: (...args: unknown[]) => mockWasBridgeRecently(...args),
+    buildAccountAwareNotificationPayload: (...args: unknown[]) =>
+      mockBuildPayload(...(args as [Record<string, unknown>])),
+  };
+});
+vi.mock('./accountNotificationIdentity.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./accountNotificationIdentity.js')>();
+  return {
+    ...actual,
+    resolveAccountIndexFromIpcEvent: (...args: unknown[]) => mockResolveAccount(...args),
   };
 });
 vi.mock('./notificationFocus.js', () => ({
@@ -119,6 +136,8 @@ describe('badgeHelpers (config wiring)', () => {
     mockWasBridgeRecently.mockReturnValue(false);
     mockEnsureNotificationPermission.mockClear();
     mockResolveFocusWindow.mockImplementation((_e: unknown, fb: unknown) => fb);
+    mockResolveAccount.mockReturnValue(0);
+    mockBuildPayload.mockClear();
     mockConfigGet.mockReturnValue(false);
     mockPlatformState.supportsDockBadge = true;
     mockPlatformState.useTemplateTrayIcon = true;
@@ -285,18 +304,42 @@ describe('badgeHelpers (config wiring)', () => {
 
       unreadCfg.handler(3, event);
       expect(mockEnsureNotificationPermission).toHaveBeenCalled();
-      expect(mockShowNativeNotification).toHaveBeenCalledWith(
+      expect(mockBuildPayload).toHaveBeenCalledWith(
         expect.objectContaining({
           title: 'GogChat',
           body: 'You have 3 unread messages',
-          tag: 'gogchat-unread-delta',
+          chatTag: 'gogchat-unread-delta',
+          accountIndex: 0,
+        })
+      );
+      expect(mockShowNativeNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subtitle: 'Account 1',
+          tag: 'a0:gogchat-unread-delta',
         }),
         expect.objectContaining({
           focusWindow: win,
           ipcEvent: event,
           source: 'unread-delta',
+          accountIndex: 0,
         })
       );
+    });
+
+    it('sums per-account unread for dock badge and caps display at 99', async () => {
+      mockResolveAccount.mockReturnValueOnce(0).mockReturnValueOnce(1);
+      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      setupBadgeHandlers(fakeWindow(), fakeTray());
+
+      const unreadCfg = mockRegisterFastHandler.mock.calls.find(
+        ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
+      )?.[0] as { handler: (v: number, e?: unknown) => void };
+
+      unreadCfg.handler(40, { sender: { id: 1 } });
+      unreadCfg.handler(70, { sender: { id: 2 } });
+
+      // sum 110 → display 99
+      expect(mockSetBadgeCount).toHaveBeenLastCalledWith(99);
     });
 
     it('skips unread-delta notification when window is focused', async () => {

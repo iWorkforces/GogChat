@@ -57,6 +57,14 @@ describe('SELECTORS', () => {
   });
 });
 
+describe('BADGE', () => {
+  it('caps user-facing display at 99', async () => {
+    const { BADGE } = await import('./constants.js');
+    expect(BADGE.DISPLAY_MAX).toBe(99);
+    expect(BADGE.CACHE_LIMIT).toBe(99);
+  });
+});
+
 describe('TIMING', () => {
   it('should define timing constants in milliseconds', () => {
     expect(TIMING.FAVICON_POLL).toBe(1000);
@@ -142,8 +150,9 @@ describe('BADGE', () => {
     expect(BADGE.CACHE_LIMIT).toBeLessThan(BADGE.MAX_COUNT);
   });
 
-  it('should have exactly 2 properties', () => {
-    expect(Object.keys(BADGE).length).toBe(2);
+  it('should have exactly 3 properties', () => {
+    expect(Object.keys(BADGE).length).toBe(3);
+    expect(BADGE.DISPLAY_MAX).toBe(99);
   });
 });
 

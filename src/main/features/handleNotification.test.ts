@@ -46,6 +46,15 @@ const showNativeNotificationMock = vi.fn().mockReturnValue(true);
 const cleanupActiveNativeNotificationsMock = vi.fn();
 const focusNotificationSourceMock = vi.fn();
 const resolveNotificationFocusWindowMock = vi.fn();
+const resolveAccountIndexMock = vi.fn().mockReturnValue(0);
+const buildAccountAwarePayloadMock = vi.fn((opts: Record<string, unknown>) => ({
+  title: opts['title'],
+  body: opts['body'],
+  icon: opts['icon'],
+  tag: `a0:${opts['chatTag'] ?? 'x'}`,
+  subtitle: 'Account 1',
+  groupId: 'gogchat-account-0',
+}));
 
 const ipcMainMock = {
   on: vi.fn(),
@@ -99,6 +108,12 @@ vi.mock('../utils/ipc/rateLimiter.js', () => ({
 vi.mock('../utils/platform/nativeNotification.js', () => ({
   showNativeNotification: (...args: unknown[]) => showNativeNotificationMock(...args),
   cleanupActiveNativeNotifications: () => cleanupActiveNativeNotificationsMock(),
+  buildAccountAwareNotificationPayload: (...args: unknown[]) =>
+    buildAccountAwarePayloadMock(...(args as [Record<string, unknown>])),
+}));
+
+vi.mock('../utils/platform/accountNotificationIdentity.js', () => ({
+  resolveAccountIndexFromIpcEvent: (...args: unknown[]) => resolveAccountIndexMock(...args),
 }));
 
 vi.mock('../utils/platform/notificationFocus.js', () => ({
@@ -136,7 +151,7 @@ describe('handleNotification feature', () => {
     );
   });
 
-  it('forwards bridge payload with source bridge and resolved focus window', async () => {
+  it('forwards account-aware bridge payload with subtitle and namespaced tag', async () => {
     const feature = await import('./handleNotification.js');
     feature.default(fakeWindow as unknown as Electron.BrowserWindow);
 
@@ -155,19 +170,27 @@ describe('handleNotification feature', () => {
       event
     );
 
-    expect(resolveNotificationFocusWindowMock).toHaveBeenCalledWith(event, fakeWindow);
-    expect(showNativeNotificationMock).toHaveBeenCalledWith(
-      {
+    expect(resolveAccountIndexMock).toHaveBeenCalledWith(event);
+    expect(buildAccountAwarePayloadMock).toHaveBeenCalledWith(
+      expect.objectContaining({
         title: 'Test Title',
         body: 'Test body',
-        icon: 'test-icon.png',
-        tag: 'tag1',
-      },
-      {
+        chatTag: 'tag1',
+        accountIndex: 0,
+      })
+    );
+    expect(showNativeNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Test Title',
+        subtitle: 'Account 1',
+        tag: 'a0:tag1',
+      }),
+      expect.objectContaining({
         focusWindow: fakeWindow,
         ipcEvent: event,
         source: 'bridge',
-      }
+        accountIndex: 0,
+      })
     );
   });
 

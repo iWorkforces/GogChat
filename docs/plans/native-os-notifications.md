@@ -558,7 +558,19 @@ Only after smoke evidence.
 | Untagged notifications escaped cleanup | Always assign internal tracking keys |
 | Multi-account / WCV click focus | `IAccountWindowManager.focusAccount` + `notificationFocus` from IPC sender |
 | Unread-delta ignored sender | `registerFastHandler` passes `event`; unread-delta uses `resolveNotificationFocusWindow` + `ipcEvent` |
-| Double banner bridge + unread-delta | `TIMING.NOTIFICATION_BRIDGE_COOLDOWN_MS` + `wasBridgeNotificationRecentlyShown` |
+| Double banner bridge + unread-delta | `TIMING.NOTIFICATION_BRIDGE_COOLDOWN_MS` + per-account `wasBridgeNotificationRecentlyShown` |
+
+## Multi-account distinction (landed)
+
+| Decision | Choice |
+| --- | --- |
+| Account identity source | Main derives from IPC sender only |
+| Subtitle | **Always** show (`Account N` 1-based, or custom later); even for one account |
+| groupId | `gogchat-account-${index}` |
+| Tag isolation | `a${index}:${chatTag}` via `namespaceNotificationTag` |
+| Bridge cooldown | Per-account map |
+| Dock badge | Sum of per-account unreads, **display max 99** (`BADGE.DISPLAY_MAX`) |
+| Unread-delta body | Per-account increase; `99+` when count &gt; 99 |
 
 ## Signed smoke checklist (manual)
 

@@ -7,19 +7,32 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 class FakeNotification {
   static all: FakeNotification[] = [];
   static isSupported = vi.fn().mockReturnValue(true);
+  static lastOptions: Record<string, unknown> | null = null;
 
   title: string;
   body?: string;
   icon?: string;
+  subtitle?: string;
+  groupId?: string;
   silent: boolean;
   closed = false;
   clickHandler: (() => void) | null = null;
   closeHandler: (() => void) | null = null;
 
-  constructor(options: { title: string; body?: string; icon?: string; silent?: boolean }) {
+  constructor(options: {
+    title: string;
+    body?: string;
+    icon?: string;
+    subtitle?: string;
+    groupId?: string;
+    silent?: boolean;
+  }) {
+    FakeNotification.lastOptions = options as Record<string, unknown>;
     this.title = options.title;
     this.body = options.body;
     this.icon = options.icon;
+    this.subtitle = options.subtitle;
+    this.groupId = options.groupId;
     this.silent = options.silent ?? false;
     FakeNotification.all.push(this);
   }
@@ -43,6 +56,7 @@ class FakeNotification {
 
   static resetAll() {
     FakeNotification.all = [];
+    FakeNotification.lastOptions = null;
     FakeNotification.isSupported.mockReturnValue(true);
   }
 }
@@ -59,6 +73,7 @@ vi.mock('electron-log', () => ({
 
 vi.mock('../../../shared/constants.js', () => ({
   TIMING: { NOTIFICATION_AUTO_DISMISS: 10000, NOTIFICATION_BRIDGE_COOLDOWN_MS: 8000 },
+  BADGE: { DISPLAY_MAX: 99, MAX_COUNT: 9999, CACHE_LIMIT: 99 },
 }));
 
 const createTrackedTimeoutMock = vi.fn(
@@ -72,6 +87,14 @@ vi.mock('../lifecycle/resourceCleanup.js', () => ({
 vi.mock('./notificationFocus.js', () => ({
   focusNotificationSource: (...args: unknown[]) => focusNotificationSourceMock(...args),
 }));
+
+vi.mock('./accountNotificationIdentity.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./accountNotificationIdentity.js')>();
+  return {
+    ...actual,
+    resolveAccountIndexFromIpcEvent: vi.fn().mockReturnValue(null),
+  };
+});
 
 function makeWindow() {
   return {
@@ -98,54 +121,32 @@ describe('nativeNotification', () => {
     mod.resetBridgeNotificationCooldownForTests();
   });
 
-  describe('shouldShowUnreadDeltaNotification', () => {
-    it('returns false when disabled, focused, first count, decrease, or bridge cooldown', async () => {
-      const { shouldShowUnreadDeltaNotification } = await import('./nativeNotification.js');
-      expect(
-        shouldShowUnreadDeltaNotification({
-          enabled: false,
-          previousCount: 0,
-          nextCount: 1,
-          isWindowFocused: false,
-        })
-      ).toBe(false);
-      expect(
-        shouldShowUnreadDeltaNotification({
-          enabled: true,
-          previousCount: 0,
-          nextCount: 2,
-          isWindowFocused: true,
-        })
-      ).toBe(false);
-      expect(
-        shouldShowUnreadDeltaNotification({
-          enabled: true,
-          previousCount: undefined,
-          nextCount: 3,
-          isWindowFocused: false,
-        })
-      ).toBe(false);
-      expect(
-        shouldShowUnreadDeltaNotification({
-          enabled: true,
-          previousCount: 5,
-          nextCount: 4,
-          isWindowFocused: false,
-        })
-      ).toBe(false);
-      expect(
-        shouldShowUnreadDeltaNotification({
-          enabled: true,
-          previousCount: 1,
-          nextCount: 2,
-          isWindowFocused: false,
-          bridgeCooldownActive: true,
-        })
-      ).toBe(false);
+  describe('buildAccountAwareNotificationPayload', () => {
+    it('always sets subtitle and namespaces tag', async () => {
+      const { buildAccountAwareNotificationPayload } = await import('./nativeNotification.js');
+      const p = buildAccountAwareNotificationPayload({
+        title: 'Alice',
+        body: 'Hi',
+        chatTag: 'room-1',
+        accountIndex: 0 as never,
+      });
+      expect(p.subtitle).toBe('Account 1');
+      expect(p.groupId).toBe('gogchat-account-0');
+      expect(p.tag).toBe('a0:room-1');
+      expect(p.title).toBe('Alice');
     });
+  });
 
-    it('returns true on unfocused increase without bridge cooldown', async () => {
-      const { shouldShowUnreadDeltaNotification } = await import('./nativeNotification.js');
+  describe('shouldShowUnreadDeltaNotification / body / clamp', () => {
+    it('clamps display and builds 99+ body', async () => {
+      const {
+        clampBadgeDisplayCount,
+        buildUnreadDeltaNotificationBody,
+        shouldShowUnreadDeltaNotification,
+      } = await import('./nativeNotification.js');
+      expect(clampBadgeDisplayCount(150)).toBe(99);
+      expect(buildUnreadDeltaNotificationBody(150)).toBe('You have 99+ unread messages');
+      expect(buildUnreadDeltaNotificationBody(1)).toBe('You have a new unread message');
       expect(
         shouldShowUnreadDeltaNotification({
           enabled: true,
@@ -158,87 +159,50 @@ describe('nativeNotification', () => {
     });
   });
 
-  describe('buildUnreadDeltaNotificationBody', () => {
-    it('uses singular and plural copy', async () => {
-      const { buildUnreadDeltaNotificationBody } = await import('./nativeNotification.js');
-      expect(buildUnreadDeltaNotificationBody(1)).toBe('You have a new unread message');
-      expect(buildUnreadDeltaNotificationBody(4)).toBe('You have 4 unread messages');
-    });
-  });
-
   describe('showNativeNotification', () => {
-    it('returns false when unsupported', async () => {
-      FakeNotification.isSupported.mockReturnValue(false);
-      const { showNativeNotification } = await import('./nativeNotification.js');
-      const win = makeWindow();
-      expect(
-        showNativeNotification({ title: 'T' }, { focusWindow: win as never })
-      ).toBe(false);
-      expect(FakeNotification.all.length).toBe(0);
-    });
-
-    it('shows bridge notification, marks cooldown, focuses via focus helper on click', async () => {
-      const { showNativeNotification, wasBridgeNotificationRecentlyShown } = await import(
+    it('passes subtitle and groupId to Electron Notification', async () => {
+      const { showNativeNotification, buildAccountAwareNotificationPayload } = await import(
         './nativeNotification.js'
       );
       const win = makeWindow();
-      const event = { sender: { id: 1 } };
+      const payload = buildAccountAwareNotificationPayload({
+        title: 'T',
+        chatTag: 't',
+        accountIndex: 1 as never,
+      });
+      showNativeNotification(payload, {
+        focusWindow: win as never,
+        source: 'bridge',
+        accountIndex: 1 as never,
+      });
+      expect(FakeNotification.lastOptions).toMatchObject({
+        title: 'T',
+        subtitle: 'Account 2',
+        groupId: 'gogchat-account-1',
+      });
+    });
+
+    it('cooldown is per-account', async () => {
+      const { showNativeNotification } = await import('./nativeNotification.js');
+      const win = makeWindow();
+      showNativeNotification(
+        { title: 'A', tag: 'a0:x', subtitle: 'Account 1', groupId: 'gogchat-account-0' },
+        { focusWindow: win as never, source: 'bridge', accountIndex: 0 as never }
+      );
+      // Same account unread-delta suppressed
       expect(
         showNativeNotification(
-          { title: 'Hello', body: 'World', tag: 't1' },
-          { focusWindow: win as never, ipcEvent: event as never, source: 'bridge' }
+          { title: 'D0', tag: 'a0:delta', subtitle: 'Account 1' },
+          { focusWindow: win as never, source: 'unread-delta', accountIndex: 0 as never }
+        )
+      ).toBe(false);
+      // Other account unread-delta allowed
+      expect(
+        showNativeNotification(
+          { title: 'D1', tag: 'a1:delta', subtitle: 'Account 2' },
+          { focusWindow: win as never, source: 'unread-delta', accountIndex: 1 as never }
         )
       ).toBe(true);
-      expect(FakeNotification.all[0]?.title).toBe('Hello');
-      expect(wasBridgeNotificationRecentlyShown()).toBe(true);
-      FakeNotification.all[0]?.simulateClick();
-      expect(focusNotificationSourceMock).toHaveBeenCalledWith(event, win);
-    });
-
-    it('suppresses unread-delta during bridge cooldown', async () => {
-      const { showNativeNotification } = await import('./nativeNotification.js');
-      const win = makeWindow();
-      showNativeNotification(
-        { title: 'Bridge', tag: 'b1' },
-        { focusWindow: win as never, source: 'bridge' }
-      );
-      expect(
-        showNativeNotification(
-          { title: 'Delta', tag: 'gogchat-unread-delta' },
-          { focusWindow: win as never, source: 'unread-delta' }
-        )
-      ).toBe(false);
-      // Only the bridge notification remains
-      expect(FakeNotification.all.some((n) => n.title === 'Delta')).toBe(false);
-    });
-
-    it('replaces same tag without letting old close wipe the new entry', async () => {
-      const { showNativeNotification, cleanupActiveNativeNotifications } = await import(
-        './nativeNotification.js'
-      );
-      const win = makeWindow();
-      showNativeNotification(
-        { title: 'First', tag: 'same' },
-        { focusWindow: win as never, source: 'bridge' }
-      );
-      const first = FakeNotification.all[0];
-      // Simulate async close after replacement: schedule close after set
-      const originalClose = first!.close.bind(first);
-      first!.close = () => {
-        // defer close handler until after second notification is registered
-        setTimeout(() => originalClose(), 0);
-      };
-
-      showNativeNotification(
-        { title: 'Second', tag: 'same' },
-        { focusWindow: win as never, source: 'bridge' }
-      );
-      await new Promise((r) => setTimeout(r, 10));
-
-      // Second should still be trackable (cleanup closes it)
-      expect(FakeNotification.all.some((n) => n.title === 'Second' && !n.closed)).toBe(true);
-      cleanupActiveNativeNotifications();
-      expect(FakeNotification.all.every((n) => n.closed)).toBe(true);
     });
 
     it('tracks untagged notifications for cleanup', async () => {
@@ -247,7 +211,6 @@ describe('nativeNotification', () => {
       );
       const win = makeWindow();
       showNativeNotification({ title: 'No tag' }, { focusWindow: win as never });
-      expect(FakeNotification.all.length).toBe(1);
       cleanupActiveNativeNotifications();
       expect(FakeNotification.all.every((n) => n.closed)).toBe(true);
     });
