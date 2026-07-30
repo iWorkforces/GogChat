@@ -110,6 +110,14 @@ export const BADGE = {
 } as const satisfies Record<string, number>;
 
 /**
+ * Multi-account notification label limits
+ */
+export const ACCOUNT_LABEL = {
+  /** Max characters stored / shown in notification subtitle */
+  MAX_LENGTH: 40,
+} as const satisfies Record<string, number>;
+
+/**
  * Whitelisted hosts for navigation
  */
 export const WHITELISTED_HOSTS = [

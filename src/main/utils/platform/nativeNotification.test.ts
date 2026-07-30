@@ -88,6 +88,10 @@ vi.mock('./notificationFocus.js', () => ({
   focusNotificationSource: (...args: unknown[]) => focusNotificationSourceMock(...args),
 }));
 
+vi.mock('./accountLabelStore.js', () => ({
+  getStoredAccountLabel: vi.fn().mockReturnValue(undefined),
+}));
+
 vi.mock('./accountNotificationIdentity.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./accountNotificationIdentity.js')>();
   return {

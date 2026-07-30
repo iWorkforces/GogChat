@@ -565,7 +565,7 @@ Only after smoke evidence.
 | Decision | Choice |
 | --- | --- |
 | Account identity source | Main derives from IPC sender only |
-| Subtitle | **Always** show (`Account N` 1-based, or custom later); even for one account |
+| Subtitle | **Always** show (`Account N` 1-based, or `app.accountLabels` custom via Preferences → Account Labels) |
 | groupId | `gogchat-account-${index}` |
 | Tag isolation | `a${index}:${chatTag}` via `namespaceNotificationTag` |
 | Bridge cooldown | Per-account map |

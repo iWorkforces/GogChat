@@ -5,6 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getAccountForWebContentsMock = vi.fn();
+const getStoredAccountLabelMock = vi.fn();
 
 vi.mock('../lifecycle/featureContextStore.js', () => ({
   getSharedFeatureContext: () => ({
@@ -18,18 +19,27 @@ vi.mock('../../../shared/types/branded.js', () => ({
   asWebContentsId: (id: number) => id,
 }));
 
+vi.mock('./accountLabelStore.js', () => ({
+  getStoredAccountLabel: (...args: unknown[]) => getStoredAccountLabelMock(...args),
+}));
+
 describe('accountNotificationIdentity', () => {
   beforeEach(() => {
     vi.resetModules();
     getAccountForWebContentsMock.mockReset();
+    getStoredAccountLabelMock.mockReset();
+    getStoredAccountLabelMock.mockReturnValue(undefined);
   });
 
-  it('formatAccountNotificationLabel always returns a subtitle string', async () => {
+  it('formatAccountNotificationLabel prefers custom override then stored then default', async () => {
     const { formatAccountNotificationLabel } = await import('./accountNotificationIdentity.js');
     expect(formatAccountNotificationLabel(0 as never)).toBe('Account 1');
     expect(formatAccountNotificationLabel(1 as never)).toBe('Account 2');
     expect(formatAccountNotificationLabel(null)).toBe('GogChat');
     expect(formatAccountNotificationLabel(0 as never, ' Work ')).toBe('Work');
+
+    getStoredAccountLabelMock.mockReturnValue('Personal');
+    expect(formatAccountNotificationLabel(1 as never)).toBe('Personal');
   });
 
   it('namespaceNotificationTag isolates accounts and preserves prefix', async () => {

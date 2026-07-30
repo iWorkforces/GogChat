@@ -8,6 +8,7 @@ import type { IpcMainEvent } from 'electron';
 import type { AccountIndex } from '../../../shared/types/branded.js';
 import { asWebContentsId } from '../../../shared/types/branded.js';
 import { getSharedFeatureContext } from '../lifecycle/featureContextStore.js';
+import { getStoredAccountLabel } from './accountLabelStore.js';
 
 const TAG_MAX_LENGTH = 200;
 
@@ -29,7 +30,8 @@ export function resolveAccountIndexFromIpcEvent(
 
 /**
  * Human-visible account label for notification subtitle.
- * Always shown (including single-account). 1-based for users; logs keep 0-based index.
+ * Always shown (including single-account). Prefers stored custom label, then
+ * explicit override, then `Account N` (1-based). Logs keep 0-based index.
  */
 export function formatAccountNotificationLabel(
   accountIndex: AccountIndex | null,
@@ -38,10 +40,14 @@ export function formatAccountNotificationLabel(
   if (customLabel !== undefined && customLabel.trim().length > 0) {
     return customLabel.trim();
   }
-  if (accountIndex === null) {
-    return 'GogChat';
+  if (accountIndex !== null) {
+    const stored = getStoredAccountLabel(accountIndex);
+    if (stored !== undefined) {
+      return stored;
+    }
+    return `Account ${accountIndex + 1}`;
   }
-  return `Account ${accountIndex + 1}`;
+  return 'GogChat';
 }
 
 /**

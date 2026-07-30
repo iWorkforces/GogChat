@@ -169,7 +169,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 - Google Chat web `Notification` calls are bridged from page world through `src/preload/notificationBridge.ts`; keep raw `ipcRenderer` isolated in preload and validate notification payloads before `NOTIFICATION_SHOW`.
 - macOS notification authorization is requested via `notificationAccess.ensureNotificationPermission()` (silent probe Notification). Persist `app.notificationPermissionRequested` only after probe `show`. Click focus uses the IPC sender window when available (multi-account).
 - Optional unread-delta OS banners (`app.unreadDeltaNotifications`, default false) live in `badgeHelpers` via `nativeNotification.ts`; primary path remains Chat Web Notification bridge.
-- Multi-account banners always set macOS `subtitle` (`Account N`, 1-based) and `groupId`; tags are namespaced `a${index}:…` from IPC sender identity only. Dock badge is the sum of per-account unreads capped at `BADGE.DISPLAY_MAX` (99).
+- Multi-account banners always set macOS `subtitle` (`Account N`, 1-based, or `app.accountLabels` custom) and `groupId`; tags are namespaced `a${index}:…` from IPC sender identity only. Dock badge is the sum of per-account unreads capped at `BADGE.DISPLAY_MAX` (99). Labels: Preferences → Account Labels.
 - Use `validateExternalURL()` and `shellWrapper.ts`; never call `shell.openExternal()` directly in main.
 - Certificate pinning covers Google domains; kill switches live in SafeStorage-backed secure flags.
 - Do not wholesale replace Google CSP. Existing COEP/COOP/frame-ancestors stripping is targeted and intentional.
