@@ -84,6 +84,12 @@ export interface IAccountWindowManager {
   getAccountWindow(accountIndex: AccountIndex): Electron.BrowserWindow | null;
   getAccountWebContents(accountIndex: AccountIndex): Electron.WebContents | null;
   getAccountForWebContents(webContentsId: WebContentsId): AccountIndex | null;
+  /**
+   * Bring the given account's UI forward: BrowserWindow backend shows/focuses
+   * that account window; WebContentsView backend switches the visible view and
+   * focuses the host. No-op if the account is unknown.
+   */
+  focusAccount(accountIndex: AccountIndex): void;
   getAllWindows(): Electron.BrowserWindow[];
   getMostRecentWindow(): Electron.BrowserWindow | null;
   hasAccount(accountIndex: AccountIndex): boolean;

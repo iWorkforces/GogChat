@@ -85,6 +85,10 @@ vi.mock('./utils/security/mediaAccess', () => ({
   checkAndRequestMediaAccess: vi.fn().mockResolvedValue(true),
   showDeniedPermissionDialog: vi.fn().mockResolvedValue(undefined),
 }));
+
+vi.mock('./utils/security/notificationAccess', () => ({
+  ensureNotificationPermission: vi.fn().mockReturnValue('scheduled'),
+}));
 vi.mock('./utils/platform/windowUtils', () => ({
   getWindowDefaults: vi.fn().mockReturnValue({
     hideMenuBar: false,
@@ -431,82 +435,14 @@ describe('windowWrapper', () => {
   });
 
   describe('notification permission gating', () => {
-    it('schedules at most one Notification request and one configSet for same-tick window creations', async () => {
-      const electron = await import('electron');
-      const config = await import('./config');
-      const NotificationCtor = electron.Notification as unknown as ReturnType<typeof vi.fn> & {
-        isSupported: ReturnType<typeof vi.fn>;
-      };
-      NotificationCtor.isSupported.mockReturnValue(true);
-      vi.mocked(config.configGet).mockReturnValue(false);
-      NotificationCtor.mockClear();
-      vi.mocked(config.configSet).mockClear();
+    it('calls ensureNotificationPermission for each window create', async () => {
+      const { ensureNotificationPermission } = await import('./utils/security/notificationAccess');
+      vi.mocked(ensureNotificationPermission).mockClear();
 
       createWindow('https://chat.google.com', 'persist:account-0');
       createWindow('https://chat.google.com', 'persist:account-1');
-      createWindow('https://chat.google.com', 'persist:account-2');
 
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      await new Promise<void>((resolve) => setImmediate(resolve));
-
-      const notification = NotificationCtor.mock.instances[0];
-      const showHandler = notification.on.mock.calls.find((call) => call[0] === 'show')?.[1];
-      expect(showHandler).toBeDefined();
-      showHandler?.();
-
-      expect(NotificationCtor).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(config.configSet)).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(config.configSet)).toHaveBeenCalledWith(
-        'app.notificationPermissionRequested',
-        true
-      );
-    });
-
-    it('does not trigger the macOS notification permission prompt on Windows', async () => {
-      mockPlatformState.isMac = false;
-      const electron = await import('electron');
-      const config = await import('./config');
-      const NotificationCtor = electron.Notification as unknown as ReturnType<typeof vi.fn> & {
-        isSupported: ReturnType<typeof vi.fn>;
-      };
-      NotificationCtor.isSupported.mockReturnValue(true);
-      vi.mocked(config.configGet).mockReturnValue(false);
-      NotificationCtor.mockClear();
-      vi.mocked(config.configSet).mockClear();
-
-      createWindow('https://chat.google.com', 'persist:account-0');
-      await new Promise<void>((resolve) => setImmediate(resolve));
-
-      expect(NotificationCtor).not.toHaveBeenCalled();
-      expect(vi.mocked(config.configSet)).not.toHaveBeenCalledWith(
-        'app.notificationPermissionRequested',
-        true
-      );
-    });
-
-    it('does not record notification permission when the startup notification fails', async () => {
-      const electron = await import('electron');
-      const config = await import('./config');
-      const NotificationCtor = electron.Notification as unknown as ReturnType<typeof vi.fn> & {
-        isSupported: ReturnType<typeof vi.fn>;
-      };
-      NotificationCtor.isSupported.mockReturnValue(true);
-      vi.mocked(config.configGet).mockReturnValue(false);
-      NotificationCtor.mockClear();
-      vi.mocked(config.configSet).mockClear();
-
-      createWindow('https://chat.google.com', 'persist:account-0');
-      await new Promise<void>((resolve) => setImmediate(resolve));
-
-      const notification = NotificationCtor.mock.instances[0];
-      const failedHandler = notification.on.mock.calls.find((call) => call[0] === 'failed')?.[1];
-      expect(failedHandler).toBeDefined();
-      failedHandler?.();
-
-      expect(vi.mocked(config.configSet)).not.toHaveBeenCalledWith(
-        'app.notificationPermissionRequested',
-        true
-      );
+      expect(ensureNotificationPermission).toHaveBeenCalledTimes(2);
     });
   });
 });

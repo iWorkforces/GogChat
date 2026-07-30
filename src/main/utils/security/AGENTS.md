@@ -23,6 +23,7 @@ This directory contains main-process security wrappers and kill-switch storage. 
 
 - `permissionHandler.ts` allowlists only expected permissions such as notifications, mediaKeySystem, and geolocation.
 - `mediaAccess.ts` deduplicates macOS TCC prompts and returns false in CI/headless contexts.
+- `notificationAccess.ts` owns macOS notification authorization: silent probe Notification (once per profile via `app.notificationPermissionRequested` after `show`), CI skip, process de-dupe, and System Settings open/dialog helpers. Flag means “request path completed,” not live grant status.
 
 ## Certificate pinning gotchas
 

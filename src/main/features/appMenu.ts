@@ -1,13 +1,86 @@
-import type { BrowserWindow } from 'electron';
+import type { BrowserWindow, MenuItemConstructorOptions } from 'electron';
 import { Menu, app, clipboard } from 'electron';
 import store, { configGet } from '../config.js';
 import environment from '../../environment.js';
 import { IPC_CHANNELS } from '../../shared/constants.js';
+import { asAccountIndex } from '../../shared/types/branded.js';
 import { getMenuAction } from './menuActionRegistry.js';
 import { buildHelpSubMenu, relaunchApp } from '../utils/platform/helpMenuBuilder.js';
 import { supports } from '../utils/platform/platformDetection.js';
+import { showNotificationSettingsDialog } from '../utils/security/notificationAccess.js';
+import { promptAccountLabel } from '../utils/platform/accountLabelDialog.js';
+import {
+  clearStoredAccountLabels,
+  getAllStoredAccountLabels,
+  getStoredAccountLabel,
+  setStoredAccountLabel,
+} from '../utils/platform/accountLabelStore.js';
+import { getAccountWindowManager } from '../utils/account/accountWindowManager.js';
+import { formatAccountNotificationLabel } from '../utils/platform/accountNotificationIdentity.js';
 
-export default (window: BrowserWindow) => {
+function buildAccountLabelsSubmenu(
+  parentWindow: BrowserWindow,
+  rebuildMenu: (window: BrowserWindow) => void
+): MenuItemConstructorOptions {
+  let accountCount = 0;
+  try {
+    accountCount = getAccountWindowManager().getAccountCount();
+  } catch {
+    // Manager may be unavailable during early menu build in tests.
+  }
+  const stored = getAllStoredAccountLabels();
+  const maxFromLabels = Object.keys(stored)
+    .map((k) => Number(k))
+    .filter((n) => Number.isInteger(n) && n >= 0)
+    .reduce((max, n) => Math.max(max, n), -1);
+  const slotCount = Math.max(accountCount, maxFromLabels + 1, 0);
+
+  const items: MenuItemConstructorOptions[] = [];
+  if (slotCount === 0) {
+    items.push({
+      label: 'No accounts yet',
+      enabled: false,
+    });
+  } else {
+    for (let i = 0; i < slotCount; i++) {
+      const index = asAccountIndex(i);
+      const display = formatAccountNotificationLabel(index);
+      const isCustom = getStoredAccountLabel(index) !== undefined;
+      items.push({
+        label: isCustom ? `Account ${i + 1}: ${display}…` : `Account ${i + 1}…`,
+        click: () => {
+          void (async () => {
+            const current = getStoredAccountLabel(index) ?? '';
+            const result = await promptAccountLabel(parentWindow, i, current);
+            if (result === null) {
+              return;
+            }
+            setStoredAccountLabel(index, result);
+            // Rebuild menu so labels refresh (same-module callback — no self-import cycle)
+            rebuildMenu(parentWindow);
+          })();
+        },
+      });
+    }
+  }
+
+  items.push({ type: 'separator' });
+  items.push({
+    label: 'Clear All Labels',
+    enabled: Object.keys(stored).length > 0,
+    click: () => {
+      clearStoredAccountLabels();
+      rebuildMenu(parentWindow);
+    },
+  });
+
+  return {
+    label: 'Account Labels',
+    submenu: items,
+  };
+}
+
+function setAppMenu(window: BrowserWindow): void {
   const autoLaunchSupported = supports.autoLaunch();
   const menuItems = Menu.buildFromTemplate([
     {
@@ -181,10 +254,30 @@ export default (window: BrowserWindow) => {
             store.set('app.disableSpellChecker', menuItem.checked);
           },
         },
+        {
+          type: 'separator',
+        },
+        {
+          label: 'Notify on Unread Badge Increase',
+          type: 'checkbox',
+          checked: configGet('app.unreadDeltaNotifications') ?? false,
+          click: (menuItem: Electron.MenuItem) => {
+            store.set('app.unreadDeltaNotifications', menuItem.checked);
+          },
+        },
+        buildAccountLabelsSubmenu(window, setAppMenu),
+        {
+          label: 'Notification Settings…',
+          click: () => {
+            void showNotificationSettingsDialog(window);
+          },
+        },
       ],
     },
     buildHelpSubMenu(window),
   ]);
 
   Menu.setApplicationMenu(menuItems);
-};
+}
+
+export default setAppMenu;

@@ -30,6 +30,14 @@ Known dependencies include `badgeIcons -> trayIcon`, `windowState -> singleInsta
 - Features such as `aboutPanel`, `openAtLogin`, `externalLinks`, and `deepLinkHandler` self-register menu actions at module load time.
 - Consumers retrieve actions with `getMenuAction()` rather than importing feature modules directly.
 
+## Notifications
+
+- `handleNotification.ts` shows Electron (OS) notifications for validated `NOTIFICATION_SHOW` IPC payloads via `nativeNotification.showNativeNotification` (source `bridge`).
+- Click focus uses `notificationFocus.focusNotificationSource` → `IAccountWindowManager.focusAccount` when the IPC sender maps to an account (BW + WCV); otherwise `BrowserWindow.fromWebContents` / feature main window.
+- Unread-delta opt-in banners live in `badgeHelpers` (source `unread-delta`) and are suppressed for `TIMING.NOTIFICATION_BRIDGE_COOLDOWN_MS` after a bridge show.
+- Permission request UX lives in `utils/security/notificationAccess.ts` (also called from WCV host creation).
+- Preferences → Notification Settings… and Notify on Unread Badge Increase are wired in `appMenu.ts`.
+
 ## Feature boundaries
 
 - Security features must be ready before network use.

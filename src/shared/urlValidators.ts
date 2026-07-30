@@ -123,6 +123,9 @@ export function validateAppleSystemPreferencesURL(url: unknown): ValidatedURL {
     'x-apple.systempreferences:com.apple.preference.security',
     'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
     'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+    // Notifications pane (Ventura+ and legacy System Preferences)
+    'x-apple.systempreferences:com.apple.Notifications-Settings.extension',
+    'x-apple.systempreferences:com.apple.preference.notifications',
   ]);
 
   if (!allowed.has(url)) {

@@ -58,6 +58,11 @@ export const TIMING = {
   CONNECTIVITY_CHECK: 5000,
   CONNECTIVITY_CHECK_FAST: 3000,
   NOTIFICATION_AUTO_DISMISS: 10000, // 10 seconds
+  /**
+   * After a Chat Web Notification bridge show, suppress unread-delta
+   * synthetic banners for this long to avoid double banners.
+   */
+  NOTIFICATION_BRIDGE_COOLDOWN_MS: 8000,
 
   // Re-guard timer for external links
   EXTERNAL_LINKS_REGUARD: 5 * 60 * 1000, // 5 minutes
@@ -94,8 +99,22 @@ export const RATE_LIMITS = {
  * Badge icon limits
  */
 export const BADGE = {
+  /** Max accepted unread count over IPC (validator). */
   MAX_COUNT: 9999,
+  /**
+   * Max count shown on the dock badge and in unread-delta notification copy.
+   * Values above this display as 99 (badge) / "99+" (banner body).
+   */
+  DISPLAY_MAX: 99,
   CACHE_LIMIT: 99, // Cache icons for counts 0-99
+} as const satisfies Record<string, number>;
+
+/**
+ * Multi-account notification label limits
+ */
+export const ACCOUNT_LABEL = {
+  /** Max characters stored / shown in notification subtitle */
+  MAX_LENGTH: 40,
 } as const satisfies Record<string, number>;
 
 /**

@@ -222,6 +222,19 @@ describe('validateAppleSystemPreferencesURL', () => {
     const url = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone';
     expect(validateAppleSystemPreferencesURL(url)).toBe(url);
   });
+
+  it('should accept Notifications System Settings URLs', () => {
+    expect(
+      validateAppleSystemPreferencesURL(
+        'x-apple.systempreferences:com.apple.Notifications-Settings.extension'
+      )
+    ).toBe('x-apple.systempreferences:com.apple.Notifications-Settings.extension');
+    expect(
+      validateAppleSystemPreferencesURL(
+        'x-apple.systempreferences:com.apple.preference.notifications'
+      )
+    ).toBe('x-apple.systempreferences:com.apple.preference.notifications');
+  });
 });
 
 describe('validateBoolean', () => {

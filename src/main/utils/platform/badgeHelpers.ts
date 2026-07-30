@@ -10,6 +10,9 @@
  *                            (FAVICON_CHANGED + UNREAD_COUNT) with
  *                            rate limiting, deduplication, validation,
  *                            and error handling. Returns cleanup callbacks.
+ *
+ * Unread counts are tracked per account (from IPC sender). Dock badge is the
+ * sum across accounts, capped at BADGE.DISPLAY_MAX (99).
  */
 
 import { app } from 'electron';
@@ -22,14 +25,30 @@ import {
   RATE_LIMITS,
 } from '../../../shared/constants.js';
 import type { IconType } from '../../../shared/types/domain.js';
+import type { AccountIndex } from '../../../shared/types/branded.js';
 import { registerFastHandler } from '../ipc/ipcFastPath.js';
 
 import { validateFaviconURL } from '../../../shared/urlValidators.js';
 import { validateUnreadCount } from '../../../shared/dataValidators.js';
+import { configGet } from '../../config.js';
 import { getIconCache } from './iconCache.js';
 import { platform } from './platformDetection.js';
 import { setTrayUnread } from './trayIconState.js';
 import { assertNever } from '../../../shared/typeUtils.js';
+import {
+  UNREAD_DELTA_TAG_BASE,
+  resolveAccountIndexFromIpcEvent,
+} from './accountNotificationIdentity.js';
+import {
+  buildAccountAwareNotificationPayload,
+  buildUnreadDeltaNotificationBody,
+  clampBadgeDisplayCount,
+  shouldShowUnreadDeltaNotification,
+  showNativeNotification,
+  wasBridgeNotificationRecentlyShown,
+} from './nativeNotification.js';
+import { resolveNotificationFocusWindow } from './notificationFocus.js';
+import { ensureNotificationPermission } from '../security/notificationAccess.js';
 
 /**
  * Decide app icon based on favicon URL.
@@ -56,18 +75,35 @@ export const decideIcon = (href: string): IconType => {
 };
 
 /**
+ * Sum of per-account unread counts for dock badge display (capped at 99).
+ */
+export function sumAccountUnreadCounts(counts: ReadonlyMap<string, number>): number {
+  let total = 0;
+  for (const n of counts.values()) {
+    total += n;
+  }
+  return clampBadgeDisplayCount(total);
+}
+
+/**
  * Update badge icon for platforms with a supported app badge surface.
+ * Count is clamped to BADGE.DISPLAY_MAX (99).
  */
 export const updateBadgeIcon = (_window: BrowserWindow, count: number): void => {
   if (!platform.config.supportsDockBadge) return;
 
-  app.setBadgeCount(count);
-  log.debug(`[BadgeIcon] App badge updated: ${count}`);
+  const display = clampBadgeDisplayCount(count);
+  app.setBadgeCount(display);
+  log.debug(`[BadgeIcon] App badge updated: ${display} (raw=${count})`);
 };
 
 export interface BadgeHandlerCleanups {
   faviconCleanup: () => void;
   unreadCleanup: () => void;
+}
+
+function accountUnreadKey(accountIndex: AccountIndex | null): string {
+  return accountIndex === null ? 'unknown' : String(accountIndex);
 }
 
 /**
@@ -79,18 +115,15 @@ export function setupBadgeHandlers(window: BrowserWindow, trayIcon: Tray): Badge
   let currentTrayIconType: IconType = ICON_TYPES.OFFLINE;
 
   // ⚡ FAST PATH: sync ipcMain.on handler (no Promise allocation per call).
-  // Inline last-value short-circuit replaces payload-aware dedup since rapid
-  // identical favicon URLs (e.g., during page load) should collapse to one update.
   let lastFaviconHref: string | undefined;
   const faviconCleanup = registerFastHandler<string>({
     channel: IPC_CHANNELS.FAVICON_CHANGED,
     rateLimit: RATE_LIMITS.IPC_FAVICON,
     validator: validateFaviconURL,
-    handler: (validatedHref) => {
+    handler: (validatedHref, _event) => {
       if (validatedHref === lastFaviconHref) return;
       lastFaviconHref = validatedHref;
 
-      // Determine icon type
       const type = decideIcon(validatedHref);
 
       if (platform.config.useTemplateTrayIcon) {
@@ -108,25 +141,62 @@ export function setupBadgeHandlers(window: BrowserWindow, trayIcon: Tray): Badge
     },
   });
 
-  // ⚡ FAST PATH: sync ipcMain.on handler (no Promise allocation per call).
-  // Inline last-value short-circuit replaces payload-aware dedup since rapid
-  // identical unread-count updates (e.g., burst of incoming messages) collapse to one.
-  let lastUnreadCount: number | undefined;
+  // Per-account last unread counts (key = account index string or "unknown")
+  const lastUnreadByAccount = new Map<string, number>();
+
   const unreadCleanup = registerFastHandler<number>({
     channel: IPC_CHANNELS.UNREAD_COUNT,
     rateLimit: RATE_LIMITS.IPC_UNREAD_COUNT,
     validator: validateUnreadCount,
-    handler: (validatedCount) => {
-      if (validatedCount === lastUnreadCount) return;
-      lastUnreadCount = validatedCount;
+    handler: (validatedCount, event) => {
+      const accountIndex = resolveAccountIndexFromIpcEvent(event);
+      const key = accountUnreadKey(accountIndex);
+      const previousCount = lastUnreadByAccount.get(key);
 
-      // Update badge icon (platform-specific)
-      updateBadgeIcon(window, validatedCount);
+      if (previousCount === validatedCount) {
+        return;
+      }
+      lastUnreadByAccount.set(key, validatedCount);
 
-      // Update tray icon to reflect unread state
-      setTrayUnread(validatedCount > 0);
+      const totalRaw = [...lastUnreadByAccount.values()].reduce((a, b) => a + b, 0);
+      const totalDisplay = clampBadgeDisplayCount(totalRaw);
 
-      log.debug(`[BadgeIcon] Unread count updated: ${validatedCount}`);
+      updateBadgeIcon(window, totalRaw);
+      setTrayUnread(totalRaw > 0);
+
+      log.debug(
+        `[BadgeIcon] Unread account=${key} count=${validatedCount} total=${totalRaw} display=${totalDisplay}`
+      );
+
+      try {
+        const focusWindow = resolveNotificationFocusWindow(event, window);
+        const focused = !focusWindow.isDestroyed() && focusWindow.isFocused() === true;
+        if (
+          shouldShowUnreadDeltaNotification({
+            enabled: configGet('app.unreadDeltaNotifications') === true,
+            previousCount,
+            nextCount: validatedCount,
+            isWindowFocused: focused,
+            bridgeCooldownActive: wasBridgeNotificationRecentlyShown(accountIndex),
+          })
+        ) {
+          ensureNotificationPermission();
+          const payload = buildAccountAwareNotificationPayload({
+            title: 'GogChat',
+            body: buildUnreadDeltaNotificationBody(validatedCount),
+            chatTag: UNREAD_DELTA_TAG_BASE,
+            accountIndex,
+          });
+          showNativeNotification(payload, {
+            focusWindow,
+            ipcEvent: event,
+            source: 'unread-delta',
+            accountIndex,
+          });
+        }
+      } catch (error: unknown) {
+        log.error('[BadgeIcon] Unread-delta notification failed:', error);
+      }
     },
   });
 

@@ -68,6 +68,7 @@ vi.mock('../config', () => ({
         'app.startHidden': false,
         'app.hideMenuBar': false,
         'app.disableSpellChecker': false,
+        'app.unreadDeltaNotifications': false,
       };
       return defaults[key];
     }),
@@ -81,6 +82,7 @@ vi.mock('../config', () => ({
       'app.startHidden': false,
       'app.hideMenuBar': false,
       'app.disableSpellChecker': false,
+      'app.unreadDeltaNotifications': false,
     };
     return defaults[key];
   }),
@@ -124,12 +126,40 @@ vi.mock('../utils/platform/platformDetection', () => ({
   },
 }));
 
+vi.mock('../utils/security/notificationAccess', () => ({
+  showNotificationSettingsDialog: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../utils/account/accountWindowManager.js', () => ({
+  getAccountWindowManager: vi.fn(() => ({
+    getAccountCount: vi.fn(() => 2),
+  })),
+}));
+
+vi.mock('../utils/platform/accountLabelStore.js', () => ({
+  getAllStoredAccountLabels: vi.fn(() => ({ '0': 'Work' })),
+  getStoredAccountLabel: vi.fn((idx: number) => (idx === 0 ? 'Work' : undefined)),
+  setStoredAccountLabel: vi.fn(),
+  clearStoredAccountLabels: vi.fn(),
+}));
+
+vi.mock('../utils/platform/accountLabelDialog.js', () => ({
+  promptAccountLabel: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock('../utils/platform/accountNotificationIdentity.js', () => ({
+  formatAccountNotificationLabel: vi.fn((idx: number | null) =>
+    idx === 0 ? 'Work' : idx === null ? 'GogChat' : `Account ${(idx as number) + 1}`
+  ),
+}));
+
 import appMenu from './appMenu';
 import { _getMenuAction } from './menuActionRegistry';
 import { Menu, app, _dialog, clipboard } from 'electron';
 import store from '../config';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { openNewGitHubIssue } from '../utils/platform/platformHelpers';
+import { showNotificationSettingsDialog } from '../utils/security/notificationAccess';
 
 interface FakeWindow {
   hide: ReturnType<typeof vi.fn>;
@@ -275,6 +305,64 @@ describe('appMenu', () => {
     );
     expect(startHidden).toBeDefined();
     expect(startHidden.checked).toBe(false);
+  });
+
+  it('Preferences includes Notification Settings item that opens the settings dialog', () => {
+    const window = makeFakeWindow();
+    appMenu(window as BrowserWindow);
+
+    const template = Menu.buildFromTemplate.mock.calls[0][0] as MenuItemConstructorOptions[];
+    const prefsMenu = template.find(
+      (item: MenuItemConstructorOptions) => item.label === 'Preferences'
+    );
+    const notificationSettings = prefsMenu.submenu.find(
+      (item: MenuItemConstructorOptions) => item.label === 'Notification Settings…'
+    );
+
+    expect(notificationSettings).toBeDefined();
+    notificationSettings.click();
+    expect(showNotificationSettingsDialog).toHaveBeenCalledWith(window);
+  });
+
+  it('Preferences includes unread-delta notification checkbox', () => {
+    const window = makeFakeWindow();
+    appMenu(window as BrowserWindow);
+
+    const template = Menu.buildFromTemplate.mock.calls[0][0] as MenuItemConstructorOptions[];
+    const prefsMenu = template.find(
+      (item: MenuItemConstructorOptions) => item.label === 'Preferences'
+    );
+    const unreadDelta = prefsMenu.submenu.find(
+      (item: MenuItemConstructorOptions) => item.label === 'Notify on Unread Badge Increase'
+    );
+
+    expect(unreadDelta).toBeDefined();
+    expect(unreadDelta.type).toBe('checkbox');
+    expect(unreadDelta.checked).toBe(false);
+    unreadDelta.click({ checked: true });
+    expect(store.set).toHaveBeenCalledWith('app.unreadDeltaNotifications', true);
+  });
+
+  it('Preferences includes Account Labels submenu with custom label display', () => {
+    const window = makeFakeWindow();
+    appMenu(window as BrowserWindow);
+
+    const template = Menu.buildFromTemplate.mock.calls[0][0] as MenuItemConstructorOptions[];
+    const prefsMenu = template.find(
+      (item: MenuItemConstructorOptions) => item.label === 'Preferences'
+    );
+    const accountLabels = prefsMenu.submenu.find(
+      (item: MenuItemConstructorOptions) => item.label === 'Account Labels'
+    );
+
+    expect(accountLabels).toBeDefined();
+    expect(accountLabels.submenu).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Account 1: Work…' }),
+        expect.objectContaining({ label: 'Account 2…' }),
+        expect.objectContaining({ label: 'Clear All Labels' }),
+      ])
+    );
   });
 
   it('disables Auto Launch at Login when the platform does not support auto launch', () => {
