@@ -26,10 +26,18 @@ import { registerFastHandler } from '../ipc/ipcFastPath.js';
 
 import { validateFaviconURL } from '../../../shared/urlValidators.js';
 import { validateUnreadCount } from '../../../shared/dataValidators.js';
+import { configGet } from '../../config.js';
 import { getIconCache } from './iconCache.js';
 import { platform } from './platformDetection.js';
 import { setTrayUnread } from './trayIconState.js';
 import { assertNever } from '../../../shared/typeUtils.js';
+import {
+  UNREAD_DELTA_NOTIFICATION_TAG,
+  buildUnreadDeltaNotificationBody,
+  shouldShowUnreadDeltaNotification,
+  showNativeNotification,
+} from './nativeNotification.js';
+import { ensureNotificationPermission } from '../security/notificationAccess.js';
 
 /**
  * Decide app icon based on favicon URL.
@@ -118,6 +126,8 @@ export function setupBadgeHandlers(window: BrowserWindow, trayIcon: Tray): Badge
     validator: validateUnreadCount,
     handler: (validatedCount) => {
       if (validatedCount === lastUnreadCount) return;
+
+      const previousCount = lastUnreadCount;
       lastUnreadCount = validatedCount;
 
       // Update badge icon (platform-specific)
@@ -127,6 +137,33 @@ export function setupBadgeHandlers(window: BrowserWindow, trayIcon: Tray): Badge
       setTrayUnread(validatedCount > 0);
 
       log.debug(`[BadgeIcon] Unread count updated: ${validatedCount}`);
+
+      // Optional Phase 2 fallback: generic OS banner when unread increases while unfocused.
+      // Default off via app.unreadDeltaNotifications. Shared tag replaces rapid stacks.
+      try {
+        const focused =
+          !window.isDestroyed() && window.isFocused() === true;
+        if (
+          shouldShowUnreadDeltaNotification({
+            enabled: configGet('app.unreadDeltaNotifications') === true,
+            previousCount,
+            nextCount: validatedCount,
+            isWindowFocused: focused,
+          })
+        ) {
+          ensureNotificationPermission();
+          showNativeNotification(
+            {
+              title: 'GogChat',
+              body: buildUnreadDeltaNotificationBody(validatedCount),
+              tag: UNREAD_DELTA_NOTIFICATION_TAG,
+            },
+            window
+          );
+        }
+      } catch (error: unknown) {
+        log.error('[BadgeIcon] Unread-delta notification failed:', error);
+      }
     },
   });
 

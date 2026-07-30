@@ -78,6 +78,10 @@ export const schema: Schema<StoreType> = {
         type: 'boolean',
         default: false,
       },
+      unreadDeltaNotifications: {
+        type: 'boolean',
+        default: false,
+      },
       useWebContentsView: {
         type: 'boolean',
         default: false,
@@ -91,6 +95,7 @@ export const schema: Schema<StoreType> = {
       disableSpellChecker: false,
       suppressPasskeyDialog: false,
       notificationPermissionRequested: false,
+      unreadDeltaNotifications: false,
       useWebContentsView: false,
     },
   },

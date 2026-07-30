@@ -297,22 +297,20 @@ If (2) fails (i.e. real messages **do** notify), Phase 2 is **NO CHANGE**.
 
 ---
 
-### PR 4 (optional / Phase 2) — Unread-delta synthetic OS notifications
+### PR 4 / Phase 2 — Unread-delta synthetic OS notifications (implemented, default OFF)
 
 **Title:** `feat(notifications): optional unread-delta fallback banners`
 
-**Depends on:** PR 1–3 + **explicit evidence** that Chat does not call Web Notification when unfocused while bridge works for manual Notification.
+**Status:** Implemented with `app.unreadDeltaNotifications` **default false**. Enable via Preferences → **Notify on Unread Badge Increase** after smoke if Chat web notifications are silent while badges update.
 
-**Scope (only if go):**
+**Scope (landed):**
 
-1. In `badgeHelpers` unread handler **or** a small dedicated feature that listens to the same validated count (prefer extending unread handler carefully to avoid feature→feature imports — keep in badgeHelpers or a shared notification helper imported by badge path).
-2. On strict increase, app not focused: show generic native notification via shared helper used by `handleNotification` (extract `showNativeNotification(payload, focusWindow)`).
-3. Debounce, rate limit, suppress when focused, suppress when count decreases, no DOM body scrape.
-4. Config kill-switch optional: `app.unreadDeltaNotifications` default false or true based on product choice at Phase 2 time — default **false** until proven desirable.
+1. Shared `showNativeNotification` in `utils/platform/nativeNotification.ts` (used by `handleNotification` + badge unread path).
+2. On strict unread increase, focus window not focused, flag true: generic banner (`You have N unread messages`), tag `gogchat-unread-delta` replaces stacks.
+3. First observed count never notifies (avoids login spam). Focused window suppresses. No DOM body scrape.
+4. Config kill-switch: `app.unreadDeltaNotifications` default **false**.
 
-**Must NOT:** implement without Phase 2 evidence receipt.
-
-**Acceptance:** unit tests for increase/decrease/focus suppression; manual spam check.
+**Acceptance:** unit tests for policy + badge wiring + menu checkbox.
 
 ---
 

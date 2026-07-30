@@ -186,6 +186,14 @@ export default (window: BrowserWindow) => {
           type: 'separator',
         },
         {
+          label: 'Notify on Unread Badge Increase',
+          type: 'checkbox',
+          checked: configGet('app.unreadDeltaNotifications') ?? false,
+          click: (menuItem: Electron.MenuItem) => {
+            store.set('app.unreadDeltaNotifications', menuItem.checked);
+          },
+        },
+        {
           label: 'Notification Settings…',
           click: () => {
             void showNotificationSettingsDialog(window);

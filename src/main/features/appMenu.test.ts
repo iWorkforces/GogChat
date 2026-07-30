@@ -68,6 +68,7 @@ vi.mock('../config', () => ({
         'app.startHidden': false,
         'app.hideMenuBar': false,
         'app.disableSpellChecker': false,
+        'app.unreadDeltaNotifications': false,
       };
       return defaults[key];
     }),
@@ -81,6 +82,7 @@ vi.mock('../config', () => ({
       'app.startHidden': false,
       'app.hideMenuBar': false,
       'app.disableSpellChecker': false,
+      'app.unreadDeltaNotifications': false,
     };
     return defaults[key];
   }),
@@ -297,6 +299,25 @@ describe('appMenu', () => {
     expect(notificationSettings).toBeDefined();
     notificationSettings.click();
     expect(showNotificationSettingsDialog).toHaveBeenCalledWith(window);
+  });
+
+  it('Preferences includes unread-delta notification checkbox', () => {
+    const window = makeFakeWindow();
+    appMenu(window as BrowserWindow);
+
+    const template = Menu.buildFromTemplate.mock.calls[0][0] as MenuItemConstructorOptions[];
+    const prefsMenu = template.find(
+      (item: MenuItemConstructorOptions) => item.label === 'Preferences'
+    );
+    const unreadDelta = prefsMenu.submenu.find(
+      (item: MenuItemConstructorOptions) => item.label === 'Notify on Unread Badge Increase'
+    );
+
+    expect(unreadDelta).toBeDefined();
+    expect(unreadDelta.type).toBe('checkbox');
+    expect(unreadDelta.checked).toBe(false);
+    unreadDelta.click({ checked: true });
+    expect(store.set).toHaveBeenCalledWith('app.unreadDeltaNotifications', true);
   });
 
   it('disables Auto Launch at Login when the platform does not support auto launch', () => {

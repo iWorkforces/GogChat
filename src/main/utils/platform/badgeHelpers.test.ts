@@ -64,8 +64,29 @@ vi.mock('../../../shared/dataValidators.js', () => ({
   validateUnreadCount: vi.fn((count: number) => count),
 }));
 
-function fakeWindow() {
-  return {} as unknown as Electron.BrowserWindow;
+const mockConfigGet = vi.fn().mockReturnValue(false);
+vi.mock('../../config.js', () => ({
+  configGet: (...args: unknown[]) => mockConfigGet(...args),
+}));
+
+const mockShowNativeNotification = vi.fn().mockReturnValue(true);
+const mockEnsureNotificationPermission = vi.fn().mockReturnValue('already-requested');
+vi.mock('./nativeNotification.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./nativeNotification.js')>();
+  return {
+    ...actual,
+    showNativeNotification: (...args: unknown[]) => mockShowNativeNotification(...args),
+  };
+});
+vi.mock('../security/notificationAccess.js', () => ({
+  ensureNotificationPermission: (...args: unknown[]) => mockEnsureNotificationPermission(...args),
+}));
+
+function fakeWindow(overrides: { isFocused?: boolean } = {}) {
+  return {
+    isDestroyed: vi.fn().mockReturnValue(false),
+    isFocused: vi.fn().mockReturnValue(overrides.isFocused ?? false),
+  } as unknown as Electron.BrowserWindow;
 }
 function fakeTray() {
   return { setImage: vi.fn() } as unknown as Electron.Tray;
@@ -86,6 +107,9 @@ describe('badgeHelpers (config wiring)', () => {
     mockSetBadgeCount.mockClear();
     mockGetIcon.mockReturnValue('/fake/icon.png');
     mockSetTrayUnread.mockClear();
+    mockShowNativeNotification.mockClear();
+    mockEnsureNotificationPermission.mockClear();
+    mockConfigGet.mockReturnValue(false);
     mockPlatformState.supportsDockBadge = true;
     mockPlatformState.useTemplateTrayIcon = true;
   });
@@ -221,6 +245,58 @@ describe('badgeHelpers (config wiring)', () => {
       expect(mockSetTrayUnread).toHaveBeenCalledWith(false);
     });
 
+    it('does not show unread-delta notification when flag is off', async () => {
+      mockConfigGet.mockReturnValue(false);
+      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      setupBadgeHandlers(fakeWindow({ isFocused: false }), fakeTray());
+
+      const unreadCfg = mockRegisterFastHandler.mock.calls.find(
+        ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
+      )?.[0] as { handler: (v: number) => void };
+      unreadCfg.handler(1);
+      unreadCfg.handler(2);
+
+      expect(mockShowNativeNotification).not.toHaveBeenCalled();
+    });
+
+    it('shows unread-delta notification on unfocused increase when enabled', async () => {
+      mockConfigGet.mockImplementation((key: string) => key === 'app.unreadDeltaNotifications');
+      const win = fakeWindow({ isFocused: false });
+      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      setupBadgeHandlers(win, fakeTray());
+
+      const unreadCfg = mockRegisterFastHandler.mock.calls.find(
+        ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
+      )?.[0] as { handler: (v: number) => void };
+      unreadCfg.handler(1);
+      expect(mockShowNativeNotification).not.toHaveBeenCalled(); // first observation
+
+      unreadCfg.handler(3);
+      expect(mockEnsureNotificationPermission).toHaveBeenCalled();
+      expect(mockShowNativeNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'GogChat',
+          body: 'You have 3 unread messages',
+          tag: 'gogchat-unread-delta',
+        }),
+        win
+      );
+    });
+
+    it('skips unread-delta notification when window is focused', async () => {
+      mockConfigGet.mockImplementation((key: string) => key === 'app.unreadDeltaNotifications');
+      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      setupBadgeHandlers(fakeWindow({ isFocused: true }), fakeTray());
+
+      const unreadCfg = mockRegisterFastHandler.mock.calls.find(
+        ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
+      )?.[0] as { handler: (v: number) => void };
+      unreadCfg.handler(1);
+      unreadCfg.handler(2);
+
+      expect(mockShowNativeNotification).not.toHaveBeenCalled();
+    });
+
     it('uses the favicon icon variant on Windows-style tray icons without template unread toggles', async () => {
       mockPlatformState.useTemplateTrayIcon = false;
       const tray = fakeTray();
@@ -248,6 +324,8 @@ describe('badgeHelpers (burst regression with real ipcFastPath)', () => {
     vi.resetModules();
     mockSetBadgeCount.mockClear();
     mockSetTrayUnread.mockClear();
+    mockShowNativeNotification.mockClear();
+    mockConfigGet.mockReturnValue(false);
     mockPlatformState.supportsDockBadge = true;
     mockPlatformState.useTemplateTrayIcon = true;
     const { getRateLimiter } = await import('../ipc/rateLimiter.js');
