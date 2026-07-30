@@ -8,9 +8,8 @@ import {
   destroyPerformanceMonitor,
   perfMonitor,
 } from './performanceMonitor';
-import type { RendererMemorySnapshot } from './performanceTypes';
 import type { IAccountWindowManager } from '../../../shared/types/window.js';
-import { asAccountIndex } from '../../../shared/types/branded.js';
+import { asAccountIndex, asWebContentsId } from '../../../shared/types/branded.js';
 
 // Hoisted mock for app.getAppMetrics so individual tests can swap return values.
 const getAppMetricsMock = vi.hoisted(() => vi.fn(() => [] as Electron.ProcessMetric[]));
@@ -519,6 +518,50 @@ describe('PerformanceMonitor', () => {
       expect(metrics.targetMet).toBeDefined();
       expect(metrics.appVersion).toBe('1.0.0');
       expect(metrics.timestamp).toBeDefined();
+      expect(metrics.schemaVersion).toBe(1);
+      expect(metrics.units).toEqual({ memory: 'MB', time: 'ms' });
+      expect(metrics.capture).toBeDefined();
+      expect(metrics.capture.complete).toBe(false);
+      expect(metrics.capture.valid).toBe(false);
+    });
+
+    it('marks capture complete+valid only when markers and renderer samples exist', () => {
+      const monitor = getPerformanceMonitor();
+      for (const name of [
+        'app-start',
+        'app-ready',
+        'account-0-ready',
+        'account-0-content-loaded',
+        'features-loaded',
+        'all-features-loaded',
+      ]) {
+        monitor.mark(name);
+      }
+      // Inject a renderer sample via sampleAllRenderers mock metrics
+      getAppMetricsMock.mockReturnValueOnce([
+        {
+          type: 'Tab',
+          pid: 42,
+          memory: { workingSetSize: 1024, peakWorkingSetSize: 2048 },
+          cpu: { percentCPUUsage: 1 },
+        },
+      ]);
+      monitor.sampleAllRenderers();
+
+      const metrics = monitor.exportToJSON(undefined, { complete: true });
+      expect(metrics.capture.complete).toBe(true);
+      expect(metrics.capture.valid).toBe(true);
+      expect(metrics.capture.rendererSampleCount).toBeGreaterThanOrEqual(1);
+      expect(metrics.capture.missingMarkers).toEqual([]);
+      expect(metrics.units.memory).toBe('MB');
+    });
+
+    it('marks incomplete when required markers are absent even if complete flag is set', () => {
+      const monitor = getPerformanceMonitor();
+      const metrics = monitor.exportToJSON(undefined, { complete: true });
+      expect(metrics.capture.complete).toBe(true);
+      expect(metrics.capture.valid).toBe(false);
+      expect(metrics.capture.missingMarkers.length).toBeGreaterThan(0);
     });
 
     it('should write metrics to file when outputPath provided', async () => {
@@ -855,8 +898,9 @@ describe('PerformanceMonitor', () => {
       // 150_000 KB / 1024 ≈ 146.48 MB
       expect(tab!.memory.residentSet).toBeCloseTo(146.48, 1);
       expect(tab!.memory.peakResidentSet).toBeCloseTo(146.48, 1);
-      // privateBytes omitted in the mock → normalized to 0
-      expect(tab!.memory.private).toBe(0);
+      // privateBytes omitted in the mock → unavailable (not measured zero)
+      expect(tab!.memory.private).toBeNull();
+      expect(tab!.memory.privateSource).toBe('unavailable');
       expect(tab!.accountIndex).toBeUndefined();
 
       expect(snaps.find((s) => s.pid === 303)?.type).toBe('gpu');
@@ -904,17 +948,21 @@ describe('PerformanceMonitor', () => {
 
     it('correlates renderer PIDs with account index when manager provided', () => {
       const fakeWebContents = {
+        id: 42,
         isDestroyed: () => false,
         getOSProcessId: () => 555,
       } as unknown as Electron.WebContents;
-      const fakeWindow = {
-        isDestroyed: () => false,
-        webContents: fakeWebContents,
-      } as unknown as Electron.BrowserWindow;
 
-      const fakeManager: Pick<IAccountWindowManager, 'getAllWindows' | 'getAccountIndex'> = {
-        getAllWindows: () => [fakeWindow],
-        getAccountIndex: (w) => (w === fakeWindow ? asAccountIndex(2) : null),
+      const fakeManager: Pick<IAccountWindowManager, 'enumerateAccountWebContents'> = {
+        enumerateAccountWebContents: () => [
+          {
+            accountIndex: asAccountIndex(2),
+            webContentsId: asWebContentsId(42),
+            osProcessId: 555,
+            backend: 'browser-window',
+            webContents: fakeWebContents,
+          },
+        ],
       };
 
       getAppMetricsMock.mockReturnValue([
@@ -929,7 +977,55 @@ describe('PerformanceMonitor', () => {
       const mapped = snaps.find((s) => s.pid === 555);
       const unmapped = snaps.find((s) => s.pid === 666);
       expect(mapped?.accountIndex).toBe(2);
+      expect(mapped?.backend).toBe('browser-window');
+      expect(mapped?.webContentsId).toBe(42);
       expect(unmapped?.accountIndex).toBeUndefined();
+    });
+
+    it('maps WebContentsView child renderers, not host-only', () => {
+      const childA = {
+        id: 10,
+        isDestroyed: () => false,
+        getOSProcessId: () => 1001,
+      } as unknown as Electron.WebContents;
+      const childB = {
+        id: 11,
+        isDestroyed: () => false,
+        getOSProcessId: () => 1002,
+      } as unknown as Electron.WebContents;
+
+      const fakeManager: Pick<IAccountWindowManager, 'enumerateAccountWebContents'> = {
+        enumerateAccountWebContents: () => [
+          {
+            accountIndex: asAccountIndex(0),
+            webContentsId: asWebContentsId(10),
+            osProcessId: 1001,
+            backend: 'web-contents-view',
+            webContents: childA,
+          },
+          {
+            accountIndex: asAccountIndex(1),
+            webContentsId: asWebContentsId(11),
+            osProcessId: 1002,
+            backend: 'web-contents-view',
+            webContents: childB,
+          },
+        ],
+      };
+
+      getAppMetricsMock.mockReturnValue([
+        makeMetric(1001, 'Tab', 50_000, 1),
+        makeMetric(1002, 'Tab', 60_000, 2),
+        makeMetric(9999, 'Tab', 10_000, 0), // host or unrelated — unmapped
+      ]);
+
+      const monitor = getPerformanceMonitor();
+      monitor.sampleAllRenderers(fakeManager as IAccountWindowManager);
+      const snaps = monitor.getRendererMemoryStats();
+      expect(snaps.find((s) => s.pid === 1001)?.accountIndex).toBe(0);
+      expect(snaps.find((s) => s.pid === 1002)?.accountIndex).toBe(1);
+      expect(snaps.find((s) => s.pid === 1001)?.backend).toBe('web-contents-view');
+      expect(snaps.find((s) => s.pid === 9999)?.accountIndex).toBeUndefined();
     });
 
     it('produces snapshots that match the RendererMemorySnapshot shape', () => {
@@ -939,19 +1035,31 @@ describe('PerformanceMonitor', () => {
       const snap = monitor.getRendererMemoryStats()[0]!;
 
       // Spot-check every required field exists with the right primitive shape.
-      const expected: RendererMemorySnapshot = {
-        timestamp: snap.timestamp,
-        pid: 77,
-        type: 'renderer',
-        memory: {
-          residentSet: snap.memory.residentSet,
-          peakResidentSet: snap.memory.peakResidentSet,
-          private: 0,
-        },
-        cpuPercent: 9,
-      };
-      expect(snap).toEqual(expected);
+      // private is null + unavailable when platform omits privateBytes (macOS).
+      expect(snap.pid).toBe(77);
+      expect(snap.type).toBe('renderer');
+      expect(snap.memory.private).toBeNull();
+      expect(snap.memory.privateSource).toBe('unavailable');
       expect(typeof snap.timestamp).toBe('number');
+      expect(typeof snap.cpuPercent).toBe('number');
+    });
+
+    it('records measured private memory when privateBytes is present', () => {
+      getAppMetricsMock.mockReturnValue([
+        {
+          ...makeMetric(88, 'Tab', 4096, 1),
+          memory: {
+            workingSetSize: 4096,
+            peakWorkingSetSize: 8192,
+            privateBytes: 2048,
+          },
+        },
+      ]);
+      const monitor = getPerformanceMonitor();
+      monitor.sampleAllRenderers();
+      const snap = monitor.getRendererMemoryStats()[0]!;
+      expect(snap.memory.private).toBe(2); // 2048 KB → 2 MB
+      expect(snap.memory.privateSource).toBe('measured');
     });
   });
 });

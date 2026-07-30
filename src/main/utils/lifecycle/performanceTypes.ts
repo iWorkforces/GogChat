@@ -22,7 +22,37 @@ export const PERFORMANCE_TARGETS = {
 } as const;
 
 /**
- * Memory snapshot interface
+ * Versioned export schema for unauthenticated CI startup artifacts.
+ * Bump when required fields, units, or completeness semantics change.
+ */
+export const PERF_EXPORT_SCHEMA_VERSION = 1 as const;
+
+/**
+ * Canonical metric units for every producer, export, budget, and display path.
+ * Memory is always megabytes (not bytes); time is always milliseconds.
+ */
+export const PERF_METRIC_UNITS = {
+  memory: 'MB',
+  time: 'ms',
+} as const;
+
+/**
+ * Markers required for a complete unauthenticated CI startup capture.
+ * Document load (`account-0-content-loaded`) is not first paint or first interaction.
+ */
+export const REQUIRED_STARTUP_MARKERS = [
+  'app-start',
+  'app-ready',
+  'account-0-ready',
+  'account-0-content-loaded',
+  'features-loaded',
+  'all-features-loaded',
+] as const;
+
+export type RequiredStartupMarker = (typeof REQUIRED_STARTUP_MARKERS)[number];
+
+/**
+ * Memory snapshot interface. All memory fields are in megabytes (MB).
  */
 export interface MemorySnapshot {
   timestamp: number;
@@ -46,17 +76,32 @@ export interface RendererMemorySnapshot {
   accountIndex?: number;
   /** Process kind reported by Electron */
   type: 'renderer' | 'gpu' | 'utility';
-  /** Memory metrics in MB (rounded to 2 decimals) */
+  /**
+   * Memory metrics in MB (rounded to 2 decimals).
+   * When private memory is unavailable (non-Windows), `private` is null and
+   * `privateSource` is `'unavailable'` — never a misleading measured zero.
+   */
   memory: {
     /** Working set size — currently pinned to physical RAM (mapped from `workingSetSize`) */
     residentSet: number;
     /** Peak working set size ever pinned (mapped from `peakWorkingSetSize`) */
     peakResidentSet: number;
-    /** Private (non-shared) bytes — only available on Windows; 0 elsewhere */
-    private: number;
+    /**
+     * Private (non-shared) memory in MB when available (Windows).
+     * `null` when the platform does not report privateBytes.
+     */
+    private: number | null;
+    /** Whether private was measured or is unavailable on this platform. */
+    privateSource: 'measured' | 'unavailable';
   };
   /** CPU usage percentage as reported by Electron's ProcessMetric */
   cpuPercent: number;
+  /** Electron ProcessMetric.creationTime (ms since epoch) for PID reuse disambiguation */
+  creationTime?: number;
+  /** Owning account backend when correlated via enumerateAccountWebContents */
+  backend?: 'browser-window' | 'web-contents-view';
+  /** webContents.id when correlated via account enumeration */
+  webContentsId?: number;
 }
 
 /**
@@ -95,9 +140,57 @@ export interface MemoryLatencySample {
 }
 
 /**
- * Performance metrics export interface
+ * Metric unit metadata embedded in every export so consumers never guess
+ * whether memory is MB or bytes.
+ */
+export interface PerformanceMetricUnits {
+  memory: typeof PERF_METRIC_UNITS.memory;
+  time: typeof PERF_METRIC_UNITS.time;
+}
+
+/**
+ * Per-run capture completeness. A complete + valid run has every required
+ * marker, at least one renderer sample taken after document load, and no
+ * load failure/timeout. Incomplete or invalid runs must not feed medians.
+ */
+export interface CaptureCompleteness {
+  /** True when the final export path ran after required producers finished. */
+  complete: boolean;
+  /** True when required markers and renderer evidence are present. */
+  valid: boolean;
+  /** Required marker names checked for this schema version. */
+  requiredMarkers: readonly string[];
+  /** Required markers absent from this run. */
+  missingMarkers: string[];
+  /** Count of renderer-type snapshots at export time. */
+  rendererSampleCount: number;
+  /** Human-readable reason when incomplete or invalid. */
+  reason?: string;
+}
+
+/**
+ * Aggregate completeness when multiple runs are merged (median harness).
+ */
+export interface AggregateCompleteness {
+  strategy: 'median' | 'single';
+  runs: number;
+  successfulRuns: number;
+  invalidRuns: number;
+  /** True only when every requested run was complete and valid. */
+  complete: boolean;
+}
+
+/**
+ * Performance metrics export interface (schema-versioned).
+ * Memory values are always in MB; times always in ms.
  */
 export interface PerformanceMetrics {
+  /** Export schema version; consumers must reject incompatible versions. */
+  schemaVersion: number;
+  /** Explicit units for memory and time fields. */
+  units: PerformanceMetricUnits;
+  /** Per-run capture completeness metadata. */
+  capture: CaptureCompleteness;
   startupTime: number;
   markers: Record<string, number>;
   memorySnapshots: MemorySnapshot[];
@@ -116,6 +209,8 @@ export interface PerformanceMetrics {
   warnings: string[];
   timestamp: string;
   appVersion: string;
+  /** Present on multi-run harness aggregates only. */
+  aggregation?: AggregateCompleteness;
 }
 
 /**

@@ -36,6 +36,11 @@ import type { FeatureContext, FeatureCallbacks } from '../utils/lifecycle/featur
 import { setSharedFeatureContext } from '../utils/lifecycle/featureContextStore.js';
 import type { WindowFactory } from '../../shared/types/window.js';
 import { asAccountIndex } from '../../shared/types/branded.js';
+import {
+  armPerformanceFinalizer,
+  notifyDocumentLoadComplete,
+  notifyDocumentLoadFailed,
+} from '../utils/lifecycle/performanceFinalizer.js';
 
 /**
  * Options for registerAppReady
@@ -158,16 +163,35 @@ export function registerAppReady(options: AppReadyOptions): void {
       context.accountWindowManager = accountWindowManager;
       perfMonitor.mark('account-0-ready', 'Account-0 window ready');
 
-      // Account-0 content-loaded marker — fires when the initial Google Chat page
-      // load completes (did-finish-load on the main frame). This is the accurate
-      // first-paint signal; account-0-ready only reflects window construction.
-      // One-shot via webContents.once so navigations don't re-mark.
+      // Arm one-shot metrics finalization: export runs only after deferred
+      // phase + document-load marker + immediate renderer sample. Document
+      // load / account-0-ready are NOT first paint or first interaction.
+      armPerformanceFinalizer({
+        getAccountManager: () => accountWindowManager,
+      });
+
+      // Account-0 content-loaded marker — fires when the initial page load
+      // completes (did-finish-load on the main frame). account-0-ready only
+      // reflects window construction. One-shot so navigations don't re-mark.
       if (mainWindow && !mainWindow.isDestroyed()) {
         const wc = mainWindow.webContents;
         if (!wc.isDestroyed()) {
           wc.once('did-finish-load', () => {
             perfMonitor.mark('account-0-content-loaded', 'Account-0 initial page load completed');
+            notifyDocumentLoadComplete();
           });
+          wc.once(
+            'did-fail-load',
+            (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+              if (!isMainFrame) return;
+              // Ignore aborted navigations (e.g. subsequent redirects); only
+              // treat hard failures as invalid capture.
+              if (errorCode === -3 /* ERR_ABORTED */) return;
+              const reason = `did-fail-load code=${errorCode}: ${errorDescription}`;
+              log.warn(`[Main] Account-0 document load failed: ${reason}`);
+              notifyDocumentLoadFailed(reason);
+            }
+          );
         }
       }
 

@@ -36,19 +36,37 @@ vi.mock('electron-log', () => ({
 
 // Avoid pulling perfMonitor / configProfiler side effects into this unit test;
 // only the functions under test are exercised.
+const createTrackedTimeoutMock = vi.hoisted(() => vi.fn());
+const notifyDeferredMock = vi.hoisted(() => vi.fn());
+const runPhaseMock = vi.hoisted(() => vi.fn(async () => undefined));
+const compareStorePerformanceMock = vi.hoisted(() => vi.fn());
+
 vi.mock('../lifecycle/performanceMonitor.js', () => ({
   perfMonitor: { mark: vi.fn(), logSummary: vi.fn(), exportToJSON: vi.fn() },
 }));
 vi.mock('../lifecycle/resourceCleanup.js', () => ({
-  createTrackedTimeout: vi.fn(),
+  createTrackedTimeout: createTrackedTimeoutMock,
 }));
 vi.mock('../lifecycle/configProfiler.js', () => ({
-  compareStorePerformance: vi.fn(),
+  compareStorePerformance: compareStorePerformanceMock,
+}));
+vi.mock('../lifecycle/performanceFinalizer.js', () => ({
+  notifyDeferredPhaseComplete: notifyDeferredMock,
+}));
+vi.mock('../lifecycle/featureRunner.js', () => ({
+  runPhase: runPhaseMock,
 }));
 
-import { warmCachesOnIdle, warmInitialIcons } from './cacheWarmer';
+import {
+  warmCachesOnIdle,
+  warmInitialIcons,
+  runDeferredPhase,
+  runDevPostDeferred,
+  scheduleIdleCacheWarming,
+} from './cacheWarmer';
 import { getIconCache, destroyIconCache, INITIAL_ICON_PATHS } from '../platform/iconCache';
 import { nativeImage } from 'electron';
+import { perfMonitor } from '../lifecycle/performanceMonitor.js';
 
 /** Extract ADDITIONAL_ICON_PATHS from cacheWarmer.ts source for test assertions. */
 function readAdditionalPaths(): string[] {
@@ -122,6 +140,76 @@ describe('cacheWarmer', () => {
       } as ReturnType<typeof nativeImage.createFromPath>);
 
       expect(() => warmCachesOnIdle()).not.toThrow();
+    });
+  });
+
+  describe('runDeferredPhase / finalizer signal', () => {
+    beforeEach(() => {
+      notifyDeferredMock.mockClear();
+      runPhaseMock.mockClear();
+      createTrackedTimeoutMock.mockClear();
+      compareStorePerformanceMock.mockClear();
+      vi.mocked(perfMonitor.mark).mockClear();
+      vi.mocked(perfMonitor.logSummary).mockClear();
+      delete process.env['ENABLE_CONFIG_PROFILING'];
+    });
+
+    it('returns early when main window is unavailable', async () => {
+      await runDeferredPhase({
+        context: {} as never,
+        getMainWindow: () => null,
+        isDev: true,
+      });
+      expect(runPhaseMock).not.toHaveBeenCalled();
+      expect(notifyDeferredMock).not.toHaveBeenCalled();
+    });
+
+    it('runs deferred phase, logs summary, signals finalizer, schedules idle warm', async () => {
+      const fakeWindow = {} as Electron.BrowserWindow;
+      await runDeferredPhase({
+        context: { mainWindow: fakeWindow } as never,
+        getMainWindow: () => fakeWindow,
+        isDev: false,
+      });
+
+      expect(runPhaseMock).toHaveBeenCalledWith('deferred', expect.anything());
+      expect(perfMonitor.mark).toHaveBeenCalledWith('deferred-features-start', expect.any(String));
+      expect(perfMonitor.mark).toHaveBeenCalledWith(
+        'all-features-loaded',
+        expect.any(String),
+        true
+      );
+      expect(perfMonitor.logSummary).toHaveBeenCalled();
+      expect(notifyDeferredMock).toHaveBeenCalledTimes(1);
+      expect(createTrackedTimeoutMock).toHaveBeenCalled();
+      // isDev false → no config profiling
+      expect(compareStorePerformanceMock).not.toHaveBeenCalled();
+    });
+
+    it('runDevPostDeferred is a no-op when not dev', () => {
+      process.env['ENABLE_CONFIG_PROFILING'] = 'true';
+      runDevPostDeferred(false);
+      expect(compareStorePerformanceMock).not.toHaveBeenCalled();
+    });
+
+    it('runDevPostDeferred profiles config when enabled in dev', () => {
+      process.env['ENABLE_CONFIG_PROFILING'] = 'true';
+      runDevPostDeferred(true);
+      expect(compareStorePerformanceMock).toHaveBeenCalled();
+    });
+
+    it('runDevPostDeferred does not export metrics JSON', () => {
+      runDevPostDeferred(true);
+      expect(perfMonitor.exportToJSON).not.toHaveBeenCalled();
+    });
+
+    it('scheduleIdleCacheWarming registers tracked timeout', () => {
+      scheduleIdleCacheWarming();
+      expect(createTrackedTimeoutMock).toHaveBeenCalledWith(
+        expect.any(Function),
+        8000,
+        'idle-cache-warming'
+      );
     });
   });
 });
