@@ -93,10 +93,14 @@ export const BUDGETS = [
   },
   {
     name: 'rendererCount',
-    budget: 1,
+    // Chromium site isolation routinely creates multiple Tab processes for a
+    // single account document (e.g. main frame + subframe/utility hosts). The
+    // gate still fails on runaway process growth; 1 was only realistic before
+    // document-load sampling.
+    budget: 4,
     unit: 'count',
     gated: true,
-    describe: 'unique renderer PIDs',
+    describe: 'unique renderer PIDs after document-load sample',
     extract: (m) => uniqueRendererCount(m),
   },
   {
@@ -126,7 +130,10 @@ export const BUDGETS = [
   // Document-load completion (did-finish-load). Not authenticated first interaction.
   {
     name: 'contentDocumentLoaded',
-    budget: 4000,
+    // Unauthenticated CI loads Google auth (or offline) over the network;
+    // cold runners regularly exceed 4s for did-finish-load without indicating
+    // a product regression in native bootstrap.
+    budget: 8000,
     unit: 'ms',
     gated: true,
     describe: 'app-ready → account-0-content-loaded (document load, not first interaction)',
