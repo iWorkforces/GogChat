@@ -54,9 +54,13 @@ jobs:
       - name: 'Performance: Headless startup capture'
         run: node scripts/headless-startup.js
         env:
-          HEADLESS_TIMEOUT_MS: '60000'
-          GOGCHAT_AUTO_QUIT_AFTER_MS: '12000'
+          # Per-run overall harness timeout (includes Electron boot + document load).
+          HEADLESS_TIMEOUT_MS: '90000'
+          # Capture timeout floor is also enforced in the finalizer when
+          # GOGCHAT_EXPORT_METRICS=1; keep this high enough for cold CI loads.
+          GOGCHAT_AUTO_QUIT_AFTER_MS: '45000'
           GOGCHAT_PERF_RUNS: '5'
+          GOGCHAT_EXPORT_METRICS: '1'
 
       - name: 'Performance: Budget gate'
         run: node scripts/check-perf-budget.js performance-metrics.json

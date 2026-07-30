@@ -132,6 +132,33 @@ describe('performanceFinalizer', () => {
     expect(written.capture.reason).toMatch(/network error/);
   });
 
+  it('schedules one renderer re-sample when ready but no Tab metrics yet', () => {
+    getAppMetricsMock.mockReturnValue([]);
+    armPerformanceFinalizer({ outputPath: '/fake/path/userData/performance-metrics.json' });
+    markAllRequired();
+    notifyDeferredPhaseComplete();
+    notifyDocumentLoadComplete();
+
+    // First attempt defers export for re-sample
+    expect(hasFinalizedPerformanceExport()).toBe(false);
+    expect(writeFileSyncMock).not.toHaveBeenCalled();
+    const resample = trackedTimeouts.find((t) => t.delay === 750);
+    expect(resample).toBeDefined();
+
+    getAppMetricsMock.mockReturnValue([
+      {
+        type: 'Tab',
+        pid: 99,
+        memory: { workingSetSize: 2048, peakWorkingSetSize: 4096 },
+        cpu: { percentCPUUsage: 0.5 },
+      },
+    ]);
+    resample!.cb();
+    expect(hasFinalizedPerformanceExport()).toBe(true);
+    const written = JSON.parse(writeFileSyncMock.mock.calls[0]![1] as string);
+    expect(written.capture.valid).toBe(true);
+  });
+
   it('exports invalid capture on capture timeout', () => {
     armPerformanceFinalizer({
       outputPath: '/fake/path/userData/performance-metrics.json',
@@ -184,21 +211,35 @@ describe('performanceFinalizer', () => {
   });
 
   it('uses GOGCHAT_AUTO_QUIT_AFTER_MS as default timeout when set', () => {
+    delete process.env['GOGCHAT_EXPORT_METRICS'];
     process.env['GOGCHAT_AUTO_QUIT_AFTER_MS'] = '7500';
     armPerformanceFinalizer({ outputPath: '/fake/path/userData/performance-metrics.json' });
     expect(trackedTimeouts[0]?.delay).toBe(7500);
+    delete process.env['GOGCHAT_AUTO_QUIT_AFTER_MS'];
+    process.env['GOGCHAT_EXPORT_METRICS'] = '1';
+  });
+
+  it('floors capture timeout to 45s when metrics export is requested', () => {
+    process.env['GOGCHAT_EXPORT_METRICS'] = '1';
+    process.env['GOGCHAT_AUTO_QUIT_AFTER_MS'] = '7500';
+    armPerformanceFinalizer({ outputPath: '/fake/path/userData/performance-metrics.json' });
+    expect(trackedTimeouts[0]?.delay).toBe(45_000);
     delete process.env['GOGCHAT_AUTO_QUIT_AFTER_MS'];
   });
 
   it('continues export when renderer sample throws', () => {
     const monitor = getPerformanceMonitor();
-    vi.spyOn(monitor, 'sampleAllRenderers').mockImplementationOnce(() => {
+    vi.spyOn(monitor, 'sampleAllRenderers').mockImplementation(() => {
       throw new Error('sample boom');
     });
     armPerformanceFinalizer({ outputPath: '/fake/path/userData/performance-metrics.json' });
     markAllRequired();
     notifyDocumentLoadComplete();
     notifyDeferredPhaseComplete();
+    // First attempt schedules re-sample after empty/throwing sample
+    const resample = trackedTimeouts.find((t) => t.delay === 750);
+    expect(resample).toBeDefined();
+    resample!.cb();
     expect(writeFileSyncMock).toHaveBeenCalledTimes(1);
   });
 

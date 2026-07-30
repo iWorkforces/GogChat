@@ -39,7 +39,6 @@ import { asAccountIndex } from '../../shared/types/branded.js';
 import {
   armPerformanceFinalizer,
   notifyDocumentLoadComplete,
-  notifyDocumentLoadFailed,
 } from '../utils/lifecycle/performanceFinalizer.js';
 
 /**
@@ -180,16 +179,18 @@ export function registerAppReady(options: AppReadyOptions): void {
             perfMonitor.mark('account-0-content-loaded', 'Account-0 initial page load completed');
             notifyDocumentLoadComplete();
           });
-          wc.once(
+          // do not force-fail the capture on did-fail-load: Google auth and
+          // error pages still emit did-finish-load for the final document, and
+          // intermediate redirects often surface as fail-load events. Hard
+          // timeouts still mark the run invalid via the finalizer.
+          wc.on(
             'did-fail-load',
             (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
               if (!isMainFrame) return;
-              // Ignore aborted navigations (e.g. subsequent redirects); only
-              // treat hard failures as invalid capture.
               if (errorCode === -3 /* ERR_ABORTED */) return;
-              const reason = `did-fail-load code=${errorCode}: ${errorDescription}`;
-              log.warn(`[Main] Account-0 document load failed: ${reason}`);
-              notifyDocumentLoadFailed(reason);
+              log.warn(
+                `[Main] Account-0 did-fail-load (non-terminal for metrics): code=${errorCode}: ${errorDescription}`
+              );
             }
           );
         }

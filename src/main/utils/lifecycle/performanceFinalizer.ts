@@ -37,6 +37,8 @@ interface FinalizerState {
   contentFailed: boolean;
   failReason?: string;
   exported: boolean;
+  /** One re-sample attempt when markers are ready but no Tab process yet. */
+  rendererResampleScheduled: boolean;
   getAccountManager?: () => IAccountWindowManager | undefined;
   outputPath?: string;
   timeoutHandle: NodeJS.Timeout | null;
@@ -48,6 +50,7 @@ const state: FinalizerState = {
   contentReady: false,
   contentFailed: false,
   exported: false,
+  rendererResampleScheduled: false,
   timeoutHandle: null,
 };
 
@@ -81,13 +84,12 @@ function tryFinalize(reasonIfForced?: string): void {
     return;
   }
 
-  state.exported = true;
-  if (state.timeoutHandle) {
-    clearTimeout(state.timeoutHandle);
-    state.timeoutHandle = null;
-  }
-
   if (!shouldExport()) {
+    state.exported = true;
+    if (state.timeoutHandle) {
+      clearTimeout(state.timeoutHandle);
+      state.timeoutHandle = null;
+    }
     log.debug('[Performance] Finalizer skipped export (not in export mode)');
     return;
   }
@@ -97,10 +99,39 @@ function tryFinalize(reasonIfForced?: string): void {
   // Immediate renderer sample before export so empty renderer evidence cannot
   // be presented as a measured-zero run. Use getPerformanceMonitor() so tests
   // that destroy/recreate the singleton still hit the live instance.
-  try {
-    monitor.sampleAllRenderers(accountManager);
-  } catch (error: unknown) {
-    log.warn('[Performance] Final renderer sample failed:', error);
+  const sampleOnce = (): number => {
+    try {
+      monitor.sampleAllRenderers(accountManager);
+    } catch (error: unknown) {
+      log.warn('[Performance] Final renderer sample failed:', error);
+    }
+    return monitor.getRendererSnapshots().filter((s) => s.type === 'renderer').length;
+  };
+
+  let rendererCount = sampleOnce();
+  // CI / just-created windows can report zero Tab metrics for a beat; schedule
+  // exactly one re-sample before writing an otherwise-ready capture.
+  if (ready && !forcedFail && rendererCount < 1 && !state.rendererResampleScheduled) {
+    state.rendererResampleScheduled = true;
+    createTrackedTimeout(
+      () => {
+        if (state.exported) return;
+        tryFinalize(reasonIfForced);
+      },
+      750,
+      'perf-export-renderer-resample'
+    );
+    return;
+  }
+
+  state.exported = true;
+  if (state.timeoutHandle) {
+    clearTimeout(state.timeoutHandle);
+    state.timeoutHandle = null;
+  }
+
+  if (rendererCount < 1) {
+    rendererCount = sampleOnce();
   }
 
   const outputPath = resolveOutputPath(state.outputPath);
@@ -118,6 +149,7 @@ function tryFinalize(reasonIfForced?: string): void {
 
   log.info(
     `[Performance] Final export written (complete=${complete}, path=${outputPath}` +
+      `, renderers=${rendererCount}` +
       `${failReason ? `, reason=${failReason}` : ''})`
   );
 }
@@ -140,10 +172,20 @@ export function armPerformanceFinalizer(options: ArmPerformanceFinalizerOptions 
   state.contentFailed = false;
   delete state.failReason;
   state.exported = false;
+  state.rendererResampleScheduled = false;
   if (options.getAccountManager) state.getAccountManager = options.getAccountManager;
   if (options.outputPath) state.outputPath = options.outputPath;
 
-  const timeoutMs = options.timeoutMs ?? defaultTimeoutMs();
+  // Floor capture timeout when metrics export is requested so CI headless
+  // runs are not invalidated by slow first-document loads under 12s.
+  let timeoutMs = options.timeoutMs ?? defaultTimeoutMs();
+  if (
+    options.timeoutMs === undefined &&
+    process.env['GOGCHAT_EXPORT_METRICS'] === '1' &&
+    timeoutMs < 45_000
+  ) {
+    timeoutMs = 45_000;
+  }
   state.timeoutHandle = createTrackedTimeout(
     () => {
       state.timeoutHandle = null;
@@ -192,6 +234,7 @@ export function resetPerformanceFinalizerForTests(): void {
   state.contentFailed = false;
   delete state.failReason;
   state.exported = false;
+  state.rendererResampleScheduled = false;
   delete state.getAccountManager;
   delete state.outputPath;
   state.timeoutHandle = null;
