@@ -7,10 +7,16 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import {
+  findMacosDmgs,
+  findMacosPackageArtifactViolations,
+  MACOS_DMG_ARCHES,
+} from './verify-macos-package-artifacts.js';
+import {
   findWindowsInstallers,
   findWindowsPackageArtifactViolations,
 } from './verify-windows-package-artifacts.js';
 
+const REQUIRED_MACOS_ARCHES = [...MACOS_DMG_ARCHES];
 const REQUIRED_WINDOWS_ARCHES = ['x64', 'arm64'];
 
 class UsageError extends Error {
@@ -24,7 +30,7 @@ function usage() {
   return [
     'Usage: bun scripts/verify-release-artifacts.js --input <dir> [--output <dir>]',
     '',
-    'Verifies aggregated macOS DMG and Windows x64/arm64 NSIS setup artifacts before release publishing.',
+    'Verifies aggregated macOS arm64/x64 DMG and Windows x64/arm64 NSIS setup artifacts before release publishing.',
   ].join('\n');
 }
 
@@ -50,13 +56,6 @@ function listFiles(rootDir) {
   return files;
 }
 
-function findMacDmgs(inputDir) {
-  return listFiles(inputDir)
-    .map((filePath) => normalizeRelativePath(path.relative(inputDir, filePath)))
-    .filter((relativePath) => /\.dmg$/i.test(relativePath))
-    .sort((left, right) => left.localeCompare(right));
-}
-
 function findDuplicateArtifactFileNames(inputDir) {
   const fileNames = new Map();
   for (const filePath of listFiles(inputDir)) {
@@ -73,31 +72,38 @@ function findDuplicateArtifactFileNames(inputDir) {
     .sort((left, right) => left.localeCompare(right));
 }
 
-function splitWindowsViolations(violations) {
+function splitMissingViolations(violations, platformPrefix) {
   return {
-    missing: violations.filter((violation) => violation.startsWith('Missing required Windows')),
-    remaining: violations.filter((violation) => !violation.startsWith('Missing required Windows')),
+    missing: violations.filter((violation) =>
+      violation.startsWith(`Missing required ${platformPrefix}`)
+    ),
+    remaining: violations.filter(
+      (violation) => !violation.startsWith(`Missing required ${platformPrefix}`)
+    ),
   };
 }
 
 export function findReleaseArtifactViolations(inputDir) {
-  const macDmgs = findMacDmgs(inputDir);
-  const violations = [];
-  if (macDmgs.length === 0) {
-    violations.push('Missing macOS DMG artifact');
-  }
-
-  const windowsViolations = splitWindowsViolations(
-    findWindowsPackageArtifactViolations(inputDir, REQUIRED_WINDOWS_ARCHES)
+  const macViolations = splitMissingViolations(
+    findMacosPackageArtifactViolations(inputDir, REQUIRED_MACOS_ARCHES),
+    'macOS'
   );
-  violations.push(...windowsViolations.missing);
-  violations.push(...findDuplicateArtifactFileNames(inputDir));
-  violations.push(...windowsViolations.remaining);
-  return violations;
+  const windowsViolations = splitMissingViolations(
+    findWindowsPackageArtifactViolations(inputDir, REQUIRED_WINDOWS_ARCHES),
+    'Windows'
+  );
+
+  return [
+    ...macViolations.missing,
+    ...windowsViolations.missing,
+    ...findDuplicateArtifactFileNames(inputDir),
+    ...macViolations.remaining,
+    ...windowsViolations.remaining,
+  ];
 }
 
 function findVerifiedReleaseArtifacts(inputDir) {
-  const dmgArtifacts = findMacDmgs(inputDir);
+  const dmgArtifacts = findMacosDmgs(inputDir).map((dmg) => dmg.relativePath);
   const windowsArtifacts = findWindowsInstallers(inputDir).map(
     (installer) => installer.relativePath
   );
