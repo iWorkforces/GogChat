@@ -12,3 +12,4 @@ export * from './encryptionKey.js';
 export * from './cspHeaderHandler.js';
 export * from './permissionHandler.js';
 export * from './mediaAccess.js';
+export * from './notificationAccess.js';

@@ -16,6 +16,19 @@ export interface AppConfig {
   suppressPasskeyDialog: boolean;
   notificationPermissionRequested: boolean;
   /**
+   * When true, emit a generic OS banner when the unread badge count increases
+   * while the focus window is not focused. Default false — Chat web
+   * Notification bridge remains the primary path; enable after smoke if Chat
+   * does not fire Web Notifications when unfocused.
+   */
+  unreadDeltaNotifications: boolean;
+  /**
+   * Optional human labels for notification subtitles, keyed by account index
+   * string (e.g. `"0"` → `"Work"`). Empty / missing keys fall back to
+   * `Account N` (1-based). Max length enforced when writing.
+   */
+  accountLabels: Record<string, string>;
+  /**
    * Hidden experimental flag — when true, the app uses a single host
    * BrowserWindow with one WebContentsView per account (Electron 30+ API)
    * instead of one BrowserWindow per account. Saves ~15-25 MB/account and

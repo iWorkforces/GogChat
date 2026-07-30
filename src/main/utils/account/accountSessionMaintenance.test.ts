@@ -91,6 +91,7 @@ function makeManager(overrides: Partial<IAccountWindowManager> = {}): IAccountWi
     getAccountWindow: vi.fn().mockReturnValue(null),
     getAccountWebContents: vi.fn().mockReturnValue(null),
     getAccountForWebContents: vi.fn().mockReturnValue(null),
+    focusAccount: vi.fn(),
     getAllWindows: vi.fn().mockReturnValue([]),
     getMostRecentWindow: vi.fn().mockReturnValue(null),
     hasAccount: vi.fn().mockReturnValue(false),

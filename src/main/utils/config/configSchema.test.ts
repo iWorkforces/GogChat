@@ -84,11 +84,11 @@ describe('window section', () => {
 describe('app section', () => {
   const app = schema.app as {
     type: string;
-    properties: Record<string, { type: string; default: boolean }>;
-    default: Record<string, boolean>;
+    properties: Record<string, { type: string | string[]; default: unknown }>;
+    default: Record<string, unknown>;
   };
 
-  const expectedDefaults: Record<string, boolean> = {
+  const expectedBooleanDefaults: Record<string, boolean> = {
     autoCheckForUpdates: true,
     autoLaunchAtLogin: true,
     startHidden: false,
@@ -96,18 +96,23 @@ describe('app section', () => {
     disableSpellChecker: false,
     suppressPasskeyDialog: false,
     notificationPermissionRequested: false,
+    unreadDeltaNotifications: false,
     useWebContentsView: false,
   };
 
-  it('has exactly 8 boolean properties', () => {
-    expect(Object.keys(app.properties).sort()).toEqual(Object.keys(expectedDefaults).sort());
+  it('includes boolean app flags and accountLabels object', () => {
+    expect(Object.keys(app.properties).sort()).toEqual(
+      [...Object.keys(expectedBooleanDefaults), 'accountLabels'].sort()
+    );
+    expect(app.properties['accountLabels']?.type).toBe('object');
+    expect(app.default['accountLabels']).toEqual({});
   });
 
-  it.each(Object.keys(expectedDefaults))('property "%s" is boolean', (key) => {
+  it.each(Object.keys(expectedBooleanDefaults))('property "%s" is boolean', (key) => {
     expect(app.properties[key]?.type).toBe('boolean');
   });
 
-  it.each(Object.entries(expectedDefaults))('property "%s" default is %s', (key, value) => {
+  it.each(Object.entries(expectedBooleanDefaults))('property "%s" default is %s', (key, value) => {
     expect(app.properties[key]?.default).toBe(value);
     expect(app.default[key]).toBe(value);
   });

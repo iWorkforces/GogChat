@@ -1,20 +1,9 @@
 /**
- * Unit tests for handleNotification feature — notification lifecycle & auto-dismiss
- *
- * Covers:
- * - Notification creation via NOTIFICATION_SHOW IPC
- * - Notification click brings window to focus
- * - Notification close cleans up activeNotifications map
- * - Auto-dismiss timeout (10s) closes notification
- * - Tag-based deduplication (replaces existing notification with same tag)
- * - cleanupNotificationHandler closes all active notifications
- * - cleanupNotificationHandler removes IPC listeners
+ * Unit tests for handleNotification feature — IPC wiring to nativeNotification
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
-
-// ─── Mock helpers ─────────────────────────────────────────────────────────────
 
 function makeFakeWindow() {
   const wc = new EventEmitter() as EventEmitter & { getURL: () => string };
@@ -53,56 +42,19 @@ function makeFakeWindow() {
   return win;
 }
 
-// Fake Notification class
-class FakeNotification {
-  static all: FakeNotification[] = [];
-
-  title: string;
-  body?: string;
-  icon?: string;
-  silent: boolean;
-  clicked = false;
-  closed = false;
-  clickHandler: (() => void) | null = null;
-  closeHandler: (() => void) | null = null;
-
-  constructor(options: { title: string; body?: string; icon?: string; silent?: boolean }) {
-    this.title = options.title;
-    this.body = options.body;
-    this.icon = options.icon;
-    this.silent = options.silent ?? false;
-    FakeNotification.all.push(this);
-  }
-
-  on(event: 'click' | 'close', handler: () => void) {
-    if (event === 'click') {
-      this.clickHandler = handler;
-    } else if (event === 'close') {
-      this.closeHandler = handler;
-    }
-  }
-
-  show() {
-    // do nothing
-  }
-
-  close() {
-    this.closed = true;
-    this.closeHandler?.();
-    FakeNotification.all = FakeNotification.all.filter((n) => n !== this);
-  }
-
-  simulateClick() {
-    this.clicked = true;
-    this.clickHandler?.();
-  }
-
-  static resetAll() {
-    FakeNotification.all = [];
-  }
-}
-
-// ─── Module-level mocks ───────────────────────────────────────────────────────
+const showNativeNotificationMock = vi.fn().mockReturnValue(true);
+const cleanupActiveNativeNotificationsMock = vi.fn();
+const focusNotificationSourceMock = vi.fn();
+const resolveNotificationFocusWindowMock = vi.fn();
+const resolveAccountIndexMock = vi.fn().mockReturnValue(0);
+const buildAccountAwarePayloadMock = vi.fn((opts: Record<string, unknown>) => ({
+  title: opts['title'],
+  body: opts['body'],
+  icon: opts['icon'],
+  tag: `a0:${opts['chatTag'] ?? 'x'}`,
+  subtitle: 'Account 1',
+  groupId: 'gogchat-account-0',
+}));
 
 const ipcMainMock = {
   on: vi.fn(),
@@ -110,8 +62,9 @@ const ipcMainMock = {
 };
 
 vi.mock('electron', () => ({
-  BrowserWindow: vi.fn(),
-  Notification: FakeNotification,
+  BrowserWindow: Object.assign(vi.fn(), {
+    fromWebContents: vi.fn(),
+  }),
   ipcMain: ipcMainMock,
 }));
 
@@ -128,9 +81,6 @@ vi.mock('../../shared/constants.js', () => ({
   IPC_CHANNELS: {
     NOTIFICATION_SHOW: 'notificationShow',
     NOTIFICATION_CLICKED: 'notificationClicked',
-  },
-  TIMING: {
-    NOTIFICATION_AUTO_DISMISS: 10000,
   },
   RATE_LIMITS: {
     IPC_NOTIFICATION: 5,
@@ -155,12 +105,22 @@ vi.mock('../utils/ipc/rateLimiter.js', () => ({
   getRateLimiter: getRateLimiterMock,
 }));
 
-const createTrackedTimeoutMock = vi.fn();
-vi.mock('../utils/lifecycle/resourceCleanup.js', () => ({
-  createTrackedTimeout: createTrackedTimeoutMock,
+vi.mock('../utils/platform/nativeNotification.js', () => ({
+  showNativeNotification: (...args: unknown[]) => showNativeNotificationMock(...args),
+  cleanupActiveNativeNotifications: () => cleanupActiveNativeNotificationsMock(),
+  buildAccountAwareNotificationPayload: (...args: unknown[]) =>
+    buildAccountAwarePayloadMock(...(args as [Record<string, unknown>])),
 }));
 
-// ─── Test suite ───────────────────────────────────────────────────────────────
+vi.mock('../utils/platform/accountNotificationIdentity.js', () => ({
+  resolveAccountIndexFromIpcEvent: (...args: unknown[]) => resolveAccountIndexMock(...args),
+}));
+
+vi.mock('../utils/platform/notificationFocus.js', () => ({
+  focusNotificationSource: (...args: unknown[]) => focusNotificationSourceMock(...args),
+  resolveNotificationFocusWindow: (...args: unknown[]) =>
+    resolveNotificationFocusWindowMock(...args),
+}));
 
 describe('handleNotification feature', () => {
   let fakeWindow: ReturnType<typeof makeFakeWindow>;
@@ -168,295 +128,93 @@ describe('handleNotification feature', () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.clearAllMocks();
-    FakeNotification.resetAll();
+    showNativeNotificationMock.mockReturnValue(true);
     fakeWindow = makeFakeWindow();
-
-    // Default: createSecureIPCHandler stores the handler config for later inspection
-    createSecureIPCHandlerMock.mockImplementation(
-      (config: {
-        channel: string;
-        validator: (data: unknown) => unknown;
-        rateLimit?: number;
-        description?: string;
-        handler: (data: unknown) => void;
-      }) => {
-        const _wrappedHandler = (data: unknown) => {
-          if (!getRateLimiterMock().isAllowed()) return;
-          const validated = config.validator(data);
-          config.handler(validated);
-        };
-
-        return () => {
-          // cleanup function
-        };
-      }
+    resolveNotificationFocusWindowMock.mockImplementation(
+      (_event: unknown, fallback: unknown) => fallback
     );
 
-    createTrackedTimeoutMock.mockImplementation(
-      (callback: () => void, _delay: number, _name?: string) => {
-        return setTimeout(callback, 100); // short timeout for tests
-      }
-    );
+    createSecureIPCHandlerMock.mockImplementation(() => () => {
+      // cleanup
+    });
   });
 
-  // ── Default export sets up IPC handlers ─────────────────────────────────────
-
-  it('sets up NOTIFICATION_SHOW IPC handler', async () => {
+  it('sets up NOTIFICATION_SHOW and NOTIFICATION_CLICKED handlers', async () => {
     const feature = await import('./handleNotification.js');
     feature.default(fakeWindow as unknown as Electron.BrowserWindow);
 
     expect(createSecureIPCHandlerMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: 'notificationShow',
-      })
+      expect.objectContaining({ channel: 'notificationShow' })
     );
-  });
-
-  it('sets up NOTIFICATION_CLICKED IPC handler', async () => {
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
     expect(createSecureIPCHandlerMock).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'notificationClicked' })
+    );
+  });
+
+  it('forwards account-aware bridge payload with subtitle and namespaced tag', async () => {
+    const feature = await import('./handleNotification.js');
+    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
+
+    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
+      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
+    )?.[0] as { handler: (data: unknown, event?: unknown) => void };
+
+    const event = { sender: { id: 42, isDestroyed: () => false } };
+    handlerConfig.handler(
+      {
+        title: 'Test Title',
+        body: 'Test body',
+        icon: 'test-icon.png',
+        tag: 'tag1',
+      },
+      event
+    );
+
+    expect(resolveAccountIndexMock).toHaveBeenCalledWith(event);
+    expect(buildAccountAwarePayloadMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        channel: 'notificationClicked',
+        title: 'Test Title',
+        body: 'Test body',
+        chatTag: 'tag1',
+        accountIndex: 0,
+      })
+    );
+    expect(showNativeNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Test Title',
+        subtitle: 'Account 1',
+        tag: 'a0:tag1',
+      }),
+      expect.objectContaining({
+        focusWindow: fakeWindow,
+        ipcEvent: event,
+        source: 'bridge',
+        accountIndex: 0,
       })
     );
   });
 
-  // ── Notification creation ────────────────────────────────────────────────────
-
-  it('creates notification with correct options', async () => {
+  it('NOTIFICATION_CLICKED uses focusNotificationSource', async () => {
     const feature = await import('./handleNotification.js');
     feature.default(fakeWindow as unknown as Electron.BrowserWindow);
 
     const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
-      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
-    )?.[0] as { handler: (data: unknown) => void };
+      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationClicked'
+    )?.[0] as { handler: (data: unknown, event?: unknown) => void };
 
-    const notificationData = {
-      title: 'Test Title',
-      body: 'Test body',
-      icon: 'test-icon.png',
-      tag: 'tag1',
-    };
-    handlerConfig.handler(notificationData);
+    const event = { sender: { id: 7, isDestroyed: () => false } };
+    handlerConfig.handler(undefined, event);
 
-    expect(FakeNotification.all.length).toBe(1);
-    expect(FakeNotification.all[0]?.title).toBe('Test Title');
-    expect(FakeNotification.all[0]?.body).toBe('Test body');
-    expect(FakeNotification.all[0]?.icon).toBe('test-icon.png');
+    expect(focusNotificationSourceMock).toHaveBeenCalledWith(event, fakeWindow);
   });
 
-  it('notification click brings window to focus when not visible', async () => {
-    fakeWindow.isVisible.mockReturnValue(false);
-    fakeWindow.isFocused.mockReturnValue(false);
-
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
-    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
-      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
-    )?.[0] as { handler: (data: unknown) => void };
-
-    handlerConfig.handler({ title: 'Test' });
-
-    const notification = FakeNotification.all[0];
-    notification.simulateClick();
-
-    expect(fakeWindow.show).toHaveBeenCalled();
-  });
-
-  it('notification click restores and focuses a minimized Windows window', async () => {
-    fakeWindow.isVisible.mockReturnValue(false);
-    fakeWindow.isFocused.mockReturnValue(false);
-    fakeWindow.isMinimized.mockReturnValue(true);
-
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
-    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
-      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
-    )?.[0] as { handler: (data: unknown) => void };
-
-    handlerConfig.handler({ title: 'Test' });
-
-    const notification = FakeNotification.all[0];
-    notification.simulateClick();
-
-    expect(fakeWindow.restore).toHaveBeenCalled();
-    expect(fakeWindow.show).toHaveBeenCalled();
-    expect(fakeWindow.focus).toHaveBeenCalled();
-  });
-
-  it('notification click does not show window when already visible and focused', async () => {
-    fakeWindow.isVisible.mockReturnValue(true);
-    fakeWindow.isFocused.mockReturnValue(true);
-
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
-    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
-      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
-    )?.[0] as { handler: (data: unknown) => void };
-
-    handlerConfig.handler({ title: 'Test' });
-
-    const notification = FakeNotification.all[0];
-    notification.simulateClick();
-
-    expect(fakeWindow.show).not.toHaveBeenCalled();
-  });
-
-  // ── Auto-dismiss timeout ─────────────────────────────────────────────────────
-
-  it('sets auto-dismiss timeout when creating notification', async () => {
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
-    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
-      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
-    )?.[0] as { handler: (data: unknown) => void };
-
-    handlerConfig.handler({ title: 'Test', tag: 'test-tag' });
-
-    expect(createTrackedTimeoutMock).toHaveBeenCalled();
-  });
-
-  it('notification auto-dismisses after timeout', async () => {
-    vi.useFakeTimers();
-
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
-    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
-      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
-    )?.[0] as { handler: (data: unknown) => void };
-
-    handlerConfig.handler({ title: 'Test Auto-dismiss', tag: 'auto-dismiss' });
-
-    const notification = FakeNotification.all[0];
-    expect(notification.closed).toBe(false);
-
-    vi.advanceTimersByTime(10000);
-
-    expect(notification.closed).toBe(true);
-
-    vi.useRealTimers();
-  });
-
-  // ── Tag-based deduplication ──────────────────────────────────────────────────
-
-  it('closes existing notification when new one with same tag arrives', async () => {
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
-    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
-      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
-    )?.[0] as { handler: (data: unknown) => void };
-
-    // Create first notification with tag
-    handlerConfig.handler({ title: 'First', tag: 'same-tag' });
-    const firstNotification = FakeNotification.all[0];
-
-    // Create second notification with same tag
-    handlerConfig.handler({ title: 'Second', tag: 'same-tag' });
-
-    // First notification should be closed
-    expect(firstNotification.closed).toBe(true);
-    // Only one notification should exist
-    expect(FakeNotification.all.length).toBe(1);
-    expect(FakeNotification.all[0]?.title).toBe('Second');
-  });
-
-  // ── Cleanup ─────────────────────────────────────────────────────────────────
-
-  it('cleanupNotificationHandler closes all active notifications', async () => {
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
-    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
-      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
-    )?.[0] as { handler: (data: unknown) => void };
-
-    // Create multiple notifications
-    handlerConfig.handler({ title: 'Notif 1', tag: 'tag1' });
-    handlerConfig.handler({ title: 'Notif 2', tag: 'tag2' });
-
-    expect(FakeNotification.all.length).toBe(2);
-
-    feature.cleanupNotificationHandler();
-
-    // All notifications should be closed
-    expect(FakeNotification.all.every((n) => n.closed)).toBe(true);
-  });
-
-  it('cleanupNotificationHandler is safe when no notifications exist', async () => {
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
-    expect(() => feature.cleanupNotificationHandler()).not.toThrow();
-  });
-
-  it('cleanupNotificationHandler removes IPC listeners', async () => {
+  it('cleanupNotificationHandler closes native notifications and removes IPC', async () => {
     const feature = await import('./handleNotification.js');
     feature.default(fakeWindow as unknown as Electron.BrowserWindow);
 
     feature.cleanupNotificationHandler();
 
-    // The cleanup function returned by createSecureIPCHandler should be called
-    // Since we mock it to return no-op, we just verify the feature doesn't crash
+    expect(cleanupActiveNativeNotificationsMock).toHaveBeenCalled();
     expect(() => feature.cleanupNotificationHandler()).not.toThrow();
-  });
-
-  // ── Error handling ───────────────────────────────────────────────────────────
-
-  it('notification click handler catches errors gracefully', async () => {
-    fakeWindow.isVisible.mockReturnValue(false);
-    fakeWindow.show.mockImplementation(() => {
-      throw new Error('show error');
-    });
-
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
-    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
-      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
-    )?.[0] as { handler: (data: unknown) => void };
-
-    handlerConfig.handler({ title: 'Test' });
-
-    const notification = FakeNotification.all[0];
-    expect(() => notification.simulateClick()).not.toThrow();
-  });
-
-  it('notification creation catches errors gracefully', async () => {
-    createSecureIPCHandlerMock.mockImplementation(() => {
-      return () => {};
-    });
-
-    const feature = await import('./handleNotification.js');
-    expect(() => feature.default(fakeWindow as unknown as Electron.BrowserWindow)).not.toThrow();
-  });
-
-  // ── Notification close cleanup ───────────────────────────────────────────────
-
-  it('notification close event removes it from activeNotifications map', async () => {
-    const feature = await import('./handleNotification.js');
-    feature.default(fakeWindow as unknown as Electron.BrowserWindow);
-
-    const handlerConfig = createSecureIPCHandlerMock.mock.calls.find(
-      (call: unknown[]) => (call[0] as { channel: string }).channel === 'notificationShow'
-    )?.[0] as { handler: (data: unknown) => void };
-
-    handlerConfig.handler({ title: 'Test', tag: 'close-test' });
-
-    const notification = FakeNotification.all[0];
-    expect(FakeNotification.all.length).toBe(1);
-
-    // Manually trigger close
-    notification.close();
-
-    // Notification should be removed from tracking
-    expect(FakeNotification.all.length).toBe(0);
   });
 });

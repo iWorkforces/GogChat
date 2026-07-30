@@ -247,6 +247,7 @@ vi.mock('./accountViewManager.js', () => ({
       getAccountWindow: vi.fn(),
       getAccountWebContents: vi.fn(),
       getAccountForWebContents: vi.fn(),
+      focusAccount: vi.fn(),
       getAllWindows: vi.fn(() => []),
       getMostRecentWindow: vi.fn(),
       hasAccount: vi.fn(),

@@ -1,25 +1,17 @@
 import path from 'path';
-import { app, BrowserWindow, Notification } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import {
   getWindowDefaults,
   attachEventLogging,
   attachHealthMonitoring,
 } from './utils/platform/windowUtils.js';
-import log from 'electron-log';
 import { getIconCache } from './utils/platform/iconCache.js';
 import { installPermissionHandlers } from './utils/security/permissionHandler.js';
 import { installHeaderFix } from './utils/security/cspHeaderHandler.js';
 import { installBenignWarningFilter } from './utils/ipc/benignLogFilter.js';
-import { configGet, configSet } from './config.js';
-import { platform } from './utils/platform/platformDetection.js';
+import { ensureNotificationPermission } from './utils/security/notificationAccess.js';
 
 installBenignWarningFilter();
-
-// Module-level in-memory guard preventing duplicate Notification permission
-// scheduling within the same process. The persisted config flag remains the
-// cross-process gate; this guard collapses same-tick multi-window bursts so
-// only one silent Notification and one configSet are issued.
-let notificationPermissionScheduled = false;
 
 /**
  * Parse the account index from a session partition string of the form
@@ -75,48 +67,9 @@ export default (url: string, partition?: string): BrowserWindow => {
   // Chromium-level permission handlers (media TCC + non-media allowlist)
   installPermissionHandlers(window);
 
-  // Proactively trigger macOS notification permission dialog at first launch only.
-  // Electron's Notification calls UNUserNotificationCenter.requestAuthorization on
-  // first .show(). Gate behind a persisted flag so the TCC prompt and XPC round-trip
-  // only happen once — subsequent launches and additional account windows skip entirely.
-  // Wrapped in setImmediate so it never blocks loadURL on the critical path.
-  if (
-    platform.isMac &&
-    Notification.isSupported() &&
-    !notificationPermissionScheduled &&
-    !configGet('app.notificationPermissionRequested')
-  ) {
-    notificationPermissionScheduled = true;
-    try {
-      setImmediate(() => {
-        try {
-          const permNotification = new Notification({
-            title: 'GogChat',
-            body: 'Notifications enabled',
-            silent: true,
-          });
-          permNotification.on('show', () => {
-            permNotification.close();
-            configSet('app.notificationPermissionRequested', true);
-            notificationPermissionScheduled = false;
-            log.info('[Notification] Triggered macOS notification permission request at startup');
-          });
-          permNotification.on('failed', () => {
-            notificationPermissionScheduled = false;
-            log.warn('[Notification] macOS notification permission request failed at startup');
-          });
-          permNotification.show();
-        } catch (err) {
-          notificationPermissionScheduled = false;
-          throw err;
-        }
-      });
-    } catch (err) {
-      // Release the guard if scheduling itself fails before configSet runs.
-      notificationPermissionScheduled = false;
-      throw err;
-    }
-  }
+  // Request macOS notification authorization once per profile (non-blocking).
+  // Implementation and process/config guards live in notificationAccess.ts.
+  ensureNotificationPermission();
 
   window.once('ready-to-show', () => {
     const defaults = getWindowDefaults();

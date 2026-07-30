@@ -60,6 +60,7 @@ import {
 } from './accountWindowsStore.js';
 import { getIconCache } from '../platform/iconCache.js';
 import { installPermissionHandlers } from '../security/permissionHandler.js';
+import { ensureNotificationPermission } from '../security/notificationAccess.js';
 import { installHeaderFix } from '../security/cspHeaderHandler.js';
 import { getWindowDefaults } from '../platform/windowUtils.js';
 import { logger } from '../lifecycle/logger.js';
@@ -190,6 +191,8 @@ export class AccountViewManager implements IAccountWindowManager {
     }
 
     this.hostWindow = window;
+    // Same first-run macOS notification authorization as windowWrapper (BW path).
+    ensureNotificationPermission();
     log.info('[AccountViewManager] Host window created');
     return window;
   }
@@ -349,10 +352,22 @@ export class AccountViewManager implements IAccountWindowManager {
     getAccountActivityTracker().recordActivity(accountIndex);
     this.layoutVisibleView();
     if (this.hostWindow && !this.hostWindow.isDestroyed()) {
+      if (this.hostWindow.isMinimized()) this.hostWindow.restore();
       if (!this.hostWindow.isVisible()) this.hostWindow.show();
       this.hostWindow.focus();
     }
-    target.view.webContents.focus();
+    try {
+      target.view.webContents.focus();
+    } catch {
+      // webContents may be destroyed mid-switch
+    }
+  }
+
+  /**
+   * Switch the visible WebContentsView to `accountIndex` and focus the host.
+   */
+  focusAccount(accountIndex: AccountIndex): void {
+    this.switchToAccount(accountIndex);
   }
 
   // ─── Registry contract ────────────────────────────────────────────────────

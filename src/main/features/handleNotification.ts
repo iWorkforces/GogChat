@@ -1,31 +1,22 @@
 import type { BrowserWindow } from 'electron';
-import { Notification } from 'electron';
 import log from 'electron-log';
-import { IPC_CHANNELS, TIMING, RATE_LIMITS } from '../../shared/constants.js';
+import { IPC_CHANNELS, RATE_LIMITS } from '../../shared/constants.js';
 import { defineIPC } from '../utils/ipc/defineIPC.js';
 import { getRateLimiter } from '../utils/ipc/rateLimiter.js';
 import { validateNotificationData } from '../../shared/dataValidators.js';
-import { createTrackedTimeout } from '../utils/lifecycle/resourceCleanup.js';
+import {
+  buildAccountAwareNotificationPayload,
+  cleanupActiveNativeNotifications,
+  showNativeNotification,
+} from '../utils/platform/nativeNotification.js';
+import { resolveAccountIndexFromIpcEvent } from '../utils/platform/accountNotificationIdentity.js';
+import {
+  focusNotificationSource,
+  resolveNotificationFocusWindow,
+} from '../utils/platform/notificationFocus.js';
 
 let notificationShowCleanup: (() => void) | null = null;
 let notificationClickedCleanup: (() => void) | null = null;
-
-// Store active notifications and their timeouts
-const activeNotifications = new Map<
-  string,
-  {
-    notification: Notification;
-    timeout: ReturnType<typeof setTimeout>;
-  }
->();
-
-function restoreAndFocusWindow(window: BrowserWindow): void {
-  if (window.isMinimized()) {
-    window.restore();
-  }
-  window.show();
-  window.focus();
-}
 
 export default (window: BrowserWindow) => {
   void getRateLimiter();
@@ -37,78 +28,22 @@ export default (window: BrowserWindow) => {
     validator: validateNotificationData,
     rateLimit: RATE_LIMITS.IPC_NOTIFICATION,
     description: 'Notification show',
-    handler: (validated) => {
-      try {
-        log.debug('[Notification] Creating notification:', validated.title);
-
-        // Create native Electron notification
-        const notification = new Notification({
-          title: validated.title,
-          ...(validated.body !== undefined && { body: validated.body }),
-          ...(validated.icon !== undefined && { icon: validated.icon }),
-          silent: false,
-        });
-
-        // Handle notification click
-        notification.on('click', () => {
-          try {
-            // Bring window to focus if hidden or not focused
-            if (!window.isVisible() || !window.isFocused()) {
-              restoreAndFocusWindow(window);
-              log.debug('[Notification] Window shown from notification click');
-            }
-          } catch (error: unknown) {
-            log.error('[Notification] Failed to handle notification click:', error);
-          }
-        });
-
-        // Handle notification close
-        notification.on('close', () => {
-          // Clean up from active notifications map
-          if (validated.tag) {
-            const entry = activeNotifications.get(validated.tag);
-            if (entry) {
-              clearTimeout(entry.timeout);
-              activeNotifications.delete(validated.tag);
-            }
-          }
-          log.debug('[Notification] Notification closed:', validated.title);
-        });
-
-        // Show the notification
-        notification.show();
-
-        // Set up auto-dismiss timeout (10 seconds)
-        const timeout = createTrackedTimeout(
-          () => {
-            try {
-              notification.close();
-              log.debug('[Notification] Notification auto-dismissed after 10s:', validated.title);
-            } catch (error: unknown) {
-              log.error('[Notification] Failed to auto-dismiss notification:', error);
-            }
-          },
-          TIMING.NOTIFICATION_AUTO_DISMISS,
-          'notification-auto-dismiss'
-        );
-
-        // Store notification and timeout for cleanup
-        if (validated.tag) {
-          // If there's already a notification with this tag, close it first
-          const existing = activeNotifications.get(validated.tag);
-          if (existing) {
-            clearTimeout(existing.timeout);
-            existing.notification.close();
-          }
-
-          activeNotifications.set(validated.tag, {
-            notification,
-            timeout,
-          });
-        }
-      } catch (error: unknown) {
-        log.error('[Notification] Failed to create notification:', error);
-      }
+    handler: (validated, event) => {
+      const focusWindow = resolveNotificationFocusWindow(event, window);
+      const accountIndex = resolveAccountIndexFromIpcEvent(event);
+      const payload = buildAccountAwareNotificationPayload({
+        title: validated.title,
+        ...(validated.body !== undefined && { body: validated.body }),
+        ...(validated.icon !== undefined && { icon: validated.icon }),
+        ...(validated.tag !== undefined && { chatTag: validated.tag }),
+        accountIndex,
+      });
+      showNativeNotification(payload, {
+        focusWindow,
+        ipcEvent: event,
+        source: 'bridge',
+        accountIndex,
+      });
     },
   });
 
@@ -119,16 +54,8 @@ export default (window: BrowserWindow) => {
     validator: () => undefined,
     rateLimit: 5,
     description: 'Notification clicked',
-    handler: () => {
-      try {
-        // Bring window to focus if hidden or not focused
-        if (!window.isVisible() || !window.isFocused()) {
-          restoreAndFocusWindow(window);
-          log.debug('[Notification] Window shown from notification click');
-        }
-      } catch (error: unknown) {
-        log.error('[Notification] Failed to handle notification click:', error);
-      }
+    handler: (_validated, event) => {
+      focusNotificationSource(event, window);
     },
   });
 };
@@ -140,12 +67,7 @@ export function cleanupNotificationHandler(): void {
   try {
     log.debug('[Notification] Cleaning up notification handler');
 
-    // Close all active notifications and clear timeouts
-    activeNotifications.forEach((entry) => {
-      clearTimeout(entry.timeout);
-      entry.notification.close();
-    });
-    activeNotifications.clear();
+    cleanupActiveNativeNotifications();
 
     // Remove IPC listeners
     if (notificationShowCleanup) {
