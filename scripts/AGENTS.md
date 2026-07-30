@@ -9,7 +9,8 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 ### Build and feature plan
 
 - `build-rsbuild.js` - builds ESM main and CJS preload, copies offline assets, preserves preload `cleanDistPath: false`, records `buildTimeMs` and `lib/chunks/*.js` counts in `.build-history.json`. With `ANALYZE=true`, writes machine-readable stats under the evidence root.
-- `featurePlanPlugin.js` - parses initializer specs with the TypeScript compiler API, unwraps `as const satisfies`, topologically batches dependencies, and idempotently writes `src/main/generated/featurePlan.ts`.
+- `featurePlanPlugin.js` / `featureSpecParser.js` - parse initializer specs with the TypeScript compiler API, unwrap `as const satisfies`, topologically batch dependencies, and idempotently write `src/main/generated/featurePlan.ts`.
+- `install-electron-binary.js` - repo-controlled Electron zip extract for macOS CI (ditto); respects `npm_config_arch` and Rosetta detection. Pin target arch when packaging non-host arches.
 
 ### Performance (CI unauthenticated path)
 
@@ -21,17 +22,24 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 
 ### Packaging and release
 
+- `package-mac-arch.sh` - shared arch-pinned macOS release package helper (`arm64` or `x64`): `build:prod`, signing preflight, single-arch electron-builder with `--publish never`.
+- `mac-release-signing.js` - release signing/notarization credential pair policy for macOS.
+- `verify-mac-release-signing.js` - codesign / spctl / stapler trust checks on a macOS GHA runner for the current job's `dist/`.
+- `verify-macos-package-artifacts.js` - checks macOS DMG basenames, required arm64/x64 outputs, duplicates, and forbidden labels (`amd64`, `ia32`, `universal`).
 - `verify-packaged-dependency-closure.js` - derives runtime externals from emitted main/preload imports + Rsbuild string externals; classifies packages (including `@rspack`, `@ast-grep`, `@rslib`); compares to packaged fixture/artifact. Run **before** removing payload.
 - `notarize.cjs` - uses notarytool with `APPLE_ID`, `APPLE_APP_PASSWORD`, and `APPLE_TEAM_ID`.
-- `after-pack.cjs` and `remove-locales.js` - strip unused binaries/locales during packaging.
+- `after-pack.cjs` - strip/locale optimizations for darwin **arm64 and x64** (not universal).
+- `remove-locales.js` - standalone locale helper; accepts optional arch (`arm64` default, or `x64`). Prefer after-pack for release packaging.
 - `verify-windows-package-artifacts.js` - checks guarded Windows NSIS setup names, required x64/arm64 outputs, and forbidden package types.
 - `verify-windows-signing-policy.js` - blocks Windows release publication unless `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` exists or the owner explicitly allows unsigned Windows assets.
-- `verify-release-artifacts.js` - verifies the aggregated macOS DMG plus guarded Windows x64/arm64 setup artifacts before the single publish job.
+- `verify-release-artifacts.js` - verifies aggregated **macOS arm64 + x64 DMGs** plus guarded Windows x64/arm64 setups before the single publish job.
+- Contract tests: `package-scaffold.test.js`, `release-workflow.test.js`, `verify-macos-package-artifacts.test.js`, `verify-release-artifacts.test.js`, `mac-release-signing.test.js`, `verify-mac-release-signing.test.js`, Windows artifact/signing tests.
 
 ### Evidence and claims
 
 - `verify-remediation-evidence.js` - validates Todo evidence receipts and distinguishes core-remediation vs release-readiness approval.
 - `verify-performance-claims.js` - rejects unsupported runtime-savings claims (package bytes ≠ startup wins).
+- `check-doc-claims.js` - audits documented AGENTS claims against source (singleton destroyers, lazy cleanups, branded helpers, feature isolation).
 - `hooks/pre-push` - blocks pushes on lint/check failures.
 
 ## Build invariants
@@ -58,12 +66,16 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 - Schema version and `units.memory: "MB"` / `units.time: "ms"` are required; incomplete or invalid runs must not feed medians or gated PASS.
 - Gated vs warn-only budget behavior must stay explicit. Missing gated metrics → exit 1. IPC latency remains warn-only until a real producer and baseline exist.
 - Do not represent `account-0-ready` or `account-0-content-loaded` as first paint or first interaction in script messages or claims.
-- Evidence root convention: `.omo/evidence/performance-remediation/task-<N>-*.{json,md,log}`.
+- Evidence roots: `.omo/evidence/performance-remediation/task-<N>-*.{json,md,log}` and `.omo/evidence/macos-intel-x64-dmg/` for dual-arch packaging receipts.
 
 ## Packaging
 
-- macOS DMG/package behavior is also documented in `mac/AGENTS.md`; `build-macOS-dmg.sh` remains mac-specific.
-- `package:mac:release` is the current macOS release package command.
+- macOS DMG/package behavior is also documented in `mac/AGENTS.md`; `build-macOS-dmg.sh` remains mac-specific and accepts `--arch arm64|x64`.
+- `package:mac:arm64` and `package:mac:x64` are the arch-pinned macOS release package commands; `package:mac:release` is an arm64 alias. `package:mac:artifacts` requires both DMG arches.
+- Production release CI packages both macOS arches on `macos-latest` via a matrix (`package:mac:${{ matrix.arch }}`). x64 is cross-packaged with electron-builder (host may be arm64).
+- **Do not** list both arches under `mac.target.arch` in `electron-builder.yml` — that forces multi-arch builds and defeats CLI single-arch pins.
+- macOS DMG names: `${productName}-${version}-arm64.dmg` and `${productName}-${version}-x64.dmg`. No `amd64` / `universal` labels.
+- Aggregate gate (`verify-release-artifacts`) fails closed if either macOS arch is missing.
 - `package:win:x64`, `package:win:arm64`, `package:win:artifacts`, and `package:win:signing-policy` cover Windows release-engineering preparation only, not a public support claim.
 - Windows setup artifacts must stay as separate NSIS installers named `${productName}-${version}-windows-x64-setup.exe` and `${productName}-${version}-windows-arm64-setup.exe`.
 - Native Windows CI packaging runs x64 on `windows-latest` with AMD64 proof and arm64 on `windows-11-arm` with ARM64 proof.

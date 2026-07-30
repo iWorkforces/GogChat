@@ -1,12 +1,12 @@
 # GogChat Agent Guide
 
 **Generated:** 2026-07-30
-**Commit:** 2b9ddcd
-**Branch:** perfs-enhancements
+**Commit:** 8f4c41a
+**Branch:** feat/macos-intel-x64-dmg
 
 ## Project shape
 
-GogChat is a macOS-only Electron desktop wrapper for Google Chat (`https://mail.google.com/chat/u/0`). It is TypeScript-first, Apple Silicon oriented, and built with a dual Rsbuild pipeline: ESM main process plus CJS preload because Electron sandboxed preloads cannot load ESM.
+GogChat is a macOS-only Electron desktop wrapper for Google Chat (`https://mail.google.com/chat/u/0`). It is TypeScript-first, packages dual macOS arches (Apple Silicon `arm64` and Intel `x64`) as **separate** DMGs, and is built with a dual Rsbuild pipeline: ESM main process plus CJS preload because Electron sandboxed preloads cannot load ESM.
 
 This is **not** a typical Electron app:
 
@@ -34,7 +34,11 @@ bun run lint:all:fix
 bun run check:doc-claims
 bun run start
 bun run build:mac
+bun run build:mac:x64
+bun run package:mac:arm64
+bun run package:mac:x64
 bun run package:mac:release
+bun run package:mac:artifacts
 bun run package:win:x64
 bun run package:win:arm64
 bun run package:win:artifacts
@@ -44,20 +48,34 @@ bun run package:win:signing-policy
 Runtime/toolchain constraints:
 
 - Node `>=24.16.0 <25.0.0`; Bun `>=1.3.13`; package manager `bun@1.3.14`.
-- Electron `^43.1.0`.
+- Electron `^43.2.0`.
 - TypeScript strict mode with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noUncheckedSideEffectImports`, `noUnusedLocals`, and `noUnusedParameters`.
 - Prettier: 100 columns, single quotes, semicolons, trailing commas ES5, LF.
 
 ## Packaging guidance
 
-GogChat remains publicly documented as macOS on Apple Silicon. Windows release engineering/preparation is present, but it is not a public support claim. Do not say Windows is supported, released, ready, or available until clean packaged smoke evidence exists on Windows x64 and real Windows arm64.
+Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded Windows NSIS installers. Public product is macOS-first. Do not claim Windows is supported, released, ready, or available until clean packaged smoke evidence exists on Windows x64 and real Windows arm64. Prefer real Intel hardware smoke before marketing full Intel runtime support.
 
-- `bun run package:mac:release` is the current macOS release package command. Preserve `build-macOS-dmg.sh` as a macOS-specific DMG path.
+### macOS
+
+- `bun run package:mac:arm64` and `bun run package:mac:x64` are the arch-pinned release package commands (shared helper `scripts/package-mac-arch.sh`). `package:mac:release` is an arm64 alias for local/backward-compatible use.
+- macOS DMG names: `${productName}-${version}-arm64.dmg` and `${productName}-${version}-x64.dmg`. Use `x64`, not `amd64`. Do not ship a universal binary unless a separate plan approves it.
+- **Do not** list both arches under `mac.target.arch` in `electron-builder.yml`. When both are listed, electron-builder builds every listed arch even if the CLI only passes `--arm64` or `--x64`. Pin arch only via CLI flags.
+- Preserve `build-macOS-dmg.sh` as a macOS-specific DMG path; it accepts `--arch arm64|x64` (default `arm64`).
+- Release CI builds macOS on `macos-latest` with an arm64/x64 matrix (x64 is cross-packaged via electron-builder). Per-leg verify: `verify-macos-package-artifacts` and, when signed, `verify-mac-release-signing`.
+- Signing preflight: `scripts/mac-release-signing.js` (complete `MAC_CSC_*` pair or both absent; notarization required when signing).
+
+### Windows (guarded preparation)
+
 - `bun run package:win:x64` and `bun run package:win:arm64` are guarded Windows package commands for native Windows CI packaging.
-- Windows setup artifacts must stay as separate NSIS installers: `${productName}-${version}-windows-x64-setup.exe` and `${productName}-${version}-windows-arm64-setup.exe`. Use `x64`, not `amd64`, in user-facing labels.
-- The release workflow packages x64 on `windows-latest` with AMD64 proof and arm64 on `windows-11-arm` with ARM64 proof.
-- Windows release publication requires a Windows Authenticode signing route through `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` or explicit owner opt-in for unsigned Windows assets through `bun run package:win:signing-policy`.
+- Windows setup artifacts must stay as separate NSIS installers: `${productName}-${version}-windows-x64-setup.exe` and `${productName}-${version}-windows-arm64-setup.exe`.
+- Release CI packages Windows x64 on `windows-latest` with AMD64 proof and arm64 on `windows-11-arm` with ARM64 proof.
+- Windows release publication requires Authenticode via `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` or explicit owner opt-in through `bun run package:win:signing-policy`.
 - The Windows electron-builder overlay registers only `gogchat`; the base macOS config may still include HTTPS protocol handling.
+
+### Aggregate publish gate
+
+- `scripts/verify-release-artifacts.js` requires **both** macOS DMG arches **and** both Windows installers before the single publish job.
 
 ## Where to look
 
@@ -88,13 +106,19 @@ GogChat remains publicly documented as macOS on Apple Silicon. Windows release e
 | Headless CI harness            | `scripts/headless-startup.js`                                                   | Multi-run, schema validation, refuses incomplete medians.        |
 | Perf budget gate               | `scripts/check-perf-budget.js`                                                  | Gated missing = FAIL; memory in MB; baseline schema check.       |
 | Package dependency closure     | `scripts/verify-packaged-dependency-closure.js`                                 | Prove runtime vs build-only before package pruning.              |
+| macOS arch package helper      | `scripts/package-mac-arch.sh`                                                   | Single-arch release package + signing preflight.                 |
+| macOS DMG arch verify          | `scripts/verify-macos-package-artifacts.js`                                     | Require arm64/x64 DMG basenames; forbid amd64/universal.         |
+| macOS trust verify             | `scripts/verify-mac-release-signing.js`                                         | codesign / spctl / stapler on signed release legs.               |
+| Aggregate release verify       | `scripts/verify-release-artifacts.js`                                           | Both mac DMGs + both Windows setups before publish.              |
 | Account backend benchmark      | `scripts/account-backend-benchmark.js`                                          | BW/WCV matrix contract; no policy winner from harness alone.     |
 | Candidate thresholds           | `scripts/performance-candidate-benchmark.js`                                    | Measure-first; `NO CHANGE` when thresholds unmet.                |
 | Remediation evidence           | `scripts/verify-remediation-evidence.js`                                        | Todo receipts, core vs release-readiness approval.               |
 | Performance claims             | `scripts/verify-performance-claims.js`                                          | Reject unsupported runtime-savings claims.                       |
 | Perf plan                      | `docs/plans/performance-remediation.md`                                         | Phased remediation work plan and guardrails.                     |
-| Tests                          | `tests/AGENTS.md`                                                               | Unit/integration/e2e/perf guidance.                              |
-| Packaging                      | `mac/AGENTS.md` + `scripts/AGENTS.md`                                           | DMG, signing, notarization, perf gates.                          |
+| macOS Intel x64 plan           | `docs/plans/macos-intel-x64-dmg.md`                                             | Dual-arch DMG production plan and acceptance criteria.           |
+| Tests                          | `tests/AGENTS.md`                                                               | Unit/integration/e2e/perf/packaging contract guidance.           |
+| Packaging                      | `mac/AGENTS.md` + `scripts/AGENTS.md`                                           | DMG, signing, notarization, dual-arch, perf gates.               |
+| Icons / resources              | `resources/AGENTS.md`                                                           | Icon variants, generation, extraResources.                       |
 
 ## Architecture invariants
 
@@ -223,5 +247,6 @@ Nested guides supplement this root and are intentionally more specific:
 - `scripts/AGENTS.md`
 - `tests/AGENTS.md`
 - `mac/AGENTS.md`
+- `resources/AGENTS.md`
 
-Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. `resources/` has its own guide for icon variants, generation, and packaging.
+Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans may live under `docs/plans/` (for example performance remediation and macOS Intel x64 DMG).

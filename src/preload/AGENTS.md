@@ -6,7 +6,7 @@ The preload is sandboxed and built as CommonJS because Electron sandboxed preloa
 
 ## Build/runtime constraints
 
-- Keep preload output CJS and imports compatible with `.js` paths.
+- Keep preload output CJS and imports compatible with `.js` paths. Packaging arch (arm64/x64 DMG) does not change the CJS contract.
 - Do not remove the preload build `cleanDistPath: false` behavior; main and preload builds share output.
 - No Node/config access from preload. Use IPC.
 - No raw `ipcRenderer` exposure through `contextBridge`.

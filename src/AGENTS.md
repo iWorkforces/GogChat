@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-`src` contains the Electron main process, sandboxed preload bridge, shared contracts, and static offline fallback assets.
+`src` contains the Electron main process, sandboxed preload bridge, shared contracts, and static offline fallback assets. Packaging and dual-arch DMG work live outside `src/` (`mac/AGENTS.md`, `scripts/AGENTS.md`).
 
 ## Route source work
 

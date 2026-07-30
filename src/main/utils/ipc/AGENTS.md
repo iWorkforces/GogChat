@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-This directory owns the main-side IPC safety pipeline.
+This directory owns the main-side IPC safety pipeline. Channel contracts and validation rules are packaging-arch independent.
 
 ## Pipeline
 

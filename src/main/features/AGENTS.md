@@ -37,7 +37,7 @@ Known dependencies include `badgeIcons -> trayIcon`, `windowState -> singleInsta
 - Deferred features must tolerate late execution and app shutdown races.
 - Use utility modules for shared mechanics; do not create hidden feature coupling.
 - Do not write startup performance JSON from feature code. Metrics finalization lives in `utils/lifecycle/performanceFinalizer.ts`.
-- Speculative optimizations (unread, CDP sampling, timers, split chunks, preconnect) stay measure-first: see `scripts/performance-candidate-benchmark.js` and the remediation plan.
+- Speculative optimizations (unread, CDP sampling, timers, split chunks, preconnect) stay measure-first: see `scripts/performance-candidate-benchmark.js` and `docs/plans/performance-remediation.md`.
 
 ## Gotchas
 

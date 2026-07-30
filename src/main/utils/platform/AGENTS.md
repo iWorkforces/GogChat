@@ -6,11 +6,12 @@ This directory owns platform integration: tray, dock/taskbar badges, app menu, h
 
 ## Conventions
 
-- Public support remains macOS on Apple Silicon. Guarded Windows release-engineering/runtime preparation may live here when capability-gated and explicitly not documented as public support.
+- Public product remains macOS with dual packaging arches (`arm64` and `x64` separate DMGs). Guarded Windows release-engineering/runtime preparation may live here when capability-gated and explicitly not documented as public support.
 - Tray/badge coupling is one-way through `trayIconState.setTrayUnread()`.
 - Badge image composition belongs in `badgeHelpers.ts` using `nativeImage` primitives.
 - `helpMenuBuilder.ts` consumes feature actions through `features/menuActionRegistry.ts`; it should not import feature modules directly.
 - `windowDefaults.ts` centralizes BrowserWindow defaults used by account managers.
+- Icon assets are shared across mac packaging arches; see `resources/AGENTS.md`.
 
 ## Icon cache
 
