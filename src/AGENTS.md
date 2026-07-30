@@ -8,15 +8,16 @@
 
 - Main-process startup, features, utilities, account windows, security, or IPC handlers: `main/AGENTS.md`.
 - Cross-process constants, validators, and types: `shared/AGENTS.md`.
-- Sandboxed bridge or page-observation code: `preload/AGENTS.md`.
-- Static network-loss fallback assets: `offline/AGENTS.md`.
+- Sandboxed bridge or page-observation code: `preload/AGENTS.md` (includes offline recovery bridge in `preload/offline.ts`).
+- Static network-loss fallback assets: `offline/AGENTS.md` (DOM-only retry UI; no Electron APIs).
+- Performance monitors / final export: `main/utils/lifecycle/AGENTS.md`.
 
 ## Process boundaries
 
 - `main/` owns Electron APIs, application lifecycle, windows, and IPC handlers.
 - `preload/` is a sandboxed CommonJS bridge between Google Chat pages and main.
 - `shared/` is dependency-light code used by both main and preload. It must not depend on Electron or either process directory.
-- `offline/` is a static fallback page, not a normal renderer application. It has no preload or IPC.
+- `offline/` is a static fallback page, not a normal renderer application. It has no preload or IPC; it coordinates with preload only via DOM events (`app:checkIfOnline` / `app:onlineCheckFailed`).
 
 ## Root modules
 

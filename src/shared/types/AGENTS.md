@@ -12,7 +12,14 @@ This directory defines contracts crossing main, preload, tests, and shared valid
 - `domain.ts` - app domain payload types.
 - `errors.ts` - typed error codes and app error shapes.
 - `ipc.ts` - IPC payload/response maps.
-- `window.ts` - `IAccountWindowManager` and account window contracts.
+- `window.ts` - `IAccountWindowManager`, `AccountWebContentsInfo`, `AccountBackendKind`, and account window contracts.
+
+## Account window contract notes
+
+- Both backends implement `IAccountWindowManager`, including `enumerateAccountWebContents()`.
+- `AccountWebContentsInfo` carries `accountIndex`, `webContentsId`, `osProcessId`, `backend`, and live `webContents`.
+- Performance sampling and multi-account diagnostics depend on this enumeration; do not drop it from the interface.
+- Backend policy (BrowserWindow default vs WebContentsView opt-in) is not a type-level decision; keep types backend-neutral.
 
 ## Rules
 

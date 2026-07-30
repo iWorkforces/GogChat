@@ -1,8 +1,8 @@
 # GogChat Agent Guide
 
-**Generated:** 2026-07-14
-**Commit:** 572ee7e
-**Branch:** enhancements-dev
+**Generated:** 2026-07-30
+**Commit:** 2b9ddcd
+**Branch:** perfs-enhancements
 
 ## Project shape
 
@@ -15,6 +15,7 @@ This is **not** a typical Electron app:
 - Multi-account state uses per-account `persist:account-N` session partitions.
 - The default backend is one BrowserWindow per account; `app.useWebContentsView` switches to a WebContentsView host backend.
 - Security, IPC, preload, and URL validation are layered and intentionally strict.
+- Unauthenticated CI startup metrics use a versioned export contract; document load and account readiness are **not** first paint or first interaction.
 
 ## Commands
 
@@ -81,6 +82,17 @@ GogChat remains publicly documented as macOS on Apple Silicon. Windows release e
 | Secure flags                   | `src/main/utils/security/secureFlags.ts`                                        | SafeStorage-backed kill switches; not electron-store config.     |
 | Error types                    | `src/shared/types/errors.ts` + `src/main/utils/lifecycle/errors.ts`             | Prefer typed errors and `{ cause }`.                             |
 | Historical webview constraints | `docs/windowWrapper-history.md`                                                 | `webSecurity:false` and CSP exceptions are deliberate.           |
+| Perf types / units / schema    | `src/main/utils/lifecycle/performanceTypes.ts`                                  | Schema version, MB memory, required markers.                     |
+| Perf final export              | `src/main/utils/lifecycle/performanceFinalizer.ts`                              | One-shot after deferred + document load + renderer sample.       |
+| Perf monitor / sampling        | `src/main/utils/lifecycle/performanceMonitor.ts`                                | Markers, memory, account renderer sampling.                      |
+| Headless CI harness            | `scripts/headless-startup.js`                                                   | Multi-run, schema validation, refuses incomplete medians.        |
+| Perf budget gate               | `scripts/check-perf-budget.js`                                                  | Gated missing = FAIL; memory in MB; baseline schema check.       |
+| Package dependency closure     | `scripts/verify-packaged-dependency-closure.js`                                 | Prove runtime vs build-only before package pruning.              |
+| Account backend benchmark      | `scripts/account-backend-benchmark.js`                                          | BW/WCV matrix contract; no policy winner from harness alone.     |
+| Candidate thresholds           | `scripts/performance-candidate-benchmark.js`                                    | Measure-first; `NO CHANGE` when thresholds unmet.                |
+| Remediation evidence           | `scripts/verify-remediation-evidence.js`                                        | Todo receipts, core vs release-readiness approval.               |
+| Performance claims             | `scripts/verify-performance-claims.js`                                          | Reject unsupported runtime-savings claims.                       |
+| Perf plan                      | `docs/plans/performance-remediation.md`                                         | Phased remediation work plan and guardrails.                     |
 | Tests                          | `tests/AGENTS.md`                                                               | Unit/integration/e2e/perf guidance.                              |
 | Packaging                      | `mac/AGENTS.md` + `scripts/AGENTS.md`                                           | DMG, signing, notarization, perf gates.                          |
 
@@ -92,8 +104,8 @@ GogChat remains publicly documented as macOS on Apple Silicon. Windows release e
 2. `reportExceptions()`.
 3. `enforceSingleInstance()`.
 4. `setupDeepLinkListener()` before app ready.
-5. In `registerAppReady.ts`: error handler, global cleanups + security phase, critical phase + store init, account bootstrap, shared feature context, UI phase.
-6. Deferred phase is scheduled after first window work; it includes tray/menu/badges/bootstrap promotion/window state/passkeys/notifications/network/external links/close-to-tray/open-at-login/updates/context menu/first launch/app-location/CDP telemetry/cache warming/perf export.
+5. In `registerAppReady.ts`: error handler, global cleanups + security phase, critical phase + store init, account bootstrap, shared feature context, UI phase; arm performance finalizer and account-0 document-load markers.
+6. Deferred phase is scheduled after first window work; it includes tray/menu/badges/bootstrap promotion/window state/passkeys/notifications/network/external links/close-to-tray/open-at-login/updates/context menu/first launch/app-location/CDP telemetry/cache warming. Deferred signals the finalizer; it does **not** own metrics export.
 
 ### Feature lifecycle
 
@@ -110,6 +122,19 @@ GogChat remains publicly documented as macOS on Apple Silicon. Windows release e
 - Never interrupt Google auth pages with `loadURL`; check `isGoogleAuthUrl()`.
 - BrowserWindow dehydration may destroy windows but must preserve session partitions.
 - WebContentsView dehydration hides/throttles views; it does not destroy per-account sessions.
+- BrowserWindow hydration: the window factory owns the single restored `loadURL`; the manager must not re-dispatch navigation.
+- Renderer observability: use `enumerateAccountWebContents()` (both backends). Do not sample host-only WebContents under WebContentsView.
+- BrowserWindow remains the default backend; WebContentsView stays opt-in. Do not change backend policy without measured evidence and an explicit decision.
+
+### Performance metrics
+
+- Memory is always **MB** end-to-end (monitor, export, budget, display). Never mix byte baselines silently.
+- Final development/CI export is owned by `performanceFinalizer.ts`: exactly once after deferred complete + `account-0-content-loaded` (or load failure/timeout) + immediate renderer sample.
+- Do **not** export metrics early from `runDevPostDeferred()`.
+- Do **not** call `account-0-ready`, `did-finish-load`, or `account-0-content-loaded` first paint or first interaction.
+- CI is unauthenticated. Authenticated first-interaction evidence belongs to the secured release benchmark (`scripts/release-auth-readiness-benchmark.js`) with isolated credentials.
+- Missing gated budget metrics fail CI; warn-only metrics may SKIP/WARN. Incompatible baseline schema/units are rejected; regenerate only with `PERF_UPDATE_BASELINE=1`.
+- Do not prune packaged dependencies without `verify-packaged-dependency-closure` proof. Do not claim runtime wins from package bytes alone.
 
 ### Security and IPC
 

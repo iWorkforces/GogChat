@@ -25,6 +25,10 @@ This directory owns typed electron-store access and read-through caching for app
 3. Add typed accessor/mutation helpers if needed.
 4. Update tests for schema, defaults, and cache invalidation.
 
+## Performance note
+
+Config store init markers (`store-init-start` / `store-init-end`) may feed warn-only budget extractors. Do not gate CI on store init until a stable baseline exists. Optional config profiling remains behind `ENABLE_CONFIG_PROFILING` and must not write startup metrics JSON.
+
 ## Anti-patterns
 
 - No security kill switches in config.

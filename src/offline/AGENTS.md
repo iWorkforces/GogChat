@@ -6,11 +6,19 @@
 
 ## Constraints
 
-- No preload and no IPC.
+- No preload and no IPC (and no Electron APIs).
 - Communicate retry intent with DOM events such as `window.dispatchEvent(new Event('app:checkIfOnline'))`.
+- Preload answers false online checks with `app:onlineCheckFailed`; this page re-enables the retry control without reloading the document.
 - Keep the script self-contained/IIFE-friendly.
 - `setInterval` is intentionally untracked here because this is not main-process code.
 - `MAX_AUTO_ATTEMPT_COUNT` caps automatic retries; do not add infinite retry loops.
+
+## Recovery UX contract
+
+- Click / auto-check → disable button, show "Checking...", dispatch `app:checkIfOnline`.
+- Failed check (false from main via preload) → listen for `app:onlineCheckFailed`, restore enabled Retry state. **Zero** `location.reload()` and **zero** app-URL navigation.
+- Successful check is handled in preload (`location.replace(appUrl)`); this page does not navigate itself on success.
+- Do not reload the offline document after a false reply; retain the fallback document through failed recovery checks.
 
 ## Build contract
 
@@ -23,3 +31,4 @@
 - No Electron API assumptions.
 - No direct Google Chat logic beyond explaining/offering retry.
 - No shared mutable state with main/preload.
+- No `window.location.reload()` on failed connectivity checks.
