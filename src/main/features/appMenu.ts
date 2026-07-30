@@ -18,7 +18,10 @@ import {
 import { getAccountWindowManager } from '../utils/account/accountWindowManager.js';
 import { formatAccountNotificationLabel } from '../utils/platform/accountNotificationIdentity.js';
 
-function buildAccountLabelsSubmenu(parentWindow: BrowserWindow): MenuItemConstructorOptions {
+function buildAccountLabelsSubmenu(
+  parentWindow: BrowserWindow,
+  rebuildMenu: (window: BrowserWindow) => void
+): MenuItemConstructorOptions {
   let accountCount = 0;
   try {
     accountCount = getAccountWindowManager().getAccountCount();
@@ -53,9 +56,8 @@ function buildAccountLabelsSubmenu(parentWindow: BrowserWindow): MenuItemConstru
               return;
             }
             setStoredAccountLabel(index, result);
-            // Rebuild menu so labels refresh
-            const rebuild = (await import('./appMenu.js')).default;
-            rebuild(parentWindow);
+            // Rebuild menu so labels refresh (same-module callback — no self-import cycle)
+            rebuildMenu(parentWindow);
           })();
         },
       });
@@ -68,9 +70,7 @@ function buildAccountLabelsSubmenu(parentWindow: BrowserWindow): MenuItemConstru
     enabled: Object.keys(stored).length > 0,
     click: () => {
       clearStoredAccountLabels();
-      void import('./appMenu.js').then((mod) => {
-        mod.default(parentWindow);
-      });
+      rebuildMenu(parentWindow);
     },
   });
 
@@ -80,7 +80,7 @@ function buildAccountLabelsSubmenu(parentWindow: BrowserWindow): MenuItemConstru
   };
 }
 
-export default (window: BrowserWindow) => {
+function setAppMenu(window: BrowserWindow): void {
   const autoLaunchSupported = supports.autoLaunch();
   const menuItems = Menu.buildFromTemplate([
     {
@@ -265,7 +265,7 @@ export default (window: BrowserWindow) => {
             store.set('app.unreadDeltaNotifications', menuItem.checked);
           },
         },
-        buildAccountLabelsSubmenu(window),
+        buildAccountLabelsSubmenu(window, setAppMenu),
         {
           label: 'Notification Settings…',
           click: () => {
@@ -278,4 +278,6 @@ export default (window: BrowserWindow) => {
   ]);
 
   Menu.setApplicationMenu(menuItems);
-};
+}
+
+export default setAppMenu;
