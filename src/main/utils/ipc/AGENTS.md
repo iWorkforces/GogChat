@@ -40,8 +40,9 @@ Prefer the current factory helpers in this directory over ad-hoc `ipcMain.handle
 
 ## Existing channel groups
 
-- Renderer to main: unread count, favicon, notification show/click, online check, passkey auth failure.
+- Renderer to main: unread count, favicon, notification show/click (`NOTIFICATION_SHOW` / click), online check, passkey auth failure.
 - Main to renderer: search shortcut and online status.
+- Notification show handlers must validate payloads, then use `nativeNotification` / `notificationFocus` — not ad-hoc `new Notification` outside those helpers (except the permission probe in `notificationAccess`).
 
 ## Anti-patterns
 

@@ -35,8 +35,8 @@ Known dependencies include `badgeIcons -> trayIcon`, `windowState -> singleInsta
 - `handleNotification.ts` shows Electron (OS) notifications for validated `NOTIFICATION_SHOW` IPC payloads via `nativeNotification.showNativeNotification` (source `bridge`).
 - Click focus uses `notificationFocus.focusNotificationSource` → `IAccountWindowManager.focusAccount` when the IPC sender maps to an account (BW + WCV); otherwise `BrowserWindow.fromWebContents` / feature main window.
 - Unread-delta opt-in banners live in `badgeHelpers` (source `unread-delta`) and are suppressed for `TIMING.NOTIFICATION_BRIDGE_COOLDOWN_MS` after a bridge show.
-- Permission request UX lives in `utils/security/notificationAccess.ts` (also called from WCV host creation).
-- Preferences → Notification Settings… and Notify on Unread Badge Increase are wired in `appMenu.ts`.
+- Permission request UX lives in `utils/security/notificationAccess.ts`. Call sites: `windowWrapper` and WCV host on **`ready-to-show`** with `{ parentWindow }` (first-run Enable / System Settings / Not Now dialog, then silent OS probe).
+- Preferences menu (`appMenu.ts`): **Notification Settings…**, **Notify on Unread Badge Increase**, and **Account Labels** (custom notification subtitles).
 
 ## Feature boundaries
 
