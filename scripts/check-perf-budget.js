@@ -130,10 +130,10 @@ export const BUDGETS = [
   // Document-load completion (did-finish-load). Not authenticated first interaction.
   {
     name: 'contentDocumentLoaded',
-    // Unauthenticated CI loads Google auth (or offline) over the network;
-    // cold runners regularly exceed 4s for did-finish-load without indicating
-    // a product regression in native bootstrap.
-    budget: 8000,
+    // Unauthenticated CI loads Google auth (or offline) over the network.
+    // Cold macos-latest runners have measured ~3–9s; keep gated so runaway
+    // hangs still fail, but allow network jitter without failing native gates.
+    budget: 15_000,
     unit: 'ms',
     gated: true,
     describe: 'app-ready → account-0-content-loaded (document load, not first interaction)',
