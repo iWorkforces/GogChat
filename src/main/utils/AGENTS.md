@@ -17,8 +17,8 @@
 
 ## Utility ownership
 
-- `account/` owns BrowserWindow and WebContentsView account backends.
-- `lifecycle/` owns feature execution, cleanup tracking, errors, performance monitors, and context storage.
+- `account/` owns BrowserWindow and WebContentsView account backends, hydration navigation ownership, and `enumerateAccountWebContents()`.
+- `lifecycle/` owns feature execution, cleanup tracking, errors, performance monitors/export/finalizer, and context storage.
 - `ipc/` owns main-side handler wrappers, rate limiting, dedup, fast-path send helpers, and validators.
 - `security/` owns shell wrappers, secure flags, permission/CSP helpers, media access, and encryption key utilities.
 - `platform/` owns macOS app menu, tray, badges, icon cache, dock/menu helpers, and window defaults.
@@ -26,10 +26,11 @@
 
 ## Resource rules
 
-- Deep performance notes live in `PERFORMANCE_UTILITIES.md`; consult it before changing startup, memory, IPC latency, or renderer sampling utilities.
+- Deep performance notes live in `PERFORMANCE_UTILITIES.md` when present; always prefer `lifecycle/AGENTS.md` and `performanceTypes.ts` for the versioned export contract, MB units, and finalizer ownership.
 - Main-process timers/listeners must be tracked with `createTrackedInterval`, `createTrackedTimeout`, `addTrackedListener`, `registerCleanupTask`, or `registerGlobalCleanupCallback`.
 - Bare timer exceptions must be documented and rare; `errorHandler` has a circular-dependency exception.
 - Cleanups should be idempotent and safe during partial startup failures.
+- Metrics export must not run from ad-hoc feature code; use the finalizer path.
 
 ## Import rules
 

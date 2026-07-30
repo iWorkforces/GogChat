@@ -33,6 +33,7 @@ import path from 'path';
 import log from 'electron-log';
 
 import type {
+  AccountWebContentsInfo,
   AccountWindowState,
   WindowFactory,
   IAccountWindowManager,
@@ -384,6 +385,32 @@ export class AccountViewManager implements IAccountWindowManager {
   getAccountForWebContents(webContentsId: WebContentsId): AccountIndex | null {
     const idx = this.webContentsToAccountIndex.get(webContentsId);
     return idx ?? null;
+  }
+
+  /**
+   * Enumerate every live child view WebContents (not the host window).
+   * Host-only sampling would miss per-account renderers under WCV backend.
+   */
+  enumerateAccountWebContents(): AccountWebContentsInfo[] {
+    const result: AccountWebContentsInfo[] = [];
+    for (const [accountIndex, entry] of this.views) {
+      const wc = entry.view.webContents;
+      if (!wc || wc.isDestroyed()) continue;
+      let osProcessId: number;
+      try {
+        osProcessId = wc.getOSProcessId();
+      } catch {
+        osProcessId = 0;
+      }
+      result.push({
+        accountIndex,
+        webContentsId: asWebContentsId(wc.id),
+        osProcessId,
+        backend: 'web-contents-view',
+        webContents: wc,
+      });
+    }
+    return result;
   }
 
   getAllWindows(): BrowserWindow[] {

@@ -54,6 +54,26 @@ export interface WindowFactory {
 }
 
 /**
+ * Backend that owns live account WebContents for multi-account rendering.
+ * BrowserWindow is the default; WebContentsView remains opt-in.
+ */
+export type AccountBackendKind = 'browser-window' | 'web-contents-view';
+
+/**
+ * Narrow enumeration entry for a live account renderer WebContents.
+ * Used by performance sampling to map account ↔ process identity without
+ * conflating host-window WebContents with child views.
+ */
+export interface AccountWebContentsInfo {
+  accountIndex: AccountIndex;
+  webContentsId: WebContentsId;
+  /** OS process id when available; 0 if not yet assigned or destroyed. */
+  osProcessId: number;
+  backend: AccountBackendKind;
+  webContents: Electron.WebContents;
+}
+
+/**
  * Account window manager interface — public API surface for multi-account
  * BrowserWindow management. Consumers should depend on this abstraction
  * rather than the concrete `AccountWindowManager` class.
@@ -98,4 +118,11 @@ export interface IAccountWindowManager {
    * Whether the given account is currently in the dehydrated state.
    */
   isDehydrated(accountIndex: AccountIndex): boolean;
+  /**
+   * Enumerate every live account renderer WebContents.
+   * BrowserWindow backend: each live account window's webContents.
+   * WebContentsView backend: each live child view webContents (not host-only).
+   * Destroyed views/windows are omitted.
+   */
+  enumerateAccountWebContents(): AccountWebContentsInfo[];
 }

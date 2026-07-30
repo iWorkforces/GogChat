@@ -36,7 +36,7 @@ Icon cache loads paths relative to `resources/`:
 
 ## Packaging
 
-`electron-builder.yml` copies `resources/` as `extraResources` outside the ASAR archive. DMG and mac app icons reference `resources/icons/normal/mac.icns`; guarded Windows release-engineering preparation references `resources/icons/normal/win.ico`. That Windows icon path is not a public support claim. The offline fallback page references `resources/icons/normal/scalable.svg`.
+`electron-builder.yml` copies `resources/` as `extraResources` outside the ASAR archive. DMG and mac app icons reference `resources/icons/normal/mac.icns`; guarded Windows release-engineering preparation references `resources/icons/normal/win.ico`. That Windows icon path is not a public support claim. The offline fallback page references `resources/icons/normal/scalable.svg`. Builder also excludes proven build-only tool packages; runtime icons must remain in `extraResources` regardless of dependency pruning.
 
 Windows packaging, when used in CI preparation, emits separate NSIS setup files for x64 and arm64. Keep icon generation cross-platform, but do not add Windows support wording to resource docs until clean packaged smoke evidence exists on Windows x64 and real Windows arm64.
 

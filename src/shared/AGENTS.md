@@ -10,7 +10,7 @@
 - `urlValidators.ts` owns parse-once URL validation for navigation, external links, deep links, and Google auth detection.
 - `dataValidators.ts` owns non-URL payload validation.
 - `typeUtils.ts` owns `assertNever`, `asType<T>()`, and documented unsafe-cast helpers.
-- `types/` owns contracts used across process boundaries; see `types/AGENTS.md`.
+- `types/` owns contracts used across process boundaries; see `types/AGENTS.md` (`IAccountWindowManager`, `AccountWebContentsInfo`, bridge API, config, errors, IPC maps).
 
 ## IPC/channel workflow
 

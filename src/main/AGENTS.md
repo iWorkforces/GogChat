@@ -9,6 +9,7 @@
 - `index.ts` must stay thin. It wires the top-level sequence only.
 - `initializers/registerAppReady.ts` owns `app.whenReady()` work.
 - Startup order is security-sensitive: certificate pinning, exception reporting, single-instance lock, deep links, app-ready security/critical phases, account bootstrap, context store, UI phase, then deferred phase.
+- After account-0 window creation, `registerAppReady` arms `performanceFinalizer` and marks `account-0-content-loaded` on main-frame `did-finish-load` (document load, not first paint/interaction).
 - Feature specs live in `initializers/{security,ui,deferred}.spec.ts`; generated plan lives in `generated/featurePlan.ts` and must not be hand-edited.
 
 ## Module map
@@ -56,9 +57,18 @@
 - Prefer the `IAccountWindowManager` contract from `src/shared/types/window.ts`.
 - Update both `accountWindowManager.ts` and `accountViewManager.ts` unless the behavior is backend-specific.
 - Preserve `persist:account-N` partitions and Google auth page handling.
+- BrowserWindow hydration: factory owns the single restored `loadURL`; manager must not double-navigate.
+- Observability: implement/use `enumerateAccountWebContents()`; do not sample host-only under WebContentsView.
+- BrowserWindow remains the default backend; WebContentsView stays opt-in until measured policy evidence exists.
+
+### Touch performance export
+
+- Final metrics export is owned by `utils/lifecycle/performanceFinalizer.ts`, not deferred-phase side effects.
+- Memory unit is MB; schema/version lives in `performanceTypes.ts` and must match scripts.
+- Do not call document load or account-0-ready first paint or first interaction.
 
 ## Tests to consider
 
 - Main utility/feature changes: colocated `*.test.ts` or `tests/unit/features`.
 - Account/window behavior: integration or e2e tests with helpers from `tests/helpers/electron-test.ts`.
-- Startup/performance-sensitive changes: `bun run build:prod`, headless startup, and perf budget scripts.
+- Startup/performance-sensitive changes: `bun run build:prod`, `node scripts/headless-startup.js`, `node scripts/check-perf-budget.js`, and related script unit tests under `scripts/*.test.js`.

@@ -5,18 +5,18 @@
  *
  * Launches the built Electron app with:
  *   - GOGCHAT_EXPORT_METRICS=1        (signals intent — informational)
- *   - GOGCHAT_AUTO_QUIT_AFTER_MS=12000 (max lifetime; we also self-quit)
- *   - NODE_ENV=development             (triggers existing perf JSON export
- *                                        in `cacheWarmer.runDevPostDeferred`)
+ *   - GOGCHAT_AUTO_QUIT_AFTER_MS=12000 (capture timeout + max lifetime)
+ *   - NODE_ENV=development             (dev path; final export is owned by
+ *                                        performanceFinalizer after document load)
  *   - --user-data-dir=<temp>           (controls where performance-metrics.json lands)
  *
  * Polls the temp userData dir for `performance-metrics.json`. Once it appears
- * AND is stable for one tick, copies it to `./performance-metrics.json` in the
- * repo root, then terminates the Electron process.
+ * AND is stable for one tick, validates the versioned schema, then writes the
+ * aggregate (or single run) to `./performance-metrics.json` in the repo root.
  *
  * Exit codes:
- *   0 — metrics JSON captured and copied successfully
- *   1 — Electron crashed before producing metrics, or timeout reached
+ *   0 — every requested run produced a complete+valid artifact; aggregate written
+ *   1 — crash, timeout, schema invalid, incomplete run, or partial success
  */
 
 import { spawn } from 'node:child_process';
@@ -39,6 +39,19 @@ const PERF_RUNS = Math.max(1, Number(process.env.GOGCHAT_PERF_RUNS || 1) | 0);
 // Optional: forward GOGCHAT_DISABLE_PRECONNECT to the child Electron so the harness
 // can A/B-measure preconnect contribution. Read here only for logging.
 const PRECONNECT_DISABLED = process.env.GOGCHAT_DISABLE_PRECONNECT === '1';
+
+/** Must match PERF_EXPORT_SCHEMA_VERSION in performanceTypes.ts */
+export const PERF_EXPORT_SCHEMA_VERSION = 1;
+
+/** Must match REQUIRED_STARTUP_MARKERS in performanceTypes.ts */
+export const REQUIRED_STARTUP_MARKERS = [
+  'app-start',
+  'app-ready',
+  'account-0-ready',
+  'account-0-content-loaded',
+  'features-loaded',
+  'all-features-loaded',
+];
 
 const outputPath = path.resolve(repoRoot, 'performance-metrics.json');
 
@@ -76,12 +89,66 @@ export function resolveElectronBinary(root = repoRoot) {
 }
 
 /**
- * Run a single Electron startup, capture performance-metrics.json from a fresh
- * temp userData dir, and return the parsed JSON object on success.
+ * Validate a single-run performance artifact against the versioned schema.
+ * Incomplete or invalid runs must not feed median aggregation.
  *
- * Returns null on timeout / crash / unreadable JSON. Does NOT touch the repo-root
- * `performance-metrics.json` — that is the caller's responsibility (so the caller
- * can decide whether to write the raw single-run output or a merged median).
+ * @returns {{ valid: boolean, reasons: string[] }}
+ */
+export function validateRunArtifact(metrics) {
+  const reasons = [];
+  if (!metrics || typeof metrics !== 'object') {
+    return { valid: false, reasons: ['metrics is not an object'] };
+  }
+  if (metrics.schemaVersion !== PERF_EXPORT_SCHEMA_VERSION) {
+    reasons.push(
+      `schemaVersion mismatch: expected ${PERF_EXPORT_SCHEMA_VERSION}, got ${metrics.schemaVersion}`
+    );
+  }
+  if (metrics.units?.memory !== 'MB') {
+    reasons.push(`units.memory must be "MB", got ${metrics.units?.memory}`);
+  }
+  if (metrics.units?.time !== 'ms') {
+    reasons.push(`units.time must be "ms", got ${metrics.units?.time}`);
+  }
+  if (!metrics.capture || typeof metrics.capture !== 'object') {
+    reasons.push('capture completeness metadata missing');
+  } else {
+    if (metrics.capture.complete !== true) {
+      reasons.push(`capture.complete is not true (${metrics.capture.complete})`);
+    }
+    if (metrics.capture.valid !== true) {
+      reasons.push(
+        `capture.valid is not true (${metrics.capture.valid}` +
+          `${metrics.capture.reason ? `: ${metrics.capture.reason}` : ''})`
+      );
+    }
+    if (
+      typeof metrics.capture.rendererSampleCount !== 'number' ||
+      metrics.capture.rendererSampleCount < 1
+    ) {
+      reasons.push(`rendererSampleCount must be >= 1, got ${metrics.capture.rendererSampleCount}`);
+    }
+  }
+  const markers = metrics.markers && typeof metrics.markers === 'object' ? metrics.markers : {};
+  for (const name of REQUIRED_STARTUP_MARKERS) {
+    if (typeof markers[name] !== 'number') {
+      reasons.push(`missing required marker: ${name}`);
+    }
+  }
+  const rendererSnaps = Array.isArray(metrics.rendererSnapshots) ? metrics.rendererSnapshots : [];
+  const rendererCount = rendererSnaps.filter((s) => s?.type === 'renderer').length;
+  if (rendererCount < 1) {
+    reasons.push('no renderer-type samples in rendererSnapshots');
+  }
+  return { valid: reasons.length === 0, reasons };
+}
+
+/**
+ * Run a single Electron startup, capture performance-metrics.json from a fresh
+ * temp userData dir, and return `{ metrics, valid, reasons }` on parse success.
+ *
+ * Does NOT touch the repo-root `performance-metrics.json`.
+ * Returns `{ metrics: null, valid: false, reasons }` on timeout / crash / bad JSON.
  */
 async function runOnce(runIndex, totalRuns) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gogchat-perf-'));
@@ -155,12 +222,18 @@ async function runOnce(runIndex, totalRuns) {
   clearTimeout(overallTimer);
 
   let metricsObj = null;
+  let validation = { valid: false, reasons: ['no metrics file'] };
   if (resolved) {
     try {
       const raw = fs.readFileSync(metricsPathInUserData, 'utf8');
       metricsObj = JSON.parse(raw);
+      validation = validateRunArtifact(metricsObj);
+      if (!validation.valid) {
+        log(`Run ${runIndex}/${totalRuns}: INVALID artifact: ${validation.reasons.join('; ')}`);
+      }
     } catch (err) {
       log(`Run ${runIndex}/${totalRuns}: ERROR reading metrics: ${err.message}`);
+      validation = { valid: false, reasons: [`unreadable JSON: ${err.message}`] };
     }
   }
 
@@ -180,14 +253,19 @@ async function runOnce(runIndex, totalRuns) {
   if (!resolved) {
     if (timedOut) {
       log(`Run ${runIndex}/${totalRuns}: FAILURE: timed out waiting for performance-metrics.json`);
+      validation = { valid: false, reasons: ['timeout waiting for metrics file'] };
     } else {
       log(
         `Run ${runIndex}/${totalRuns}: FAILURE: Electron exited before producing metrics (code=${lastChildExit?.code})`
       );
+      validation = {
+        valid: false,
+        reasons: [`electron exited before metrics (code=${lastChildExit?.code})`],
+      };
     }
   }
 
-  return metricsObj;
+  return { metrics: metricsObj, valid: validation.valid, reasons: validation.reasons };
 }
 
 export function median(values) {
@@ -202,15 +280,29 @@ export function median(values) {
 
 /**
  * Build a merged metrics object whose numeric markers + memorySnapshots fields
- * represent the per-key median across N successful runs. Non-numeric fields are
- * taken from the last successful run.
+ * represent the per-key median across N complete+valid runs. Non-numeric fields
+ * are taken from the last successful run.
  *
- * Schema is intentionally identical to a single-run performance-metrics.json so
- * downstream consumers (`scripts/check-perf-budget.js`) need no changes.
+ * Refuses to assemble medians from incomplete data: every run in `runs` must
+ * already have passed {@link validateRunArtifact}. The caller is responsible
+ * for that gate; this function still stamps aggregate completeness metadata.
  */
-export function mergeMedian(runs) {
+export function mergeMedian(runs, options = {}) {
+  const requestedRuns = options.requestedRuns ?? runs.length;
+  const invalidRuns = options.invalidRuns ?? 0;
+
   if (runs.length === 0) return null;
-  if (runs.length === 1) return runs[0];
+  if (runs.length === 1) {
+    const single = { ...runs[0] };
+    single.aggregation = {
+      strategy: 'single',
+      runs: requestedRuns,
+      successfulRuns: 1,
+      invalidRuns,
+      complete: invalidRuns === 0 && requestedRuns === 1,
+    };
+    return single;
+  }
 
   const last = runs[runs.length - 1];
 
@@ -263,14 +355,18 @@ export function mergeMedian(runs) {
       Object.keys(syntheticFirst).length > 0 ? [syntheticFirst, synthetic] : [synthetic];
   }
 
+  const aggregateComplete = invalidRuns === 0 && runs.length === requestedRuns;
+
   return {
     ...last,
     markers: mergedMarkers,
     memorySnapshots: mergedMemorySnapshots,
     aggregation: {
       strategy: 'median',
-      runs: runs.length,
+      runs: requestedRuns,
       successfulRuns: runs.length,
+      invalidRuns,
+      complete: aggregateComplete,
     },
   };
 }
@@ -293,35 +389,54 @@ async function main() {
     log('GOGCHAT_DISABLE_PRECONNECT=1 — child Electron will skip session.preconnect()');
   }
 
-  const successfulRuns = [];
+  const validRuns = [];
+  const invalidReceipts = [];
   for (let i = 1; i <= PERF_RUNS; i++) {
     const result = await runOnce(i, PERF_RUNS);
-    if (result) {
-      successfulRuns.push(result);
+    if (result.valid && result.metrics) {
+      validRuns.push(result.metrics);
+    } else {
+      invalidReceipts.push({
+        run: i,
+        reasons: result.reasons,
+        hasMetrics: result.metrics != null,
+      });
     }
   }
 
-  if (successfulRuns.length === 0) {
-    log(`FAILURE: 0/${PERF_RUNS} runs produced performance-metrics.json`);
+  if (validRuns.length === 0) {
+    log(`FAILURE: 0/${PERF_RUNS} runs produced complete+valid performance metrics`);
+    if (invalidReceipts.length > 0) {
+      log(`Invalid run receipts: ${JSON.stringify(invalidReceipts)}`);
+    }
     process.exit(1);
   }
 
-  const merged = PERF_RUNS === 1 ? successfulRuns[0] : mergeMedian(successfulRuns);
+  // Refuse medians assembled from incomplete data: every requested run must be valid.
+  if (validRuns.length < PERF_RUNS) {
+    log(
+      `FAILURE: only ${validRuns.length}/${PERF_RUNS} runs are complete+valid — ` +
+        `refusing median of incomplete set`
+    );
+    log(`Invalid run receipts: ${JSON.stringify(invalidReceipts)}`);
+    process.exit(1);
+  }
+
+  const merged = mergeMedian(validRuns, {
+    requestedRuns: PERF_RUNS,
+    invalidRuns: invalidReceipts.length,
+  });
   try {
     fs.writeFileSync(outputPath, JSON.stringify(merged, null, 2) + '\n');
     log(
-      `Metrics written to: ${outputPath} (${successfulRuns.length}/${PERF_RUNS} successful runs, ` +
-        `${PERF_RUNS === 1 ? 'single run' : 'median of successes'})`
+      `Metrics written to: ${outputPath} (${validRuns.length}/${PERF_RUNS} complete+valid runs, ` +
+        `${PERF_RUNS === 1 ? 'single run' : 'median of complete runs'})`
     );
   } catch (err) {
     log(`ERROR writing merged metrics: ${err.message}`);
     process.exit(1);
   }
 
-  if (successfulRuns.length < PERF_RUNS) {
-    log(`WARNING: only ${successfulRuns.length}/${PERF_RUNS} runs succeeded`);
-    process.exit(1);
-  }
   process.exit(0);
 }
 

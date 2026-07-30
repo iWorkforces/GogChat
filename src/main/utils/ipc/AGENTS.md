@@ -26,6 +26,11 @@ Prefer the current factory helpers in this directory over ad-hoc `ipcMain.handle
 - `ipcCommonValidators.ts` - reusable payload validation.
 - `benignLogFilter.ts` - suppresses expected noisy renderer/subframe errors.
 
+## Latency sampling
+
+- IPC latency samples (when recorded) are optional export fields and remain **warn-only** in the perf budget until a real producer and baseline exist.
+- Do not make IPC latency a gated CI metric without that baseline.
+
 ## Channel contract
 
 - Channel names live in `src/shared/constants.ts` under `IPC_CHANNELS`.

@@ -16,7 +16,11 @@ import log from 'electron-log';
 
 import environment from '../../../environment.js';
 
-import { exportPerformanceMetrics, logPerformanceSummary } from './performanceExport.js';
+import {
+  exportPerformanceMetrics,
+  logPerformanceSummary,
+  type ExportCaptureOptions,
+} from './performanceExport.js';
 import { PERFORMANCE_TARGETS } from './performanceTypes.js';
 import type {
   IPCLatencySample,
@@ -221,18 +225,25 @@ class PerformanceMonitor {
   sampleAllRenderers(accountWindowManager?: IAccountWindowManager): void {
     if (!this.enabled) return;
 
-    // Build PID → accountIndex map up-front so we don't repeatedly walk windows.
-    const pidToAccount = new Map<number, number>();
+    // Map OS pid → account identity via backend-aware enumeration so WCV
+    // child views are observed (host-only sampling would miss them).
+    // Key includes creationTime when available later via ProcessMetric.
+    const pidToAccount = new Map<
+      number,
+      {
+        accountIndex: number;
+        backend: 'browser-window' | 'web-contents-view';
+        webContentsId: number;
+      }
+    >();
     if (accountWindowManager) {
-      for (const window of accountWindowManager.getAllWindows()) {
-        if (window.isDestroyed()) continue;
-        const wc = window.webContents;
-        if (wc.isDestroyed()) continue;
-        const accountIndex = accountWindowManager.getAccountIndex(window);
-        if (accountIndex === null) continue;
-        const pid = wc.getOSProcessId();
-        if (pid > 0) {
-          pidToAccount.set(pid, accountIndex);
+      for (const info of accountWindowManager.enumerateAccountWebContents()) {
+        if (info.osProcessId > 0) {
+          pidToAccount.set(info.osProcessId, {
+            accountIndex: info.accountIndex,
+            backend: info.backend,
+            webContentsId: info.webContentsId,
+          });
         }
       }
     }
@@ -250,26 +261,29 @@ class PerformanceMonitor {
         m.type === 'Tab' ? 'renderer' : m.type === 'GPU' ? 'gpu' : 'utility';
       if (type === 'renderer') rendererCount++;
 
+      const privateBytes = m.memory.privateBytes;
+      const privateAvailable = privateBytes !== undefined;
       const snapshot: RendererMemorySnapshot = {
         timestamp,
         pid: m.pid,
         type,
         memory: {
           // Electron's MemoryInfo values are in KB → convert to MB (2 decimals).
-          // `privateBytes` is Windows-only; default to 0 elsewhere.
           residentSet: Math.round((m.memory.workingSetSize / 1024) * 100) / 100,
           peakResidentSet: Math.round((m.memory.peakWorkingSetSize / 1024) * 100) / 100,
-          private:
-            m.memory.privateBytes !== undefined
-              ? Math.round((m.memory.privateBytes / 1024) * 100) / 100
-              : 0,
+          // Never represent unavailable private memory as measured zero.
+          private: privateAvailable ? Math.round((privateBytes / 1024) * 100) / 100 : null,
+          privateSource: privateAvailable ? 'measured' : 'unavailable',
         },
         cpuPercent: m.cpu.percentCPUUsage,
+        creationTime: m.creationTime,
       };
 
-      const accountIndex = pidToAccount.get(m.pid);
-      if (accountIndex !== undefined) {
-        snapshot.accountIndex = accountIndex;
+      const accountInfo = pidToAccount.get(m.pid);
+      if (accountInfo !== undefined) {
+        snapshot.accountIndex = accountInfo.accountIndex;
+        snapshot.backend = accountInfo.backend;
+        snapshot.webContentsId = accountInfo.webContentsId;
       }
 
       if (this.rendererSnapshots.length >= this.MAX_RENDERER_SNAPSHOTS) {
@@ -381,12 +395,13 @@ class PerformanceMonitor {
   }
 
   /**
-   * Export metrics to JSON format
-   * @param outputPath - Optional file path to write JSON (defaults to userData/performance-metrics.json)
+   * Export metrics to JSON format with schema version, units, and capture completeness.
+   * @param outputPath - Optional file path to write JSON
+   * @param captureOptions - Completeness metadata (final export path sets complete=true)
    * @returns Performance metrics object
    */
-  exportToJSON(outputPath?: string): PerformanceMetrics {
-    return exportPerformanceMetrics(this, outputPath);
+  exportToJSON(outputPath?: string, captureOptions?: ExportCaptureOptions): PerformanceMetrics {
+    return exportPerformanceMetrics(this, outputPath, captureOptions);
   }
 
   /**

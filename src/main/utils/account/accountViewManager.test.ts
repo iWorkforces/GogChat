@@ -569,6 +569,18 @@ describe('AccountViewManager — lookups', () => {
     expect(m.getAllWindows()).toEqual([lastWindow()]);
   });
 
+  it('enumerateAccountWebContents returns every live child view, not host-only', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://a/', asAccountIndex(0));
+    m.createAccountWindow('https://b/', asAccountIndex(1));
+    const listed = m.enumerateAccountWebContents();
+    expect(listed).toHaveLength(2);
+    expect(listed.map((e) => e.accountIndex).sort()).toEqual([0, 1]);
+    expect(listed.every((e) => e.backend === 'web-contents-view')).toBe(true);
+    // Each entry is a child view webContents, not an invented host-only sample.
+    expect(listed[0]?.webContents).not.toBe(listed[1]?.webContents);
+  });
+
   it('getMostRecentWindow returns null before host exists, host after', () => {
     const m = new AccountViewManager();
     expect(m.getMostRecentWindow()).toBeNull();
