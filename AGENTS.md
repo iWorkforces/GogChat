@@ -1,9 +1,9 @@
 # GogChat Agent Guide
 
 **Generated:** 2026-08-01
-**Commit:** 077b3ee
+**Commit:** 4b23c71
 **Branch:** deep-perf-enhancements
-**Version:** 3.18.2
+**Version:** 3.18.3
 **Repository:** https://github.com/iWorkforces/GogChat
 
 ## Project shape
@@ -128,7 +128,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | Perf plan                      | `docs/plans/performance-remediation.md`                                         | Phased remediation work plan and guardrails.                                  |
 | macOS Intel x64 plan           | `docs/plans/macos-intel-x64-dmg.md`                                             | Dual-arch DMG production plan and acceptance criteria.                        |
 | Native notifications plan      | `docs/plans/native-os-notifications.md`                                         | Permission, bridge, multi-account banners, unread-delta fallback.             |
-| Deep enhancements plan         | `docs/plans/deep-enhancements.md`                                               | Dual-backend contract, truth/safety, measure handoff, v3.18.2 closeout.       |
+| Deep enhancements plan         | `docs/plans/deep-enhancements.md`                                               | Dual-backend contract, truth/safety, measure handoff (closeout @ 3.18.2+).    |
 | Tests                          | `tests/AGENTS.md`                                                               | Unit/integration/e2e/perf/packaging contract guidance.                        |
 | Packaging                      | `mac/AGENTS.md` + `scripts/AGENTS.md`                                           | DMG, signing, notarization, dual-arch, perf gates.                            |
 | Icons / resources              | `resources/AGENTS.md`                                                           | Icon variants, generation, extraResources.                                    |
@@ -191,7 +191,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 - IPC handlers must rate-limit, validate, handle, and catch. Dedup only where safe.
 - Use `IPC_CHANNELS`; never string-literal IPC channel names.
 - Google Chat web `Notification` calls are bridged from page world through `src/preload/notificationBridge.ts`; keep raw `ipcRenderer` isolated in preload and validate notification payloads before `NOTIFICATION_SHOW`.
-- macOS notification authorization: `windowWrapper` and WCV host call `ensureNotificationPermission({ parentWindow })` on **`ready-to-show`**. When the config flag is false, show a short first-run dialog (Enable / System Settings / Not Now), then a silent probe `Notification`. Persist `app.notificationPermissionRequested` only after probe `show` (request path completed — not live grant status). Log every `ensure →` result. “Not Now” skips for the process session only; probe `failed` clears the in-flight guard so a later launch can retry. Skip interactive probes in CI. Preferences → Notification Settings… opens System Settings when the user needs to fix grant/deny later.
+- macOS notification authorization: `windowWrapper` and WCV host call `ensureNotificationPermission({ parentWindow })` on **`ready-to-show`**. When the config flag is false, show a short first-run dialog (Enable / System Settings / Not Now), then a silent probe `Notification`. Persist `app.notificationPermissionRequested` when the user chooses **Enable** or **System Settings** (and also on probe `show`). Do not require probe `show` alone — it often never fires on macOS, which re-prompted every launch. Flag means request path completed, not live grant status. “Not Now” skips for the process session only; probe `failed` clears only the in-flight guard (does not clear a flag already set by Enable). Skip interactive probes in CI. Preferences → Notification Settings… opens System Settings when the user needs to fix grant/deny later.
 - Optional unread-delta OS banners (`app.unreadDeltaNotifications`, default false) live in `badgeHelpers` via `nativeNotification.ts`; primary path remains Chat Web Notification bridge. Suppress only when host focused **and** `isAccountVisible(accountIndex)`.
 - Multi-account banners always set macOS `subtitle` (`Account N`, 1-based, or `app.accountLabels` custom) and `groupId`; tags are namespaced `a${index}:…` from IPC sender identity only. Dock badge is the sum of per-account unreads capped at `BADGE.DISPLAY_MAX` (99). Labels: Preferences → Account Labels.
 - Notification icon URLs must pass `validateNotificationIconURL` (`data:image/*` or allowlisted Google static HTTPS hosts).
@@ -279,4 +279,4 @@ Nested guides supplement this root and are intentionally more specific:
 - `mac/AGENTS.md`
 - `resources/AGENTS.md`
 
-Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans under `docs/plans/`: performance remediation, macOS Intel x64 DMG, native OS notifications, and **deep enhancements** (`deep-enhancements.md` — mostly implemented @ v3.18.2; Wave 3 matrix/auth/signed smoke still residual).
+Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans under `docs/plans/`: performance remediation, macOS Intel x64 DMG, native OS notifications, and **deep enhancements** (`deep-enhancements.md` — mostly implemented; Wave 3 matrix/auth/signed smoke still residual).

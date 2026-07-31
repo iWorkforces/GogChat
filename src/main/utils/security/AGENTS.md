@@ -30,7 +30,7 @@ This directory contains main-process security wrappers and SafeStorage-backed ki
   - Call `ensureNotificationPermission({ parentWindow })` from `windowWrapper` / WCV host on **`ready-to-show`**.
   - First-run short dialog when config flag is false and a parent window is provided: **Enable** / **System Settings** / **Not Now**.
   - Then silent probe `Notification` (triggers `requestAuthorization` when still undetermined).
-  - Persist `app.notificationPermissionRequested` only after probe `show`.
+  - Persist `app.notificationPermissionRequested` when the user chooses Enable or System Settings (and also on probe `show`). Do not rely only on probe `show` — it often never fires on macOS.
   - Log every `ensure →` result (`unsupported` | `skipped-ci` | `already-requested` | `prompt-declined` | `scheduled` | `failed-to-schedule`).
   - Session “Not Now”, process de-dupe, CI skip; Preferences → Notification Settings… via `showNotificationSettingsDialog` / `openNotificationSystemSettings`.
   - Flag means “request path completed,” not live grant status.

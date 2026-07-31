@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-`mac/` contains macOS packaging assets and DMG scripts for dual-arch Electron packaging (Apple Silicon `arm64` and Intel `x64`) as **separate** DMGs. Product version for artifact names comes from root `package.json` (currently **3.18.2**). Bundle id / notarize identity is fixed `com.ocworkforces.gogchat` (`scripts/app-identity.cjs` / `electron-builder.yml`). Windows release engineering/preparation lives outside this directory and is not a public support claim.
+`mac/` contains macOS packaging assets and DMG scripts for dual-arch Electron packaging (Apple Silicon `arm64` and Intel `x64`) as **separate** DMGs. Product version for artifact names comes from root `package.json` (currently **3.18.3**). Bundle id / notarize identity is fixed `com.ocworkforces.gogchat` (`scripts/app-identity.cjs` / `electron-builder.yml`). Windows release engineering/preparation lives outside this directory and is not a public support claim.
 
 ## Commands
 
