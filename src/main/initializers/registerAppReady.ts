@@ -169,31 +169,33 @@ export function registerAppReady(options: AppReadyOptions): void {
         getAccountManager: () => accountWindowManager,
       });
 
-      // Account-0 content-loaded marker — fires when the initial page load
-      // completes (did-finish-load on the main frame). account-0-ready only
+      // Account-0 content-loaded marker — must listen on the **account**
+      // WebContents (not host-only under WebContentsView). account-0-ready only
       // reflects window construction. One-shot so navigations don't re-mark.
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        const wc = mainWindow.webContents;
-        if (!wc.isDestroyed()) {
-          wc.once('did-finish-load', () => {
-            perfMonitor.mark('account-0-content-loaded', 'Account-0 initial page load completed');
-            notifyDocumentLoadComplete();
-          });
-          // do not force-fail the capture on did-fail-load: Google auth and
-          // error pages still emit did-finish-load for the final document, and
-          // intermediate redirects often surface as fail-load events. Hard
-          // timeouts still mark the run invalid via the finalizer.
-          wc.on(
-            'did-fail-load',
-            (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
-              if (!isMainFrame) return;
-              if (errorCode === -3 /* ERR_ABORTED */) return;
-              log.warn(
-                `[Main] Account-0 did-fail-load (non-terminal for metrics): code=${errorCode}: ${errorDescription}`
-              );
-            }
-          );
-        }
+      const account0Wc = accountWindowManager.getAccountWebContents(asAccountIndex(0));
+      if (account0Wc && !account0Wc.isDestroyed()) {
+        account0Wc.once('did-finish-load', () => {
+          perfMonitor.mark('account-0-content-loaded', 'Account-0 initial page load completed');
+          notifyDocumentLoadComplete();
+        });
+        // do not force-fail the capture on did-fail-load: Google auth and
+        // error pages still emit did-finish-load for the final document, and
+        // intermediate redirects often surface as fail-load events. Hard
+        // timeouts still mark the run invalid via the finalizer.
+        account0Wc.on(
+          'did-fail-load',
+          (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+            if (!isMainFrame) return;
+            if (errorCode === -3 /* ERR_ABORTED */) return;
+            log.warn(
+              `[Main] Account-0 did-fail-load (non-terminal for metrics): code=${errorCode}: ${errorDescription}`
+            );
+          }
+        );
+      } else {
+        log.warn(
+          '[Main] Account-0 WebContents unavailable for content-loaded marker (host-only sampling avoided)'
+        );
       }
 
       // ===== UI PHASE =====

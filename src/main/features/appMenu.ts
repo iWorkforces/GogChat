@@ -16,7 +16,21 @@ import {
   setStoredAccountLabel,
 } from '../utils/platform/accountLabelStore.js';
 import { getAccountWindowManager } from '../utils/account/accountWindowManager.js';
+import {
+  getAccountURL,
+  loadAccountURL,
+  sendToAccount,
+} from '../utils/account/accountNavigation.js';
 import { formatAccountNotificationLabel } from '../utils/platform/accountNotificationIdentity.js';
+import type { AccountIndex } from '../../shared/types/branded.js';
+
+function menuAccountIndex(window: BrowserWindow): AccountIndex {
+  try {
+    return getAccountWindowManager().getAccountIndex(window) ?? asAccountIndex(0);
+  } catch {
+    return asAccountIndex(0);
+  }
+}
 
 function buildAccountLabelsSubmenu(
   parentWindow: BrowserWindow,
@@ -106,7 +120,8 @@ function setAppMenu(window: BrowserWindow): void {
         {
           label: 'Sign Out',
           click: () => {
-            void window.loadURL(environment.logoutUrl);
+            const manager = getAccountWindowManager();
+            loadAccountURL(manager, menuAccountIndex(window), environment.logoutUrl);
           },
         },
         {
@@ -137,13 +152,18 @@ function setAppMenu(window: BrowserWindow): void {
           label: 'Search',
           accelerator: 'CommandOrControl+F',
           click: () => {
-            window.webContents.send(IPC_CHANNELS.SEARCH_SHORTCUT);
+            const manager = getAccountWindowManager();
+            sendToAccount(manager, menuAccountIndex(window), IPC_CHANNELS.SEARCH_SHORTCUT);
           },
         },
         {
           label: 'Copy Current URL',
           click: () => {
-            clipboard.writeText(window.webContents.getURL());
+            const manager = getAccountWindowManager();
+            const url = getAccountURL(manager, menuAccountIndex(window));
+            if (url) {
+              clipboard.writeText(url);
+            }
           },
         },
         {
@@ -174,14 +194,22 @@ function setAppMenu(window: BrowserWindow): void {
           label: 'Back',
           accelerator: 'Alt+Left',
           click: () => {
-            window.webContents.goBack();
+            const manager = getAccountWindowManager();
+            const wc = manager.getAccountWebContents(menuAccountIndex(window));
+            if (wc && !wc.isDestroyed()) {
+              wc.goBack();
+            }
           },
         },
         {
           label: 'Forward',
           accelerator: 'Alt+Right',
           click: () => {
-            window.webContents.goForward();
+            const manager = getAccountWindowManager();
+            const wc = manager.getAccountWebContents(menuAccountIndex(window));
+            if (wc && !wc.isDestroyed()) {
+              wc.goForward();
+            }
           },
         },
         {
@@ -191,7 +219,8 @@ function setAppMenu(window: BrowserWindow): void {
           label: 'Navigate to Home',
           accelerator: 'Alt+Home',
           click: () => {
-            void window.loadURL(environment.appUrl);
+            const manager = getAccountWindowManager();
+            loadAccountURL(manager, menuAccountIndex(window), environment.appUrl);
           },
         },
       ],

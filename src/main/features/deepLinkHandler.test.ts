@@ -39,6 +39,14 @@ vi.mock('../utils/account/accountWindowManager', () => ({
   createAccountWindow: vi.fn(),
   getWindowForAccount: vi.fn().mockReturnValue(null),
   getMostRecentWindow: vi.fn().mockReturnValue(null),
+  getAccountWindowManager: vi.fn(() => ({
+    getAccountIndex: vi.fn().mockReturnValue(0),
+  })),
+}));
+
+vi.mock('../utils/account/accountNavigation.js', () => ({
+  loadAccountURL: vi.fn().mockReturnValue(true),
+  getAccountURL: vi.fn().mockReturnValue('https://chat.google.com/u/0/'),
 }));
 
 vi.mock('../utils/lifecycle/resourceCleanup', () => ({
@@ -62,7 +70,8 @@ import {
   getWindowForAccount,
   getMostRecentWindow,
 } from '../utils/account/accountWindowManager';
-import { validateDeepLinkURL, validateExternalURL } from '../../shared/urlValidators.js';
+import { loadAccountURL, getAccountURL } from '../utils/account/accountNavigation.js';
+import { validateDeepLinkURL, validateExternalURL, isGoogleAuthUrl } from '../../shared/urlValidators.js';
 import { addTrackedListener } from '../utils/lifecycle/resourceCleanup';
 import log from 'electron-log';
 
@@ -362,7 +371,7 @@ describe('deepLinkHandler', () => {
       initDeepLinkHandler({});
 
       // The buffered URL should have been navigated to
-      expect(fakeWindow.loadURL).toHaveBeenCalled();
+      expect(loadAccountURL).toHaveBeenCalled();
     });
 
     it('processes a cold-start gogchat:// URL from argv during init', () => {
@@ -376,7 +385,7 @@ describe('deepLinkHandler', () => {
 
       initDeepLinkHandler({});
 
-      expect(fakeWindow.loadURL).toHaveBeenCalledWith('gogchat://room/cold-start');
+      expect(loadAccountURL).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'gogchat://room/cold-start');
       process.argv = originalArgv;
     });
   });
@@ -405,12 +414,14 @@ describe('deepLinkHandler', () => {
 
       const fakeWindow = makeFakeWindow();
       fakeWindow.webContents.getURL.mockReturnValue('https://accounts.google.com/signin/v2');
+      vi.mocked(getAccountURL).mockReturnValue('https://accounts.google.com/signin/v2');
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(true);
       vi.mocked(getWindowForAccount).mockReturnValue(fakeWindow as FakeWindow);
       vi.mocked(getMostRecentWindow).mockReturnValue(fakeWindow as FakeWindow);
 
       processDeepLink('gogchat://chat.google.com/room/test');
 
-      expect(fakeWindow.loadURL).not.toHaveBeenCalled();
+      expect(loadAccountURL).not.toHaveBeenCalled();
       expect(fakeWindow.show).toHaveBeenCalled();
       expect(fakeWindow.focus).toHaveBeenCalled();
     });
@@ -543,11 +554,14 @@ describe('menu action registration', () => {
     const fakeWindow = makeFakeWindow();
     vi.mocked(getWindowForAccount).mockReturnValue(fakeWindow as FakeWindow);
     vi.mocked(getMostRecentWindow).mockReturnValue(fakeWindow as FakeWindow);
+    vi.mocked(getAccountURL).mockReturnValue('https://chat.google.com/u/0/');
+    vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
+    vi.mocked(loadAccountURL).mockReturnValue(true);
 
     action.handler('gogchat://chat.google.com/room/from-menu');
 
     expect(validateDeepLinkURL).toHaveBeenCalledWith('gogchat://chat.google.com/room/from-menu');
-    expect(fakeWindow.loadURL).toHaveBeenCalled();
+    expect(loadAccountURL).toHaveBeenCalled();
   });
 });
 

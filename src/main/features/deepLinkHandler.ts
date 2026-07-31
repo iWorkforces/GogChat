@@ -10,9 +10,11 @@ import type { IAccountWindowManager } from '../../shared/types/window.js';
 import { asAccountIndex } from '../../shared/types/branded.js';
 import {
   createAccountWindow,
+  getAccountWindowManager,
   getMostRecentWindow,
   getWindowForAccount,
 } from '../utils/account/accountWindowManager.js';
+import { loadAccountURL, getAccountURL } from '../utils/account/accountNavigation.js';
 import { extractDeepLinkFromArgv } from '../utils/account/deepLinkUtils.js';
 import { addTrackedListener } from '../utils/lifecycle/resourceCleanup.js';
 import { openExternal } from '../utils/security/shellWrapper.js';
@@ -73,7 +75,11 @@ function navigateToUrl(url: string): void {
     return;
   }
 
-  if (isGoogleAuthUrl(windowRef.webContents.getURL())) {
+  const manager = getAccountWindowManager();
+  const accountIndex = manager.getAccountIndex(windowRef) ?? getAccountIndexFromUrl(url);
+
+  const currentUrl = getAccountURL(manager, accountIndex);
+  if (currentUrl !== null && isGoogleAuthUrl(currentUrl)) {
     pendingDeepLinkUrl = url;
     log.info('[DeepLink] Google auth in progress, buffering URL');
     windowRef.show();
@@ -82,7 +88,7 @@ function navigateToUrl(url: string): void {
   }
 
   log.info(`[DeepLink] Navigating to: ${sanitizeUrlForLog(url)}`);
-  void windowRef.loadURL(url);
+  loadAccountURL(manager, accountIndex, url);
 
   if (windowRef.isMinimized()) {
     windowRef.restore();
