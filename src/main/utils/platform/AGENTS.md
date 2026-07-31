@@ -11,6 +11,7 @@ This directory owns platform integration: tray, dock/taskbar badges, native noti
 - Badge image composition belongs in `badgeHelpers.ts` using `nativeImage` primitives. Dock badge sum is capped at `BADGE.DISPLAY_MAX` (99).
 - `nativeNotification.ts` owns Electron `Notification` show, tag de-dupe, auto-dismiss, subtitle/groupId options, and bridge vs unread-delta source marking.
 - `notificationFocus.ts` resolves click focus via IPC sender → `IAccountWindowManager.focusAccount` (BW + WCV).
+- Unread-delta OS banners in `badgeHelpers` suppress only when the host/window is focused **and** `manager.isAccountVisible(accountIndex)` (WCV: hidden-live secondary must still notify while another account is frontmost).
 - `accountNotificationIdentity.ts` builds account-aware title/body/tag/subtitle/groupId; identity always comes from the IPC sender (or badge account index), never from payload free text alone.
 - `accountLabelStore.ts` / `accountLabelDialog.ts` persist optional custom labels (`app.accountLabels`) for notification subtitles (Preferences → Account Labels). Store helpers are config readers/writers, not process singletons with destroyers.
 - `helpMenuBuilder.ts` consumes feature actions through `features/menuActionRegistry.ts`; it should not import feature modules directly.

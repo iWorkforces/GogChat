@@ -5,9 +5,9 @@
 | **Title** | GogChat Deep Enhancements |
 | **Author** | TBD |
 | **Date** | 2026-07-31 |
-| **Status** | Ready for implementation (rev 4 — closeout v3.18.2 + AGENTS refresh) |
-| **Version baseline** | 3.18.1 → **ship target 3.18.2** (Wave 4 closeout) |
-| **Branch context** | `deep-perf-enhancements` @ ~892dbe2 (+ recent docs/agents) |
+| **Status** | **Mostly implemented** (rev 5 — post-review gap fixes; residual measurement/smoke blocked) |
+| **Version baseline** | 3.18.1 → **shipped in tree: 3.18.2** (Wave 4 closeout product + identity) |
+| **Branch context** | `deep-perf-enhancements` (product Waves 1–4 largely landed; Wave 3 matrix/auth/signed smoke still blocked) |
 | **Repository** | https://github.com/iWorkforces/GogChat (canonical; not OCWorkforces) |
 | **Related plans** | `docs/plans/performance-remediation.md` (Todos 8–9 still measurement-blocked), `docs/plans/native-os-notifications.md`, `docs/plans/macos-intel-x64-dmg.md` |
 | **Evidence root** | `.omo/evidence/deep-enhancements/` (primary for this plan); performance matrix/candidate receipts also linked into `.omo/evidence/performance-remediation/` — see **Plan relationship** |
@@ -31,7 +31,7 @@ Your next move: execute via `/execute-plan` or a dedicated implementation sessio
 
 ---
 
-> TL;DR (machine): Large; Ready for implementation; 4 waves; WebContents-first multi-account contract; WCV three-state; all-four release gate (Q1); never dehydrate account-0 pressure (Q2→P25); unread-delta default false until Phase-2 receipt then consider true if bridge insufficient (Q3); evidence handoff Todos 8–9; closeout v3.18.2 + full AGENTS.md refresh (P27–P28); no WCV default flip; no cert pinning.
+> TL;DR (machine): Large; Mostly implemented @ v3.18.2; residual gap-fixes applied (WC-first externalLinks/deepLink, BW hydrate hooks, WCV unthrottle/fallback, mediaTypes unknown deny); Wave 3 matrix/auth/signed smoke still blocked; unread-delta default false until Phase-2; no WCV default flip; no cert pinning.
 
 ---
 
@@ -1226,7 +1226,7 @@ Ordered; independently reviewable where deps allow. **Hard** deps marked.
 - AGENTS resource-policy guardrails preserved for WCV hide/throttle/destroy **when** (honesty amendment only); account-0 pressure fix is the approved policy alignment.
 - **`package.json` version is `3.18.2`** after W4-6 / P27.
 - **All hierarchy `AGENTS.md` files refreshed** after W4-7 / P28: root shows Version 3.18.2; claims match shipped code; `bun run check:doc-claims` exits 0.
-- End of document status: **Ready for implementation**.
+- End of document status: **Mostly implemented** (rev 5). Residual: full BW/WCV matrix, auth readiness, signed notification smoke, optional unread-delta default flip after Phase-2.
 
 ---
 

@@ -48,10 +48,12 @@ vi.mock('./iconCache.js', () => ({
   getIconCache: () => ({ getIcon: mockGetIcon }),
 }));
 
+const mockIsAccountVisible = vi.fn(() => true);
+const mockGetAccountWindowManager = vi.fn(() => ({
+  isAccountVisible: (...args: unknown[]) => mockIsAccountVisible(...args),
+}));
 vi.mock('../account/accountWindowManager.js', () => ({
-  getAccountWindowManager: vi.fn(() => ({
-    isAccountVisible: vi.fn(() => true),
-  })),
+  getAccountWindowManager: (...args: unknown[]) => mockGetAccountWindowManager(...args),
 }));
 
 const mockSetTrayUnread = vi.fn();
@@ -415,6 +417,7 @@ describe('badgeHelpers (config wiring)', () => {
 
     it('skips unread-delta notification when window is focused', async () => {
       mockConfigGet.mockImplementation((key: string) => key === 'app.unreadDeltaNotifications');
+      mockIsAccountVisible.mockReturnValue(true);
       const { setupBadgeHandlers } = await import('./badgeHelpers.js');
       setupBadgeHandlers(fakeWindow({ isFocused: true }), fakeTray());
 
@@ -425,6 +428,26 @@ describe('badgeHelpers (config wiring)', () => {
       unreadCfg.handler(2, {});
 
       expect(mockShowNativeNotification).not.toHaveBeenCalled();
+    });
+
+    it('shows unread-delta when host focused but account is not visible (WCV hidden-live)', async () => {
+      mockConfigGet.mockImplementation((key: string) => key === 'app.unreadDeltaNotifications');
+      mockIsAccountVisible.mockReturnValue(false);
+      mockResolveAccount.mockReturnValue(1);
+      const { setupBadgeHandlers } = await import('./badgeHelpers.js');
+      setupBadgeHandlers(fakeWindow({ isFocused: true }), fakeTray());
+
+      const unreadCfg = mockRegisterFastHandler.mock.calls.find(
+        ([cfg]) => (cfg as { channel: string }).channel === 'unreadCount'
+      )?.[0] as { handler: (v: number, e?: unknown) => void };
+      const event = { sender: { id: 11 } };
+      unreadCfg.handler(1, event);
+      unreadCfg.handler(3, event);
+
+      expect(mockIsAccountVisible).toHaveBeenCalledWith(1);
+      expect(mockShowNativeNotification).toHaveBeenCalled();
+      mockResolveAccount.mockReturnValue(0);
+      mockIsAccountVisible.mockReturnValue(true);
     });
 
     it('skips unread-delta when bridge cooldown is active', async () => {
