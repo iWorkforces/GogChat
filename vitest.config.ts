@@ -35,7 +35,6 @@ export default defineConfig({
         'src/main/features/appMenu.ts',
         'src/main/features/badgeIcon.ts',
         'src/main/features/externalLinks.ts',
-        'src/main/features/certificatePinning.ts',
         'src/main/features/inOnline.ts',
         'src/main/features/handleNotification.ts',
         'src/main/features/windowState.ts',
