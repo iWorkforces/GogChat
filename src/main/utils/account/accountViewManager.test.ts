@@ -645,14 +645,22 @@ describe('AccountViewManager — registerWindow', () => {
 // ---------------------------------------------------------------------------
 
 describe('AccountViewManager — bootstrap delegates', () => {
-  it('markAsBootstrap delegates to bootstrapTracker', () => {
+  it('markAsBootstrap ignores unknown account indices (parity with BW)', () => {
     const m = new AccountViewManager();
+    m.markAsBootstrap(asAccountIndex(2));
+    expect(trackerMark).not.toHaveBeenCalled();
+  });
+
+  it('markAsBootstrap delegates to bootstrapTracker for registered accounts', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://2/', asAccountIndex(2));
     m.markAsBootstrap(asAccountIndex(2));
     expect(trackerMark).toHaveBeenCalledWith(2);
   });
 
   it('isBootstrap reads through the tracker', () => {
     const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
     m.markAsBootstrap(asAccountIndex(0));
     expect(m.isBootstrap(asAccountIndex(0))).toBe(true);
     expect(trackerIsBootstrap).toHaveBeenCalledWith(0);
@@ -660,6 +668,7 @@ describe('AccountViewManager — bootstrap delegates', () => {
 
   it('promoteBootstrap delegates and returns underlying boolean', () => {
     const m = new AccountViewManager();
+    m.createAccountWindow('https://1/', asAccountIndex(1));
     m.markAsBootstrap(asAccountIndex(1));
     expect(m.promoteBootstrap(asAccountIndex(1))).toBe(true);
     expect(m.promoteBootstrap(asAccountIndex(1))).toBe(false);
@@ -668,6 +677,7 @@ describe('AccountViewManager — bootstrap delegates', () => {
 
   it('clearBootstrap delegates to tracker', () => {
     const m = new AccountViewManager();
+    m.createAccountWindow('https://1/', asAccountIndex(1));
     m.markAsBootstrap(asAccountIndex(1));
     m.clearBootstrap(asAccountIndex(1));
     expect(trackerClear).toHaveBeenCalledWith(1);
@@ -676,6 +686,8 @@ describe('AccountViewManager — bootstrap delegates', () => {
 
   it('getBootstrapAccounts delegates to tracker', () => {
     const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://2/', asAccountIndex(2));
     m.markAsBootstrap(asAccountIndex(0));
     m.markAsBootstrap(asAccountIndex(2));
     const result = m.getBootstrapAccounts();
@@ -833,6 +845,41 @@ describe('AccountViewManager — hydrateAccount', () => {
     expect(result).toBe(lastWindow());
     expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
     expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+  });
+
+  it('focusAccount unthrottles a parked secondary account (visible ⇒ unthrottled)', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    const v1 = viewOf(m, 1);
+    m.dehydrateAccount(asAccountIndex(1));
+    v1.webContents.setBackgroundThrottling.mockClear();
+    m.focusAccount(asAccountIndex(1));
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+    expect(v1.webContents.setBackgroundThrottling).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('AccountViewManager — dehydrate visible fallback', () => {
+  it('promotes account-0 when parking the frontmost non-zero account', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+    m.dehydrateAccount(asAccountIndex(1));
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(true);
+    expect(m.isAccountVisible(asAccountIndex(0))).toBe(true);
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(false);
+  });
+
+  it('listAccountIndices includes parked accounts', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    m.dehydrateAccount(asAccountIndex(1));
+    expect(m.listAccountIndices()).toEqual([asAccountIndex(0), asAccountIndex(1)]);
+    expect(m.hasAccount(asAccountIndex(1))).toBe(true);
   });
 });
 

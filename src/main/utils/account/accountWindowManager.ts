@@ -351,7 +351,8 @@ export class AccountWindowManager implements IAccountWindowManager {
   }
 
   hasAccount(accountIndex: AccountIndex): boolean {
-    return this.registry.hasAccount(accountIndex);
+    // Dehydrated-parked accounts remain known (matches listAccountIndices / WCV).
+    return this.registry.hasAccount(accountIndex) || this.dehydratedAccounts.has(accountIndex);
   }
 
   /**
@@ -383,6 +384,10 @@ export class AccountWindowManager implements IAccountWindowManager {
   destroyAll(): void {
     stopSessionMaintenance();
     this.maintenanceStarted = false;
+    // Dispose multi-account WC hooks before tearing down windows (KD13 symmetry).
+    for (const accountIndex of this.listAccountIndices()) {
+      notifyAccountWebContentsDestroyed(accountIndex);
+    }
     for (const accountIndex of this.dehydrateTimers.keys()) {
       this.cancelDehydrate(accountIndex);
     }
@@ -503,6 +508,9 @@ export class AccountWindowManager implements IAccountWindowManager {
     // Detach our listeners first so the closed handler does not race with the
     // explicit cleanup we are about to perform.
     this.detachActivityListeners(window);
+    // Tear down per-account feature handlers (externalLinks, etc.) before destroy;
+    // hydrate will re-notify create for the new WebContents.
+    notifyAccountWebContentsDestroyed(accountIndex);
     log.info(`[AccountWindowManager] Dehydrating account ${accountIndex} (url=${snapshot.url})`);
     window.destroy();
     // The registry's `closed` listener unregisters the window automatically;
@@ -545,6 +553,13 @@ export class AccountWindowManager implements IAccountWindowManager {
     // Navigation is owned solely by the factory (windowWrapper calls loadURL
     // on create). A second loadURL here would double-navigate restored accounts.
     // Snapshot URL is factory input only — do not re-dispatch navigation.
+    if (window.webContents && !window.webContents.isDestroyed()) {
+      notifyAccountWebContentsCreated({
+        accountIndex,
+        webContents: window.webContents,
+        backend: 'browser-window',
+      });
+    }
     log.info(
       `[AccountWindowManager] Hydrated account ${accountIndex} (partition=${partition}, url=${snapshot.url})`
     );

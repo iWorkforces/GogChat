@@ -38,7 +38,7 @@ import type {
   IAccountWindowManager,
 } from '../../../shared/types/window.js';
 import type { AccountIndex, WebContentsId } from '../../../shared/types/branded.js';
-import { asWebContentsId, toPartition } from '../../../shared/types/branded.js';
+import { asAccountIndex, asWebContentsId, toPartition } from '../../../shared/types/branded.js';
 import { isGoogleAuthUrl } from '../../../shared/urlValidators.js';
 import {
   markAsBootstrap as _markAsBootstrap,
@@ -365,6 +365,13 @@ export class AccountViewManager implements IAccountWindowManager {
       }
       entry.resourceState = 'hidden-live';
     }
+    // Visible ⇒ unthrottled (plan KD2). Accounts 1+ start throttled; focus/hydrate
+    // must clear throttling — not only hydrateAccount.
+    try {
+      target.view.webContents.setBackgroundThrottling(false);
+    } catch {
+      // webContents may be destroyed mid-switch
+    }
     this.mostRecentAccountIndex = accountIndex;
     getAccountActivityTracker().recordActivity(accountIndex);
     this.layoutVisibleView();
@@ -550,6 +557,12 @@ export class AccountViewManager implements IAccountWindowManager {
   // ─── Bootstrap delegates ──────────────────────────────────────────────────
 
   markAsBootstrap(accountIndex: AccountIndex): void {
+    if (!this.views.has(accountIndex)) {
+      log.warn(
+        `[AccountViewManager] markAsBootstrap: account ${accountIndex} not registered — ignored`
+      );
+      return;
+    }
     _markAsBootstrap(accountIndex);
   }
 
@@ -596,31 +609,59 @@ export class AccountViewManager implements IAccountWindowManager {
     if (accountIndex === 0) return; // never dehydrate primary account
     if (entry.resourceState === 'dehydrated-parked') return;
 
+    const wasVisible = entry.resourceState === 'visible';
     entry.resourceState = 'dehydrated-parked';
     try {
       entry.view.webContents.setBackgroundThrottling(true);
     } catch {
       // ignore — webContents may be mid-destruction
     }
+
+    // Never leave the host with zero visible accounts when parking the frontmost.
+    if (wasVisible) {
+      const fallback = this.pickVisibleFallback(accountIndex);
+      if (fallback !== null) {
+        this.switchToAccount(fallback);
+        log.info(
+          `[AccountViewManager] Dehydrated (parked) account ${accountIndex}; promoted ${fallback}`
+        );
+        return;
+      }
+    }
+
     this.layoutVisibleView();
     log.info(`[AccountViewManager] Dehydrated (parked) account ${accountIndex}`);
   }
 
   /**
+   * Prefer account-0, else the lowest live non-parked index, excluding `exclude`.
+   */
+  private pickVisibleFallback(exclude: AccountIndex): AccountIndex | null {
+    const zero = this.views.get(asAccountIndex(0));
+    if (exclude !== 0 && zero && zero.resourceState !== 'dehydrated-parked') {
+      return asAccountIndex(0);
+    }
+    const candidates = Array.from(this.views.keys()).sort((a, b) => Number(a) - Number(b));
+    for (const idx of candidates) {
+      if (idx === exclude) continue;
+      const e = this.views.get(idx);
+      if (e && e.resourceState !== 'dehydrated-parked') {
+        return idx;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Bring a parked (or non-front) account to the front via switchToAccount.
    * For unknown accounts, returns null — matching the BrowserWindow manager.
+   * Unthrottle is owned by {@link switchToAccount} (visible ⇒ unthrottled).
    */
   hydrateAccount(accountIndex: AccountIndex): BrowserWindow | null {
     const entry = this.views.get(accountIndex);
     if (!entry) return null;
     if (entry.resourceState !== 'visible') {
       this.switchToAccount(accountIndex);
-      try {
-        // Unthrottle when returning to the front (account-0 always unthrottled).
-        entry.view.webContents.setBackgroundThrottling(false);
-      } catch {
-        // ignore
-      }
       log.info(`[AccountViewManager] Hydrated (shown) account ${accountIndex}`);
     }
     return this.hostWindow;

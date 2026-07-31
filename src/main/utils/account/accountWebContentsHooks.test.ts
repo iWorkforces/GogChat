@@ -53,4 +53,34 @@ describe('accountWebContentsHooks', () => {
       expect.objectContaining({ accountIndex: 0, backend: 'web-contents-view' })
     );
   });
+
+  it('replaces previous disposer when re-creating the same account index', () => {
+    const d1 = vi.fn();
+    const d2 = vi.fn();
+    let n = 0;
+    onAccountWebContentsCreated(() => {
+      n += 1;
+      return n === 1 ? d1 : d2;
+    });
+
+    const wc = { id: 3, isDestroyed: () => false } as unknown as Electron.WebContents;
+    notifyAccountWebContentsCreated({
+      accountIndex: asAccountIndex(2),
+      webContents: wc,
+      backend: 'browser-window',
+    });
+    notifyAccountWebContentsCreated({
+      accountIndex: asAccountIndex(2),
+      webContents: wc,
+      backend: 'browser-window',
+    });
+    expect(d1).toHaveBeenCalledTimes(1);
+    expect(d2).not.toHaveBeenCalled();
+    notifyAccountWebContentsDestroyed(asAccountIndex(2));
+    expect(d2).toHaveBeenCalledTimes(1);
+  });
+
+  it('destroy for unknown index is a no-op', () => {
+    expect(() => notifyAccountWebContentsDestroyed(asAccountIndex(99))).not.toThrow();
+  });
 });

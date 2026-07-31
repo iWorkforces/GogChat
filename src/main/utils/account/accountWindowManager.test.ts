@@ -672,6 +672,9 @@ describe('AccountWindowManager — dehydrate / hydrate', () => {
     // After dehydration, getAccountWindow returns null even though registry
     // technically saw a closed event.
     expect(m.getAccountWindow(asAccountIndex(1))).toBeNull();
+    // Dehydrated-parked remains a known account (dual-backend contract).
+    expect(m.hasAccount(asAccountIndex(1))).toBe(true);
+    expect(m.listAccountIndices()).toContain(asAccountIndex(1));
   });
 
   it('dehydrateAccount is a no-op for a bootstrap account', () => {
@@ -759,6 +762,28 @@ describe('AccountWindowManager — dehydrate / hydrate', () => {
     // Factory owns the sole loadURL; manager must not re-dispatch navigation.
     expect(w2Mock.loadURL).toHaveBeenCalledTimes(1);
     expect(w2Mock.loadURL).toHaveBeenCalledWith('https://hello/');
+  });
+
+  it('dehydrate then hydrate re-fires WebContents hooks for externalLinks reinstall', async () => {
+    const hooks = await import('./accountWebContentsHooks.js');
+    hooks.clearAccountWebContentsHooksForTests();
+    const disposer = vi.fn();
+    const listener = vi.fn(() => disposer);
+    hooks.onAccountWebContentsCreated(listener);
+
+    const factory = makeFactory();
+    const m = new AccountWindowManager(factory);
+    m.createAccountWindow('https://hello/', asAccountIndex(1));
+    expect(listener).toHaveBeenCalled();
+    const createsAfterCreate = listener.mock.calls.length;
+
+    m.dehydrateAccount(asAccountIndex(1));
+    expect(disposer).toHaveBeenCalled();
+
+    m.hydrateAccount(asAccountIndex(1));
+    expect(listener.mock.calls.length).toBeGreaterThan(createsAfterCreate);
+
+    hooks.clearAccountWebContentsHooksForTests();
   });
 
   it('hydrateAccount dispatches exactly one loadURL via the factory (no manager re-nav)', () => {
