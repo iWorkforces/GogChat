@@ -1,9 +1,9 @@
 # GogChat Agent Guide
 
 **Generated:** 2026-08-01
-**Commit:** 077b3ee
+**Commit:** 4b23c71
 **Branch:** deep-perf-enhancements
-**Version:** 3.18.2
+**Version:** 3.18.3
 **Repository:** https://github.com/iWorkforces/GogChat
 
 ## Project shape
@@ -128,7 +128,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | Perf plan                      | `docs/plans/performance-remediation.md`                                         | Phased remediation work plan and guardrails.                                  |
 | macOS Intel x64 plan           | `docs/plans/macos-intel-x64-dmg.md`                                             | Dual-arch DMG production plan and acceptance criteria.                        |
 | Native notifications plan      | `docs/plans/native-os-notifications.md`                                         | Permission, bridge, multi-account banners, unread-delta fallback.             |
-| Deep enhancements plan         | `docs/plans/deep-enhancements.md`                                               | Dual-backend contract, truth/safety, measure handoff, v3.18.2 closeout.       |
+| Deep enhancements plan         | `docs/plans/deep-enhancements.md`                                               | Dual-backend contract, truth/safety, measure handoff (closeout @ 3.18.2+).    |
 | Tests                          | `tests/AGENTS.md`                                                               | Unit/integration/e2e/perf/packaging contract guidance.                        |
 | Packaging                      | `mac/AGENTS.md` + `scripts/AGENTS.md`                                           | DMG, signing, notarization, dual-arch, perf gates.                            |
 | Icons / resources              | `resources/AGENTS.md`                                                           | Icon variants, generation, extraResources.                                    |
@@ -279,4 +279,4 @@ Nested guides supplement this root and are intentionally more specific:
 - `mac/AGENTS.md`
 - `resources/AGENTS.md`
 
-Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans under `docs/plans/`: performance remediation, macOS Intel x64 DMG, native OS notifications, and **deep enhancements** (`deep-enhancements.md` — mostly implemented @ v3.18.2; Wave 3 matrix/auth/signed smoke still residual).
+Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans under `docs/plans/`: performance remediation, macOS Intel x64 DMG, native OS notifications, and **deep enhancements** (`deep-enhancements.md` — mostly implemented; Wave 3 matrix/auth/signed smoke still residual).
