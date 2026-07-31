@@ -8,7 +8,7 @@ This directory defines contracts crossing main, preload, tests, and shared valid
 
 - `branded.ts` - allowed branded casts and helpers such as `asValidatedURL`, `asAccountIndex`, `toPartition`, and `asWebContentsId`.
 - `bridge.ts` - preload-exposed API surface.
-- `config.ts` - shared config shape (includes `notificationPermissionRequested`, `unreadDeltaNotifications`, `accountLabels`).
+- `config.ts` - shared config shape (includes `notificationPermissionRequested`, `unreadDeltaNotifications`, `accountLabels`, `useWebContentsView`).
 - `domain.ts` - app domain payload types.
 - `errors.ts` - typed error codes and app error shapes.
 - `ipc.ts` - IPC payload/response maps.
@@ -16,9 +16,10 @@ This directory defines contracts crossing main, preload, tests, and shared valid
 
 ## Account window contract notes
 
-- Both backends implement `IAccountWindowManager`, including `enumerateAccountWebContents()`.
+- Both backends implement `IAccountWindowManager`, including `enumerateAccountWebContents()`, `listAccountIndices()`, `hasAccount()` (live **and** dehydrated-parked), `isAccountVisible()`, and `focusAccount()`.
 - `AccountWebContentsInfo` carries `accountIndex`, `webContentsId`, `osProcessId`, `backend`, and live `webContents`.
 - Performance sampling and multi-account diagnostics depend on this enumeration; do not drop it from the interface.
+- Prefer `src/main/utils/account/accountNavigation.ts` free helpers for load/getURL/send instead of growing the interface with loadURL methods.
 - Backend policy (BrowserWindow default vs WebContentsView opt-in) is not a type-level decision; keep types backend-neutral.
 
 ## Rules

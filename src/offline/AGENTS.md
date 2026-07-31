@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-`src/offline` is a static fallback page for network loss. It is not a normal renderer app.
+`src/offline` is a static fallback page for network loss. It is not a normal renderer app. Account backend choice does not affect this page.
 
 ## Constraints
 

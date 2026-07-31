@@ -54,6 +54,9 @@ const SINGLETON_DESTROYER_EXEMPT = new Set([
   'accountWindowManager.ts:getAccountIndex', // delegates to manager singleton
   'accountWindowManager.ts:getAccountForWebContents', // delegates to manager singleton
   //
+  // ── Pure free helpers (no module-level singleton state) ────────────────────
+  'accountNavigation.ts:getAccountURL', // pure WC helper; no process singleton
+  //
   // ── Diagnostic/accessor functions (state cleared by sibling APIs) ────────
   'bootstrapTracker.ts:getBootstrapAccounts', // accessor; state cleared by clearAllBootstrap()
   'featureContextStore.ts:getSharedFeatureContext', // paired with setSharedFeatureContext({})

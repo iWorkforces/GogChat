@@ -645,14 +645,22 @@ describe('AccountViewManager — registerWindow', () => {
 // ---------------------------------------------------------------------------
 
 describe('AccountViewManager — bootstrap delegates', () => {
-  it('markAsBootstrap delegates to bootstrapTracker', () => {
+  it('markAsBootstrap ignores unknown account indices (parity with BW)', () => {
     const m = new AccountViewManager();
+    m.markAsBootstrap(asAccountIndex(2));
+    expect(trackerMark).not.toHaveBeenCalled();
+  });
+
+  it('markAsBootstrap delegates to bootstrapTracker for registered accounts', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://2/', asAccountIndex(2));
     m.markAsBootstrap(asAccountIndex(2));
     expect(trackerMark).toHaveBeenCalledWith(2);
   });
 
   it('isBootstrap reads through the tracker', () => {
     const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
     m.markAsBootstrap(asAccountIndex(0));
     expect(m.isBootstrap(asAccountIndex(0))).toBe(true);
     expect(trackerIsBootstrap).toHaveBeenCalledWith(0);
@@ -660,6 +668,7 @@ describe('AccountViewManager — bootstrap delegates', () => {
 
   it('promoteBootstrap delegates and returns underlying boolean', () => {
     const m = new AccountViewManager();
+    m.createAccountWindow('https://1/', asAccountIndex(1));
     m.markAsBootstrap(asAccountIndex(1));
     expect(m.promoteBootstrap(asAccountIndex(1))).toBe(true);
     expect(m.promoteBootstrap(asAccountIndex(1))).toBe(false);
@@ -668,6 +677,7 @@ describe('AccountViewManager — bootstrap delegates', () => {
 
   it('clearBootstrap delegates to tracker', () => {
     const m = new AccountViewManager();
+    m.createAccountWindow('https://1/', asAccountIndex(1));
     m.markAsBootstrap(asAccountIndex(1));
     m.clearBootstrap(asAccountIndex(1));
     expect(trackerClear).toHaveBeenCalledWith(1);
@@ -676,6 +686,8 @@ describe('AccountViewManager — bootstrap delegates', () => {
 
   it('getBootstrapAccounts delegates to tracker', () => {
     const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://2/', asAccountIndex(2));
     m.markAsBootstrap(asAccountIndex(0));
     m.markAsBootstrap(asAccountIndex(2));
     const result = m.getBootstrapAccounts();
@@ -784,7 +796,7 @@ describe('AccountViewManager — dehydrateAccount', () => {
     expect(m.isDehydrated(asAccountIndex(42))).toBe(false);
   });
 
-  it('is a no-op when the view is already hidden', () => {
+  it('is a no-op when already dehydrated-parked', () => {
     const m = new AccountViewManager();
     m.createAccountWindow('https://0/', asAccountIndex(0));
     m.createAccountWindow('https://1/', asAccountIndex(1));
@@ -793,6 +805,21 @@ describe('AccountViewManager — dehydrateAccount', () => {
     v1.webContents.setBackgroundThrottling.mockClear();
     m.dehydrateAccount(asAccountIndex(1));
     expect(v1.webContents.setBackgroundThrottling).not.toHaveBeenCalled();
+  });
+
+  it('can park a switched-away (hidden-live) account', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    // 1 is front; 0 is hidden-live — not dehydrated
+    expect(m.isDehydrated(asAccountIndex(0))).toBe(false);
+    expect(m.isAccountVisible(asAccountIndex(0))).toBe(false);
+    m.focusAccount(asAccountIndex(0));
+    // 1 is now hidden-live
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+    m.dehydrateAccount(asAccountIndex(1));
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(true);
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(false);
   });
 });
 
@@ -808,7 +835,7 @@ describe('AccountViewManager — hydrateAccount', () => {
     expect(m.hydrateAccount(asAccountIndex(0))).toBe(lastWindow());
   });
 
-  it('shows a previously-hidden view and returns the host window', () => {
+  it('shows a previously-parked view and returns the host window', () => {
     const m = new AccountViewManager();
     m.createAccountWindow('https://0/', asAccountIndex(0));
     m.createAccountWindow('https://1/', asAccountIndex(1));
@@ -817,22 +844,85 @@ describe('AccountViewManager — hydrateAccount', () => {
     const result = m.hydrateAccount(asAccountIndex(1));
     expect(result).toBe(lastWindow());
     expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+  });
+
+  it('focusAccount unthrottles a parked secondary account (visible ⇒ unthrottled)', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    const v1 = viewOf(m, 1);
+    m.dehydrateAccount(asAccountIndex(1));
+    v1.webContents.setBackgroundThrottling.mockClear();
+    m.focusAccount(asAccountIndex(1));
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+    expect(v1.webContents.setBackgroundThrottling).toHaveBeenCalledWith(false);
   });
 });
 
-describe('AccountViewManager — isDehydrated', () => {
+describe('AccountViewManager — dehydrate visible fallback', () => {
+  it('promotes account-0 when parking the frontmost non-zero account', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+    m.dehydrateAccount(asAccountIndex(1));
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(true);
+    expect(m.isAccountVisible(asAccountIndex(0))).toBe(true);
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(false);
+  });
+
+  it('listAccountIndices includes parked accounts', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    m.dehydrateAccount(asAccountIndex(1));
+    expect(m.listAccountIndices()).toEqual([asAccountIndex(0), asAccountIndex(1)]);
+    expect(m.hasAccount(asAccountIndex(1))).toBe(true);
+  });
+});
+
+describe('AccountViewManager — isDehydrated / three-state', () => {
   it('returns false for an unknown account', () => {
     const m = new AccountViewManager();
     expect(m.isDehydrated(asAccountIndex(99))).toBe(false);
   });
 
-  it('returns false when the view is visible, true when hidden', () => {
+  it('does not treat switch-away as dehydrated', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    // 1 frontmost; 0 hidden-live
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+    expect(m.isAccountVisible(asAccountIndex(0))).toBe(false);
+    expect(m.isDehydrated(asAccountIndex(0))).toBe(false);
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+
+    m.focusAccount(asAccountIndex(0));
+    expect(m.isAccountVisible(asAccountIndex(0))).toBe(true);
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+  });
+
+  it('isDehydrated only after explicit dehydrateAccount park', () => {
     const m = new AccountViewManager();
     m.createAccountWindow('https://0/', asAccountIndex(0));
     m.createAccountWindow('https://1/', asAccountIndex(1));
     expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
     m.dehydrateAccount(asAccountIndex(1));
     expect(m.isDehydrated(asAccountIndex(1))).toBe(true);
+  });
+
+  it('keeps other parked accounts parked when switching among live accounts', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    m.createAccountWindow('https://2/', asAccountIndex(2));
+    m.dehydrateAccount(asAccountIndex(1));
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(true);
+    m.focusAccount(asAccountIndex(0));
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(true);
+    expect(m.isAccountVisible(asAccountIndex(0))).toBe(true);
   });
 });
 

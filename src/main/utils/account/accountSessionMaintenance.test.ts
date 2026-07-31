@@ -545,7 +545,7 @@ describe('startSessionMaintenance — memory pressure handler', () => {
     expect(appListeners.get('memory-pressure')?.size).toBe(1);
   });
 
-  it('dehydrates idle accounts (>= 30s) on memory pressure', () => {
+  it('dehydrates idle non-zero accounts (>= 30s) on memory pressure', () => {
     const tracker = new AccountActivityTracker();
     const dehydrateAccount = vi.fn();
     const manager = makeManager({ dehydrateAccount });
@@ -557,8 +557,9 @@ describe('startSessionMaintenance — memory pressure handler', () => {
     vi.advanceTimersByTime(30 * 1000);
     firePressure();
 
-    expect(dehydrateAccount).toHaveBeenCalledTimes(2);
-    expect(dehydrateAccount).toHaveBeenCalledWith(0);
+    // Account-0 is never dehydrated under pressure (badge/notification reliability).
+    expect(dehydrateAccount).toHaveBeenCalledTimes(1);
+    expect(dehydrateAccount).not.toHaveBeenCalledWith(0);
     expect(dehydrateAccount).toHaveBeenCalledWith(1);
   });
 
@@ -582,13 +583,16 @@ describe('startSessionMaintenance — memory pressure handler', () => {
     const manager = makeManager({ dehydrateAccount, isBootstrap });
     tracker.recordActivity(0);
     tracker.recordActivity(1);
+    tracker.recordActivity(2);
     startSessionMaintenance(tracker, manager);
 
     vi.advanceTimersByTime(30 * 1000);
     firePressure();
 
+    // 0 skipped (primary), 1 skipped (bootstrap), 2 dehydrated
     expect(dehydrateAccount).toHaveBeenCalledTimes(1);
-    expect(dehydrateAccount).toHaveBeenCalledWith(0);
+    expect(dehydrateAccount).toHaveBeenCalledWith(2);
+    expect(dehydrateAccount).not.toHaveBeenCalledWith(0);
     expect(dehydrateAccount).not.toHaveBeenCalledWith(1);
   });
 
@@ -599,13 +603,15 @@ describe('startSessionMaintenance — memory pressure handler', () => {
     const manager = makeManager({ dehydrateAccount, isDehydrated });
     tracker.recordActivity(0);
     tracker.recordActivity(1);
+    tracker.recordActivity(2);
     startSessionMaintenance(tracker, manager);
 
     vi.advanceTimersByTime(30 * 1000);
     firePressure();
 
     expect(dehydrateAccount).toHaveBeenCalledTimes(1);
-    expect(dehydrateAccount).toHaveBeenCalledWith(0);
+    expect(dehydrateAccount).toHaveBeenCalledWith(2);
+    expect(dehydrateAccount).not.toHaveBeenCalledWith(0);
     expect(dehydrateAccount).not.toHaveBeenCalledWith(1);
   });
 

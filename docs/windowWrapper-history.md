@@ -14,12 +14,25 @@ windowWrapper.ts is the BrowserWindow factory for GogChat. Its history reveals 4
 3. **Multi-account session isolation** (1 commit) — Added per-account partition support
 4. **Progressive extraction** (2 commits) — Event logging and health monitoring extracted to focused modules
 
+## Current code (authoritative)
+
+**As of the product tree today** (`src/main/windowWrapper.ts`):
+
+| Preference | Value |
+| --- | --- |
+| `webSecurity` | **`true`** |
+| `contextIsolation` | `true` |
+| `sandbox` | `true` |
+| `nodeIntegration` | `false` |
+
+Do **not** treat the historical `webSecurity: false` narrative below as the current product setting. If you change `webSecurity`, re-test Google Meet, Huddles, and embedded media on a signed build.
+
 ## Critical Findings for Future Refactoring
 
-### ⚠️ webSecurity: false Is Intentional and Required
+### ⚠️ webSecurity has flipped both ways historically — current is true
 - **Commit `49501cc`**: Set `webSecurity: false` for "Google Chat compatibility"
-- **Commit `60bdff9`**: Changed to `webSecurity: true` as "security fix"
-- **Both directions were intentional**. The current value (`false`) exists because Google Chat's cross-origin resource loading fails with `webSecurity: true`. **Do NOT flip this flag without testing Google Meet, Huddles, and embedded media.**
+- **Commit `60bdff9`**: Set `webSecurity: true` as a security fix
+- **Current product value is `webSecurity: true`** in `windowWrapper.ts` (and WCV child views). Older notes that said “current is false” are stale. **Do NOT flip this flag without testing Google Meet, Huddles, and embedded media.**
 
 ### ⚠️ Custom CSP Was Removed Because It Broke Google Chat
 - **Commit `ad0c937`**: Added auth page CSP bypass (accounts.google.com)
@@ -61,7 +74,7 @@ windowWrapper.ts is the BrowserWindow factory for GogChat. Its history reveals 4
 | 21 | `ad9e93a` | 2026-03-19 | **security** | Frame-ancestors CSP stripping for benign hosts + process warning suppression | accounts.google.com frame-ancestors blocks embedding in chat.google.com. Strips frame-ancestors from CSP + X-Frame-Options + Node.js process warnings. |
 | 22 | `0effa94` | 2026-03-20 | **fix** | Update message handling | Fix update new messages issue |
 | 23 | `ce4b494` | 2026-03-20 | **multi-account** | Added `partition` parameter to function signature | Multi-account session isolation via per-account `persist:account-N` session partitions |
-| 24 | `60bdff9` | 2026-03-20 | **security** | `webSecurity: true` | Attempted to enable webSecurity for security hardening (later reverted by context) |
+| 24 | `60bdff9` | 2026-03-20 | **security** | `webSecurity: true` | Enabled webSecurity for security hardening (current product still uses `true`) |
 | 25 | `e1f7c01` | 2026-04-01 | test | Test additions | Added 190 unit tests (file touched for imports/types) |
 | 26 | `4274f54` | 2026-04-01 | cleanup | Feature wiring cleanup | Reduce log noise, clarify feature wiring |
 | 27 | `699795c` | 2026-04-01 | feature | Async processing | Async processing improvements |
@@ -83,7 +96,7 @@ windowWrapper.ts is the BrowserWindow factory for GogChat. Its history reveals 4
 Based on this investigation, the following test cases should be written before any refactoring:
 
 ### Security Tests
-1. **webSecurity is false** — Assert `webPreferences.webSecurity === false` in created window config
+1. **webSecurity is true** — Assert `webPreferences.webSecurity === true` in created window config (matches product)
 2. **COEP/COOP headers are stripped for Google domains** — Mock `onHeadersReceived`, verify headers removed for `*.google.com`, `*.gstatic.com`, etc.
 3. **COEP/COOP headers are NOT stripped for non-Google domains** — Verify headers preserved for `evil.com`
 4. **frame-ancestors stripped from CSP for benign hosts** — Verify `accounts.google.com` CSP frame-ancestors removed

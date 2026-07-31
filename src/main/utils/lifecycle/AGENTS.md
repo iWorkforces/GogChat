@@ -25,14 +25,15 @@ This directory owns runtime lifecycle mechanics: feature execution, shared featu
 - Memory is always **MB**; time is always **ms**. Embed `units` on every export.
 - `PERF_EXPORT_SCHEMA_VERSION` must stay in lockstep with `scripts/headless-startup.js` and `scripts/check-perf-budget.js`. Packaging arch (arm64 vs x64) does not change the schema.
 - Required unauthenticated markers include `app-start`, `app-ready`, `account-0-ready`, `account-0-content-loaded`, `features-loaded`, `all-features-loaded`.
-- `account-0-ready` is native window readiness only. `account-0-content-loaded` is document load (`did-finish-load`). Neither is first paint nor first interaction.
+- `account-0-ready` is native window readiness only. `account-0-content-loaded` is account-0 **document** load (`did-finish-load` on `getAccountWebContents(0)`, not WCV host-only). Neither is first paint nor first interaction.
 
 ### Final export ownership
 
 - Development/CI export is owned by `performanceFinalizer.ts`, armed from `registerAppReady.ts`.
 - Export runs exactly once when deferred phase has signaled complete **and** account-0 document load has completed (or failed/timed out), after an immediate `sampleAllRenderers`.
+- Production path: account-0 WC `did-finish-load` → `notifyDocumentLoadComplete()`. Hard `did-fail-load` is logged in `registerAppReady` and is **not** treated as terminal (auth redirects). `notifyDocumentLoadFailed(reason)` remains available for tests/explicit callers and still forces an invalid export when used.
+- Capture timeout or missing required markers produces `capture.complete=false` / `valid=false`, not a silent incomplete median.
 - `cacheWarmer.runDevPostDeferred()` may profile config; it must **not** write metrics JSON.
-- Load failure or capture timeout produces `capture.complete=false` / `valid=false`, not a silent incomplete median.
 - Use `getPerformanceMonitor()` inside the finalizer (not a stale module-level singleton after destroy).
 
 ### Renderer sampling

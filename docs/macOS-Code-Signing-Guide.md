@@ -37,7 +37,9 @@
 | **CSC_KEY_PASSWORD**                     | Password for .p12 file           | You create this               |
 | **APPLE_ID**                             | Your Apple ID email              | Your Apple account            |
 | **APPLE_TEAM_ID**                        | 10-character team identifier     | Developer Portal → Membership |
-| **APPLE_APP_SPECIFIC_PASSWORD**          | App-specific password            | appleid.apple.com             |
+| **APPLE_APP_PASSWORD**                   | App-specific password            | appleid.apple.com             |
+
+> **Env name:** `scripts/notarize.cjs` and release signing helpers read **`APPLE_APP_PASSWORD` only**. Do not use `APPLE_APP_SPECIFIC_PASSWORD` — that name is obsolete in this repo and will cause notarization to be skipped.
 
 ### How the Build Pipeline Works
 
@@ -57,7 +59,7 @@
 │     - entitlements.mac.plist applied                                    │
 │                      ↓                                                  │
 │  4. afterSign hook: scripts/notarize.cjs                                │
-│     - Uploads to Apple using APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD     │
+│     - Uploads to Apple using APPLE_ID + APPLE_APP_PASSWORD     │
 │     - Waits for Apple's malware scan                                    │
 │     - Staples the notarization ticket                                   │
 │                      ↓                                                  │
@@ -118,7 +120,7 @@ After enrollment is approved:
 
 3. Fill in the form:
    - **User Email Address:** Your Apple ID email
-   - **Common Name:** Something descriptive like `OCWorkforces Developer ID`
+   - **Common Name:** Something descriptive like `iWorkforces Developer ID`
    - **CA Email Address:** Leave empty
    - **Request is:** Select **"Saved to disk"**
 
@@ -220,7 +222,7 @@ Apple requires an app-specific password (not your Apple ID password) for notariz
 
 7. **Copy the generated password immediately** — it looks like `xxxx-xxxx-xxxx-xxxx`
 
-8. **Save this value** — you'll need it for `APPLE_APP_SPECIFIC_PASSWORD`
+8. **Save this value** — you'll need it for `APPLE_APP_PASSWORD`
 
 ⚠️ **Note:** You can only view this password once. If you lose it, you'll need to generate a new one.
 
@@ -238,7 +240,7 @@ export CSC_LINK="/path/to/developer-id-application.p12"
 export CSC_KEY_PASSWORD="your-p12-password"
 export APPLE_ID="your-apple-id@email.com"
 export APPLE_TEAM_ID="ABC12DEF34"
-export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+export APPLE_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"
 ```
 
 Or create a `.env` file (add to .gitignore!):
@@ -249,7 +251,7 @@ CSC_LINK=/path/to/developer-id-application.p12
 CSC_KEY_PASSWORD=your-p12-password
 APPLE_ID=your-apple-id@email.com
 APPLE_TEAM_ID=ABC12DEF34
-APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx
+APPLE_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ```
 
 ### Step 6.2: GitHub Actions Configuration
@@ -266,7 +268,7 @@ Add the following secrets to your GitHub repository:
    | `CSC_KEY_PASSWORD`            | Password you set for the .p12 file                               |
    | `APPLE_ID`                    | Your Apple ID email address                                      |
    | `APPLE_TEAM_ID`               | 10-character Team ID from developer portal                       |
-   | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password from appleid.apple.com                     |
+   | `APPLE_APP_PASSWORD` | App-specific password from appleid.apple.com                     |
 
 ### Step 6.3: Verify Required Variables
 
@@ -277,7 +279,7 @@ Add the following secrets to your GitHub repository:
 | `CSC_IDENTITY_AUTO_DISCOVERY` | electron-builder | Set to `false` to disable auto-discovery (used in local dev) |
 | `APPLE_ID`                    | notarize.cjs     | Apple ID for notarization                                    |
 | `APPLE_TEAM_ID`               | notarize.cjs     | Team ID for notarization                                     |
-| `APPLE_APP_SPECIFIC_PASSWORD` | notarize.cjs     | App-specific password for notarization                       |
+| `APPLE_APP_PASSWORD` | notarize.cjs     | App-specific password for notarization                       |
 
 ---
 
@@ -306,7 +308,7 @@ export CSC_LINK="/path/to/developer-id-application.p12"
 export CSC_KEY_PASSWORD="your-p12-password"
 export APPLE_ID="your-apple-id@email.com"
 export APPLE_TEAM_ID="ABC12DEF34"
-export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+export APPLE_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"
 
 # Run build with code signing enabled
 ./build-macOS-dmg.sh --environment production --enable-code-sign
@@ -572,7 +574,7 @@ export CSC_IDENTITY_AUTO_DISCOVERY=false          # Disable auto-discovery
 # Notarization
 export APPLE_ID="your-apple-id@email.com"
 export APPLE_TEAM_ID="ABC12DEF34"                 # 10-char Team ID
-export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+export APPLE_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"
 ```
 
 ### Useful Commands

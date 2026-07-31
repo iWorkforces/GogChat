@@ -42,7 +42,15 @@ import {
   readAccountWindowState as _getAccountWindowState,
 } from './accountWindowsStore.js';
 import { createTrackedTimeout } from '../lifecycle/resourceCleanup.js';
-import { getAccountViewManager } from './accountViewManager.js';
+import {
+  getAccountViewManager,
+  resetAccountViewManagerSingleton,
+} from './accountViewManager.js';
+import {
+  notifyAccountWebContentsCreated,
+  notifyAccountWebContentsDestroyed,
+  setAccountWebContentsHooksManager,
+} from './accountWebContentsHooks.js';
 
 /**
  * Idle threshold after which a blurred or hidden non-primary
@@ -332,6 +340,7 @@ export class AccountWindowManager implements IAccountWindowManager {
   }
 
   unregisterAccount(accountIndex: AccountIndex): void {
+    notifyAccountWebContentsDestroyed(accountIndex);
     const window = this.registry.getAccountWindow(accountIndex);
     if (window) {
       this.detachActivityListeners(window);
@@ -342,7 +351,30 @@ export class AccountWindowManager implements IAccountWindowManager {
   }
 
   hasAccount(accountIndex: AccountIndex): boolean {
-    return this.registry.hasAccount(accountIndex);
+    // Dehydrated-parked accounts remain known (matches listAccountIndices / WCV).
+    return this.registry.hasAccount(accountIndex) || this.dehydratedAccounts.has(accountIndex);
+  }
+
+  /**
+   * Live registry indices plus dehydrated-parked indices, sorted ascending.
+   */
+  listAccountIndices(): AccountIndex[] {
+    const indices = new Set<AccountIndex>(this.registry.listAccountIndices());
+    for (const accountIndex of this.dehydratedAccounts.keys()) {
+      indices.add(accountIndex);
+    }
+    return Array.from(indices).sort((a, b) => Number(a) - Number(b));
+  }
+
+  isAccountVisible(accountIndex: AccountIndex): boolean {
+    if (this.dehydratedAccounts.has(accountIndex)) {
+      return false;
+    }
+    const window = this.registry.getAccountWindow(accountIndex);
+    if (!window || window.isDestroyed()) {
+      return false;
+    }
+    return window.isVisible();
   }
 
   getAccountCount(): number {
@@ -352,6 +384,10 @@ export class AccountWindowManager implements IAccountWindowManager {
   destroyAll(): void {
     stopSessionMaintenance();
     this.maintenanceStarted = false;
+    // Dispose multi-account WC hooks before tearing down windows (KD13 symmetry).
+    for (const accountIndex of this.listAccountIndices()) {
+      notifyAccountWebContentsDestroyed(accountIndex);
+    }
     for (const accountIndex of this.dehydrateTimers.keys()) {
       this.cancelDehydrate(accountIndex);
     }
@@ -375,7 +411,21 @@ export class AccountWindowManager implements IAccountWindowManager {
       isDehydrated: (i) => this.isDehydrated(i),
       hydrate: (i) => this.hydrateAccount(i),
     };
-    return routeAccountWindow(this.registry, this.windowFactory, url, accountIndex, hydrationHook);
+    const window = routeAccountWindow(
+      this.registry,
+      this.windowFactory,
+      url,
+      accountIndex,
+      hydrationHook
+    );
+    if (window && !window.isDestroyed() && window.webContents && !window.webContents.isDestroyed()) {
+      notifyAccountWebContentsCreated({
+        accountIndex,
+        webContents: window.webContents,
+        backend: 'browser-window',
+      });
+    }
+    return window;
   }
 
   // ─── Bootstrap window tracking ───────────────────────────────────────────
@@ -458,6 +508,9 @@ export class AccountWindowManager implements IAccountWindowManager {
     // Detach our listeners first so the closed handler does not race with the
     // explicit cleanup we are about to perform.
     this.detachActivityListeners(window);
+    // Tear down per-account feature handlers (externalLinks, etc.) before destroy;
+    // hydrate will re-notify create for the new WebContents.
+    notifyAccountWebContentsDestroyed(accountIndex);
     log.info(`[AccountWindowManager] Dehydrating account ${accountIndex} (url=${snapshot.url})`);
     window.destroy();
     // The registry's `closed` listener unregisters the window automatically;
@@ -500,6 +553,13 @@ export class AccountWindowManager implements IAccountWindowManager {
     // Navigation is owned solely by the factory (windowWrapper calls loadURL
     // on create). A second loadURL here would double-navigate restored accounts.
     // Snapshot URL is factory input only — do not re-dispatch navigation.
+    if (window.webContents && !window.webContents.isDestroyed()) {
+      notifyAccountWebContentsCreated({
+        accountIndex,
+        webContents: window.webContents,
+        backend: 'browser-window',
+      });
+    }
     log.info(
       `[AccountWindowManager] Hydrated account ${accountIndex} (partition=${partition}, url=${snapshot.url})`
     );
@@ -579,6 +639,7 @@ export function getAccountWindowManager(factory?: WindowFactory): IAccountWindow
       );
     }
     accountManagerSingleton = next;
+    setAccountWebContentsHooksManager(next);
     return next;
   }
   return accountManagerSingleton;
@@ -586,6 +647,10 @@ export function getAccountWindowManager(factory?: WindowFactory): IAccountWindow
 
 /**
  * Destroy the account window manager singleton (whichever backend is active).
+ *
+ * KD15: destroyAll runs at most once. When WebContentsView is active, the same
+ * instance lives in this facade singleton and the accountViewManager module
+ * singleton — after destroyAll, only null the view singleton (no second destroyAll).
  */
 export function destroyAccountWindowManager(): void {
   if (accountManagerSingleton) {
@@ -593,6 +658,9 @@ export function destroyAccountWindowManager(): void {
     accountManagerSingleton = null;
     log.info('[AccountWindowManager] Manager destroyed');
   }
+  setAccountWebContentsHooksManager(null);
+  // Clear WCV module pointer whether or not it was the active facade instance.
+  resetAccountViewManagerSingleton();
 }
 
 /**

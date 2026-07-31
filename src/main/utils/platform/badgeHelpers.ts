@@ -48,6 +48,7 @@ import {
   wasBridgeNotificationRecentlyShown,
 } from './nativeNotification.js';
 import { resolveNotificationFocusWindow } from './notificationFocus.js';
+import { getAccountWindowManager } from '../account/accountWindowManager.js';
 import { ensureNotificationPermission } from '../security/notificationAccess.js';
 
 /**
@@ -170,13 +171,31 @@ export function setupBadgeHandlers(window: BrowserWindow, trayIcon: Tray): Badge
 
       try {
         const focusWindow = resolveNotificationFocusWindow(event, window);
-        const focused = !focusWindow.isDestroyed() && focusWindow.isFocused() === true;
+        // Suppress unread-delta only when *this account* is the focused UI:
+        // host/window focused AND isAccountVisible (WCV hidden-live may still
+        // have a focused host while another account is frontmost).
+        let accountUiFocused = false;
+        try {
+          if (accountIndex !== null) {
+            const manager = getAccountWindowManager();
+            accountUiFocused =
+              !focusWindow.isDestroyed() &&
+              focusWindow.isFocused() === true &&
+              manager.isAccountVisible(accountIndex) === true;
+          } else {
+            accountUiFocused =
+              !focusWindow.isDestroyed() && focusWindow.isFocused() === true;
+          }
+        } catch {
+          accountUiFocused =
+            !focusWindow.isDestroyed() && focusWindow.isFocused() === true;
+        }
         if (
           shouldShowUnreadDeltaNotification({
             enabled: configGet('app.unreadDeltaNotifications') === true,
             previousCount,
             nextCount: validatedCount,
-            isWindowFocused: focused,
+            isWindowFocused: accountUiFocused,
             bridgeCooldownActive: wasBridgeNotificationRecentlyShown(accountIndex),
           })
         ) {

@@ -148,9 +148,9 @@ describe('PackageInfo', () => {
       expect(pkg.productName).toBe('GogChat');
       expect(pkg.version).toBe('1.0.0');
       expect(pkg.description).toBe('GogChat');
-      expect(pkg.repository).toBe('https://github.com/OCWorkforces/GogChat');
-      expect(pkg.homepage).toBe('https://github.com/OCWorkforces/GogChat');
-      expect(pkg.author).toBe('OCWorkforces Engineers');
+      expect(pkg.repository).toBe('https://github.com/iWorkforces/GogChat');
+      expect(pkg.homepage).toBe('https://github.com/iWorkforces/GogChat');
+      expect(pkg.author).toBe('iWorkforces Engineers');
     });
 
     it('should return fallback when JSON.parse fails on malformed package.json', () => {

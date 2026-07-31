@@ -11,6 +11,7 @@ This directory owns platform integration: tray, dock/taskbar badges, native noti
 - Badge image composition belongs in `badgeHelpers.ts` using `nativeImage` primitives. Dock badge sum is capped at `BADGE.DISPLAY_MAX` (99).
 - `nativeNotification.ts` owns Electron `Notification` show, tag de-dupe, auto-dismiss, subtitle/groupId options, and bridge vs unread-delta source marking.
 - `notificationFocus.ts` resolves click focus via IPC sender → `IAccountWindowManager.focusAccount` (BW + WCV).
+- Unread-delta OS banners in `badgeHelpers` suppress only when the host/window is focused **and** `manager.isAccountVisible(accountIndex)` (WCV: hidden-live secondary must still notify while another account is frontmost).
 - `accountNotificationIdentity.ts` builds account-aware title/body/tag/subtitle/groupId; identity always comes from the IPC sender (or badge account index), never from payload free text alone.
 - `accountLabelStore.ts` / `accountLabelDialog.ts` persist optional custom labels (`app.accountLabels`) for notification subtitles (Preferences → Account Labels). Store helpers are config readers/writers, not process singletons with destroyers.
 - `helpMenuBuilder.ts` consumes feature actions through `features/menuActionRegistry.ts`; it should not import feature modules directly.
@@ -19,13 +20,13 @@ This directory owns platform integration: tray, dock/taskbar badges, native noti
 
 ## Icon cache
 
-`iconCache.ts` intentionally warms assets in tiers:
+`iconCache.ts` intentionally warms assets in tiers. Account-0 window icon (`resources/icons/normal/256.png`) loads on demand in `windowWrapper`; bulk warm runs after the UI phase on `setImmediate` (same path as deferred features):
 
-1. INITIAL: immediate startup-critical icons (critical path via `cacheWarmer.warmInitialIcons`).
-2. SOON_DEFERRED: short-delay warmup after critical path (`warmSoonDeferredIcons` on `setImmediate`).
+1. INITIAL: first warm set via `cacheWarmer.warmInitialIcons` (not on the pre-window critical path).
+2. SOON_DEFERRED: short-delay follow-up (`warmSoonDeferredIcons` on `setImmediate` inside the warmer).
 3. IDLE / ADDITIONAL: later idle warmup (`cacheWarmer` ADDITIONAL set; disjoint from INITIAL and SOON_DEFERRED).
 
-Do not move all icon work into startup; it affects app-ready latency. Keep the triple-set partition disjoint (no overlap between INITIAL, SOON_DEFERRED, and ADDITIONAL).
+Do not move icon warming back onto the pre-window critical path; it affects app-ready latency. Keep the triple-set partition disjoint (no overlap between INITIAL, SOON_DEFERRED, and ADDITIONAL).
 
 ## Anti-patterns
 

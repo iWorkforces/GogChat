@@ -114,6 +114,40 @@ describe('permissionHandler', () => {
       expect(callback).toHaveBeenCalledWith(false);
     });
 
+    it('denies when only embeddingOrigin is trusted (requesting origin untrusted)', async () => {
+      const { window, getRequestHandler } = createMockWindow();
+      installPermissionRequestHandler(window);
+
+      const callback = vi.fn();
+      await getRequestHandler()(null, 'notifications', callback, {
+        requestingUrl: 'https://evil.example/frame',
+        embeddingOrigin: 'https://mail.google.com',
+      });
+      expect(callback).toHaveBeenCalledWith(false);
+    });
+
+    it('denies when only embeddingOrigin is present (no requesting origin)', async () => {
+      const { window, getRequestHandler } = createMockWindow();
+      installPermissionRequestHandler(window);
+
+      const callback = vi.fn();
+      await getRequestHandler()(null, 'geolocation', callback, {
+        embeddingOrigin: 'https://mail.google.com',
+      });
+      expect(callback).toHaveBeenCalledWith(false);
+    });
+
+    it('grants when securityOrigin is trusted even if embeddingOrigin is absent', async () => {
+      const { window, getRequestHandler } = createMockWindow();
+      installPermissionRequestHandler(window);
+
+      const callback = vi.fn();
+      await getRequestHandler()(null, 'notifications', callback, {
+        securityOrigin: 'https://chat.google.com',
+      });
+      expect(callback).toHaveBeenCalledWith(true);
+    });
+
     it('denies unknown permissions', async () => {
       const { window, getRequestHandler } = createMockWindow();
       installPermissionRequestHandler(window);
@@ -178,16 +212,91 @@ describe('permissionHandler', () => {
       expect(mockShowDenied).toHaveBeenCalledWith(window, 'microphone');
     });
 
-    it('handles media permission with empty mediaTypes', async () => {
+    it('denies media permission when mediaTypes is empty', async () => {
+      const { window, getRequestHandler } = createMockWindow();
+      installPermissionRequestHandler(window);
+
+      const callback = vi.fn();
+      await getRequestHandler()(null, 'media', callback, {
+        ...TRUSTED_PERMISSION_DETAILS,
+        mediaTypes: [],
+      });
+
+      expect(callback).toHaveBeenCalledWith(false);
+      expect(mockCheckMedia).not.toHaveBeenCalled();
+    });
+
+    it('denies media permission when mediaTypes is missing', async () => {
       const { window, getRequestHandler } = createMockWindow();
       installPermissionRequestHandler(window);
 
       const callback = vi.fn();
       await getRequestHandler()(null, 'media', callback, TRUSTED_PERMISSION_DETAILS);
 
-      // No media types requested → granted = true (nothing to deny)
-      expect(callback).toHaveBeenCalledWith(true);
+      expect(callback).toHaveBeenCalledWith(false);
       expect(mockCheckMedia).not.toHaveBeenCalled();
+    });
+
+    it('denies media permission when mediaTypes has only unknown types', async () => {
+      const { window, getRequestHandler } = createMockWindow();
+      installPermissionRequestHandler(window);
+
+      const callback = vi.fn();
+      await getRequestHandler()(null, 'media', callback, {
+        ...TRUSTED_PERMISSION_DETAILS,
+        mediaTypes: ['screen', 'foo'],
+      });
+
+      expect(callback).toHaveBeenCalledWith(false);
+      expect(mockCheckMedia).not.toHaveBeenCalled();
+    });
+
+    it('denies when requestingUrl is untrusted even if securityOrigin is trusted', async () => {
+      const { window, getRequestHandler } = createMockWindow();
+      installPermissionRequestHandler(window);
+
+      const callback = vi.fn();
+      await getRequestHandler()(null, 'notifications', callback, {
+        requestingUrl: 'https://evil.example/x',
+        securityOrigin: 'https://chat.google.com',
+      });
+      expect(callback).toHaveBeenCalledWith(false);
+    });
+
+    it('grants media for trusted chat.google.com with video when TCC passes', async () => {
+      mockCheckMedia.mockResolvedValue(true);
+      mockGetMediaStatus.mockReturnValue('granted');
+
+      const { window, getRequestHandler } = createMockWindow();
+      installPermissionRequestHandler(window);
+
+      const callback = vi.fn();
+      await getRequestHandler()(null, 'media', callback, {
+        requestingUrl: 'https://chat.google.com/room/abc',
+        mediaTypes: ['video'],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(mockCheckMedia).toHaveBeenCalledWith('camera');
+      expect(callback).toHaveBeenCalledWith(true);
+    });
+
+    it('grants media for trusted accounts.google.com with audio when TCC passes', async () => {
+      mockCheckMedia.mockResolvedValue(true);
+      mockGetMediaStatus.mockReturnValue('granted');
+
+      const { window, getRequestHandler } = createMockWindow();
+      installPermissionRequestHandler(window);
+
+      const callback = vi.fn();
+      await getRequestHandler()(null, 'media', callback, {
+        requestingUrl: 'https://accounts.google.com/ServiceLogin',
+        mediaTypes: ['audio'],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(mockCheckMedia).toHaveBeenCalledWith('microphone');
+      expect(callback).toHaveBeenCalledWith(true);
     });
 
     it('denies media permission from untrusted origins without prompting TCC', async () => {
@@ -198,6 +307,21 @@ describe('permissionHandler', () => {
       await getRequestHandler()(null, 'media', callback, {
         ...UNTRUSTED_PERMISSION_DETAILS,
         mediaTypes: ['video'],
+      });
+
+      expect(callback).toHaveBeenCalledWith(false);
+      expect(mockCheckMedia).not.toHaveBeenCalled();
+    });
+
+    it('denies media when embeddingOrigin is trusted but requestingUrl is not', async () => {
+      const { window, getRequestHandler } = createMockWindow();
+      installPermissionRequestHandler(window);
+
+      const callback = vi.fn();
+      await getRequestHandler()(null, 'media', callback, {
+        requestingUrl: 'https://evil.example/embed',
+        embeddingOrigin: 'https://mail.google.com',
+        mediaTypes: ['video', 'audio'],
       });
 
       expect(callback).toHaveBeenCalledWith(false);
@@ -227,6 +351,28 @@ describe('permissionHandler', () => {
       installPermissionCheckHandler(window);
 
       expect(getCheckHandler()(null, 'notifications', '', {})).toBe(false);
+    });
+
+    it('returns false when only embeddingOrigin is trusted on check handler', () => {
+      const { window, getCheckHandler } = createMockWindow();
+      installPermissionCheckHandler(window);
+
+      expect(
+        getCheckHandler()(null, 'notifications', 'https://evil.example', {
+          embeddingOrigin: 'https://mail.google.com',
+        })
+      ).toBe(false);
+    });
+
+    it('returns true when securityOrigin is trusted even with untrusted requestingOrigin arg empty', () => {
+      const { window, getCheckHandler } = createMockWindow();
+      installPermissionCheckHandler(window);
+
+      expect(
+        getCheckHandler()(null, 'notifications', '', {
+          securityOrigin: 'https://accounts.google.com',
+        })
+      ).toBe(true);
     });
 
     it('returns false for disallowed permissions', () => {

@@ -85,6 +85,7 @@ function createMockWebContents(): {
     on,
     once,
     removeListener,
+    isDestroyed: vi.fn().mockReturnValue(false),
     getURL: vi.fn().mockReturnValue('https://chat.google.com/u/0/'),
     _listeners: listeners,
     _emit(event: string, ...args: unknown[]) {
@@ -148,14 +149,27 @@ function createMockManager(
 ): {
   isBootstrap: Mock;
   getAccountWindow: Mock;
+  getAccountWebContents: Mock;
   promoteBootstrap: Mock;
 } {
+  const getAccountWindow = vi
+    .fn()
+    .mockImplementation(overrides.getAccountWindow ?? (() => null));
   return {
     isBootstrap: vi.fn().mockImplementation(overrides.isBootstrap ?? (() => true)),
-    getAccountWindow: vi.fn().mockImplementation(overrides.getAccountWindow ?? (() => null)),
+    getAccountWindow,
+    getAccountWebContents: vi.fn().mockImplementation((idx: number) => {
+      const win = getAccountWindow(idx) as ReturnType<typeof createMockBrowserWindow> | null;
+      if (!win || win.isDestroyed()) return null;
+      return win.webContents;
+    }),
     promoteBootstrap: overrides.promoteBootstrap ?? vi.fn(),
   };
 }
+
+vi.mock('./accountNavigation.js', () => ({
+  loadAccountURL: vi.fn().mockReturnValue(true),
+}));
 
 // ──── Tests ────────────────────────────────────────────────────────────────
 
@@ -234,7 +248,7 @@ describe('bootstrapWatcher', () => {
 
       cleanup(); // should not throw
       expect(mockLog.warn).toHaveBeenCalledWith(
-        '[BootstrapPromotion] Account-0 window not found — skipping'
+        '[BootstrapPromotion] Account-0 WebContents not found — skipping'
       );
     });
 
@@ -251,7 +265,7 @@ describe('bootstrapWatcher', () => {
 
       cleanup(); // should not throw
       expect(mockLog.warn).toHaveBeenCalledWith(
-        '[BootstrapPromotion] Account-0 window not found — skipping'
+        '[BootstrapPromotion] Account-0 WebContents not found — skipping'
       );
     });
 
@@ -439,7 +453,10 @@ describe('bootstrapWatcher', () => {
       );
     });
 
-    it('should load auth URL on account-0 main window if different (Path B)', () => {
+    it('should load auth URL on account-0 via loadAccountURL (Path B)', async () => {
+      const { loadAccountURL } = await import('./accountNavigation.js');
+      vi.mocked(loadAccountURL).mockClear();
+
       const win = createMockBrowserWindow();
       win.webContents.getURL.mockReturnValue('https://accounts.google.com/signin');
 
@@ -457,31 +474,13 @@ describe('bootstrapWatcher', () => {
       win.webContents._emit('did-create-window', childWin, {});
       childWin.webContents._emit('did-navigate', {}, 'https://chat.google.com/u/0/');
 
-      expect(win.loadURL).toHaveBeenCalledWith('https://chat.google.com/u/0/');
+      expect(loadAccountURL).toHaveBeenCalled();
     });
 
-    it('should not load URL if main window already shows auth URL (Path B)', () => {
-      const win = createMockBrowserWindow();
-      win.webContents.getURL.mockReturnValue('https://chat.google.com/u/0/');
+    it('should not load URL on non-zero account (Path B)', async () => {
+      const { loadAccountURL } = await import('./accountNavigation.js');
+      vi.mocked(loadAccountURL).mockClear();
 
-      const childWin = createMockBrowserWindow();
-      const mgr = createMockManager({
-        isBootstrap: () => true,
-        getAccountWindow: (idx: number) => (idx === 0 ? win : null),
-      });
-      mockGetAccountWindowManager.mockReturnValue(mgr);
-
-      mockIsAuthenticatedChatUrl.mockReturnValue(true);
-
-      watchBootstrapAccount(0);
-
-      win.webContents._emit('did-create-window', childWin, {});
-      childWin.webContents._emit('did-navigate', {}, 'https://chat.google.com/u/0/');
-
-      expect(win.loadURL).not.toHaveBeenCalled();
-    });
-
-    it('should not load URL on non-zero account (Path B)', () => {
       const win = createMockBrowserWindow();
       const childWin = createMockBrowserWindow();
       const mgr = createMockManager({
@@ -497,8 +496,7 @@ describe('bootstrapWatcher', () => {
       win.webContents._emit('did-create-window', childWin, {});
       childWin.webContents._emit('did-navigate', {}, 'https://chat.google.com/u/2/');
 
-      // loadURL should not be called for non-zero accounts
-      expect(win.loadURL).not.toHaveBeenCalled();
+      expect(loadAccountURL).not.toHaveBeenCalled();
     });
 
     // ─── Window closed during watch ────────────────────────────────────

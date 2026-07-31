@@ -13,9 +13,13 @@ import { asAccountIndex } from '../../shared/types/branded.js';
 import {
   createAccountWindow,
   getAccountIndex,
-  getWindowForAccount,
   getAccountWindowManager,
 } from '../utils/account/accountWindowManager.js';
+import { loadAccountURL, getAccountURL } from '../utils/account/accountNavigation.js';
+import {
+  onAccountWebContentsCreated,
+  setAccountWebContentsHooksManager,
+} from '../utils/account/accountWebContentsHooks.js';
 import { openExternal } from '../utils/security/shellWrapper.js';
 import { registerMenuAction } from './menuActionRegistry.js';
 
@@ -67,6 +71,8 @@ function getAccountIndexFromUrl(input: string) {
 
 function routeAccountUrl(window: BrowserWindow, url: string): boolean {
   const targetAccountIndex = getAccountIndexFromUrl(url);
+  // Host window association (BW account window or WCV host → most-recent).
+  // Used only to detect same-account opens; navigation always uses WC helpers.
   const currentAccountIndex = getAccountIndex(window) ?? asAccountIndex(0);
 
   if (targetAccountIndex === currentAccountIndex) {
@@ -74,50 +80,37 @@ function routeAccountUrl(window: BrowserWindow, url: string): boolean {
   }
 
   const manager = getAccountWindowManager();
-  const existingWindow = getWindowForAccount(targetAccountIndex);
+  const accountExists = manager.hasAccount(targetAccountIndex);
 
-  // If the target window exists and is a bootstrap window currently on a Google
-  // auth URL, just show/focus it — do NOT call loadURL again so we don't interrupt
-  // an in-flight sign-in flow.
-  if (
-    existingWindow &&
-    !existingWindow.isDestroyed() &&
-    manager.isBootstrap(targetAccountIndex) &&
-    isGoogleAuthUrl(existingWindow.webContents.getURL())
-  ) {
-    if (existingWindow.isMinimized()) {
-      existingWindow.restore();
+  // Bootstrap mid-auth: focus only — never interrupt Google sign-in (WC-first URL).
+  if (accountExists && manager.isBootstrap(targetAccountIndex)) {
+    const currentUrl = getAccountURL(manager, targetAccountIndex);
+    if (currentUrl !== null && isGoogleAuthUrl(currentUrl)) {
+      manager.focusAccount(targetAccountIndex);
+      log.info(
+        `[ExternalLinks] Bootstrap auth already active for account ${targetAccountIndex} — skipping loadURL`
+      );
+      return true;
     }
-    existingWindow.show();
-    existingWindow.focus();
-    log.info(
-      `[ExternalLinks] Bootstrap auth window already active for account ${targetAccountIndex} — skipping loadURL`
-    );
-    return true;
   }
 
-  const targetWindow = existingWindow ?? createAccountWindow(url, targetAccountIndex);
-
-  // Mark newly created secondary-account windows as bootstrap so subsequent
-  // routing calls know an auth flow may be in progress.
-  if (!existingWindow) {
+  if (!accountExists) {
+    createAccountWindow(url, targetAccountIndex);
     manager.markAsBootstrap(targetAccountIndex);
     watchBootstrapAccount(targetAccountIndex);
     log.debug(`[ExternalLinks] Marked new account ${targetAccountIndex} window as bootstrap`);
+  } else {
+    const currentUrl = getAccountURL(manager, targetAccountIndex);
+    if (currentUrl !== url) {
+      loadAccountURL(manager, targetAccountIndex, url);
+    }
   }
 
-  if (targetWindow.isMinimized()) {
-    targetWindow.restore();
-  }
-
-  targetWindow.show();
-  targetWindow.focus();
-  if (targetWindow.webContents.getURL() !== url) {
-    void targetWindow.loadURL(url);
-  }
+  // Bring the target account UI forward (BW show/focus; WCV switch + unthrottle).
+  manager.focusAccount(targetAccountIndex);
 
   log.info(
-    `[ExternalLinks] Routed account URL to isolated window: ${currentAccountIndex} -> ${targetAccountIndex}`
+    `[ExternalLinks] Routed account URL to isolated account: ${currentAccountIndex} -> ${targetAccountIndex}`
   );
 
   return true;
@@ -149,36 +142,44 @@ function shouldOpenExternally(url: string, currentHost: string): boolean {
   return false;
 }
 
-export default (window: BrowserWindow) => {
+/**
+ * Install open-handler + will-navigate guards on one account WebContents.
+ * `hostWindow` is used for account routing / show-focus (BW account or WCV host).
+ */
+export function installExternalLinkGuards(
+  webContents: Electron.WebContents,
+  hostWindow: BrowserWindow
+): () => void {
   const handleRedirect = (
     details: HandlerDetails
   ): typeof ACTION_DENIED | typeof ACTION_ALLOWED => {
     const url = details.url;
 
-    // Validate URL protocol first
     if (!isValidHttpURL(url)) {
       log.warn('[ExternalLinks] Blocked non-HTTP URL:', url);
       return ACTION_DENIED;
     }
 
-    // If guard is disabled, allow everything (temporary auth fix mode)
     if (!guardAgainstExternalLinks) {
       log.debug('[ExternalLinks] Guard disabled, allowing:', url);
       return ACTION_ALLOWED;
     }
 
     try {
-      const currentHost = extractHostname(window.webContents.getURL());
+      let currentHost = '';
+      try {
+        currentHost = extractHostname(webContents.getURL());
+      } catch {
+        currentHost = extractHostname(hostWindow.webContents.getURL());
+      }
 
-      if (extractHostname(url) === 'chat.google.com' && routeAccountUrl(window, url)) {
+      if (extractHostname(url) === 'chat.google.com' && routeAccountUrl(hostWindow, url)) {
         return ACTION_DENIED;
       }
 
-      // Check if should open externally
       if (shouldOpenExternally(url, currentHost)) {
         setImmediate(() => {
           try {
-            // Sanitize URL before opening
             const sanitizedURL = validateExternalURL(url);
             void openExternal(sanitizedURL);
             log.info('[ExternalLinks] Opened external URL:', sanitizedURL);
@@ -190,7 +191,6 @@ export default (window: BrowserWindow) => {
         return ACTION_DENIED;
       }
 
-      // Allow navigation within whitelisted hosts
       log.debug('[ExternalLinks] Allowing whitelisted navigation:', url);
       return ACTION_ALLOWED;
     } catch (error: unknown) {
@@ -199,17 +199,25 @@ export default (window: BrowserWindow) => {
     }
   };
 
-  window.webContents.setWindowOpenHandler(handleRedirect);
-  window.webContents.on('will-navigate', (event, url) => {
-    const currentHost = extractHostname(window.webContents.getURL());
+  const onWillNavigate = (event: Electron.Event, url: string): void => {
+    if (!isValidHttpURL(url)) {
+      event.preventDefault();
+      log.warn('[ExternalLinks] will-navigate: blocked non-HTTP URL:', url);
+      return;
+    }
 
-    // Handle Chat account routing
-    if (extractHostname(url) === 'chat.google.com' && routeAccountUrl(window, url)) {
+    let currentHost = '';
+    try {
+      currentHost = extractHostname(webContents.getURL());
+    } catch {
+      currentHost = extractHostname(hostWindow.webContents.getURL());
+    }
+
+    if (extractHostname(url) === 'chat.google.com' && routeAccountUrl(hostWindow, url)) {
       event.preventDefault();
       return;
     }
 
-    // Block and open externally all non-whitelisted URLs
     if (guardAgainstExternalLinks && shouldOpenExternally(url, currentHost)) {
       event.preventDefault();
       setImmediate(() => {
@@ -222,6 +230,40 @@ export default (window: BrowserWindow) => {
         }
       });
     }
+  };
+
+  webContents.setWindowOpenHandler(handleRedirect);
+  webContents.on('will-navigate', onWillNavigate);
+
+  return () => {
+    try {
+      if (!webContents.isDestroyed()) {
+        webContents.removeListener('will-navigate', onWillNavigate);
+        webContents.setWindowOpenHandler(() => ACTION_DENIED);
+      }
+    } catch {
+      // webContents already gone
+    }
+  };
+}
+
+let hooksUnsub: (() => void) | null = null;
+
+export default (window: BrowserWindow) => {
+  const manager = getAccountWindowManager();
+  setAccountWebContentsHooksManager(manager);
+
+  if (hooksUnsub) {
+    hooksUnsub();
+    hooksUnsub = null;
+  }
+
+  hooksUnsub = onAccountWebContentsCreated(({ webContents, accountIndex }) => {
+    const host = manager.getAccountWindow(accountIndex) ?? window;
+    if (!host || host.isDestroyed()) {
+      return;
+    }
+    return installExternalLinkGuards(webContents, host);
   });
 };
 
@@ -281,6 +323,11 @@ const startReGuardTimer = () => {
 export function cleanupExternalLinks(): void {
   try {
     log.debug('[ExternalLinks] Cleaning up external links handler');
+    if (hooksUnsub) {
+      hooksUnsub();
+      hooksUnsub = null;
+    }
+    setAccountWebContentsHooksManager(null);
     stopReGuardTimer();
     guardAgainstExternalLinks = true;
     log.info('[ExternalLinks] External links handler cleaned up');

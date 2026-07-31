@@ -4,11 +4,14 @@
  *
  * Why a dedicated helper?
  * -----------------------
- * The regular `electron-store` uses AES-CBC without a MAC. That is fine for
- * benign config (window bounds, feature toggles), but the
- * `disableCertPinning` flag is security-critical: if an attacker can flip it
- * to `true` by tampering with the encrypted config file on disk, certificate
- * pinning is silently disabled and MITM becomes possible.
+ * The regular `electron-store` path is not authenticated encryption. Kill
+ * switches that must not be silently flipped by on-disk tampering live here.
+ *
+ * Active product flag: `disableCdpTelemetry` (local CDP RUM).
+ * Residual storage key: `disableCertPinning` remains in the encrypted blob
+ * API for compatibility/tests only — custom certificate pinning was removed
+ * and no startup path consults this flag for TLS trust (Chromium is sole
+ * trust authority).
  *
  * `safeStorage.encryptString()` provides authenticated encryption (the
  * payload is bound to the OS credential-store entry), so any tampering causes
@@ -19,10 +22,8 @@
  * reading, otherwise an attacker could simply edit the plaintext-MAC-less
  * mirror.
  *
- * Lifecycle: read/write are synchronous and may run before `app.ready` (the
- * cert-pinning kill switch is consulted in the `security` phase, before
- * `app.whenReady`). All filesystem operations are wrapped in try/catch and
- * default to `false` on any failure.
+ * Lifecycle: read/write are synchronous. All filesystem operations are
+ * wrapped in try/catch and default to `false` on any failure.
  */
 
 import { safeStorage, app } from 'electron';
@@ -89,10 +90,12 @@ function writeSecureFlags(flags: SecureFlags): void {
 }
 
 /**
- * Returns the persisted `disableCertPinning` flag.
+ * Returns the persisted residual `disableCertPinning` flag.
  *
- * Defaults to `false` (the safe default — pinning enabled) on any error,
- * including missing file, decryption failure, or unavailable safeStorage.
+ * Certificate pinning was removed from the product; this key is storage/compat
+ * only and is not consulted for TLS trust. Defaults to `false` (flag unset /
+ * no-op) on any error, including missing file, decryption failure, or
+ * unavailable safeStorage.
  *
  * Safe to call before `app.whenReady` — `safeStorage` is queried
  * lazily and a missing file simply returns the default.

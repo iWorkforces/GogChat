@@ -10,9 +10,11 @@ import type { IAccountWindowManager } from '../../shared/types/window.js';
 import { asAccountIndex } from '../../shared/types/branded.js';
 import {
   createAccountWindow,
+  getAccountWindowManager,
   getMostRecentWindow,
   getWindowForAccount,
 } from '../utils/account/accountWindowManager.js';
+import { loadAccountURL, getAccountURL } from '../utils/account/accountNavigation.js';
 import { extractDeepLinkFromArgv } from '../utils/account/deepLinkUtils.js';
 import { addTrackedListener } from '../utils/lifecycle/resourceCleanup.js';
 import { openExternal } from '../utils/security/shellWrapper.js';
@@ -32,11 +34,6 @@ function getAccountIndexFromUrl(url: string) {
   }
 }
 
-function getTargetWindow(url: string): Electron.BrowserWindow {
-  const accountIndex = getAccountIndexFromUrl(url);
-  return getWindowForAccount(accountIndex) ?? createAccountWindow(url, accountIndex);
-}
-
 function sanitizeUrlForLog(url: string): string {
   try {
     const parsed = new URL(url);
@@ -50,15 +47,6 @@ export function processDeepLink(url: string): void {
   try {
     log.info(`[DeepLink] Received deep link: ${sanitizeUrlForLog(url)}`);
     const validatedUrl = validateDeepLinkURL(url);
-
-    // Get window dynamically via account window manager
-    const windowRef = getTargetWindow(validatedUrl);
-    if (!windowRef || windowRef.isDestroyed()) {
-      log.info('[DeepLink] Window not ready, buffering URL');
-      pendingDeepLinkUrl = validatedUrl;
-      return;
-    }
-
     navigateToUrl(validatedUrl);
   } catch (error: unknown) {
     log.error('[DeepLink] Failed to process deep link:', error);
@@ -66,29 +54,36 @@ export function processDeepLink(url: string): void {
 }
 
 function navigateToUrl(url: string): void {
-  // Get window dynamically via account window manager
-  const windowRef = getTargetWindow(url) ?? getMostRecentWindow();
+  // Prefer path /u/N/ from the deep link itself (WCV host getAccountIndex is
+  // "most recent", not the URL account). Fall back only when path has no /u/N/.
+  const accountIndex = getAccountIndexFromUrl(url);
+  const manager = getAccountWindowManager();
+
+  // Ensure the target account exists (create / BW hydrate via router).
+  let windowRef = getWindowForAccount(accountIndex);
   if (!windowRef || windowRef.isDestroyed()) {
-    log.warn('[DeepLink] Cannot navigate — window unavailable');
+    windowRef = createAccountWindow(url, accountIndex);
+  }
+  if (!windowRef || windowRef.isDestroyed()) {
+    windowRef = getMostRecentWindow();
+  }
+  if (!windowRef || windowRef.isDestroyed()) {
+    pendingDeepLinkUrl = url;
+    log.info('[DeepLink] Window not ready, buffering URL');
     return;
   }
 
-  if (isGoogleAuthUrl(windowRef.webContents.getURL())) {
+  const currentUrl = getAccountURL(manager, accountIndex);
+  if (currentUrl !== null && isGoogleAuthUrl(currentUrl)) {
     pendingDeepLinkUrl = url;
     log.info('[DeepLink] Google auth in progress, buffering URL');
-    windowRef.show();
-    windowRef.focus();
+    manager.focusAccount(accountIndex);
     return;
   }
 
   log.info(`[DeepLink] Navigating to: ${sanitizeUrlForLog(url)}`);
-  void windowRef.loadURL(url);
-
-  if (windowRef.isMinimized()) {
-    windowRef.restore();
-  }
-  windowRef.show();
-  windowRef.focus();
+  loadAccountURL(manager, accountIndex, url);
+  manager.focusAccount(accountIndex);
 }
 
 function processPendingDeepLink(): void {

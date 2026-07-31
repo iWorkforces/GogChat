@@ -18,6 +18,7 @@ interface MockBrowserWindow {
   isMinimized: ReturnType<typeof vi.fn>;
   isDestroyed: ReturnType<typeof vi.fn>;
   webContents: { url: string };
+  options?: Record<string, unknown>;
 }
 
 interface AboutPanelMockState {
@@ -32,7 +33,8 @@ vi.mock('electron', () => {
   const instances: MockBrowserWindow[] = [];
   (globalThis as GlobalWithMock).__aboutPanelMock = { instances };
 
-  const BW = function MockBW(this: MockBrowserWindow) {
+  const BW = function MockBW(this: MockBrowserWindow, options?: Record<string, unknown>) {
+    this.options = options;
     this.loadURL = vi.fn();
     this.show = vi.fn();
     this.setAlwaysOnTop = vi.fn();
@@ -119,6 +121,42 @@ describe('aboutPanel', () => {
     const win = instances[instances.length - 1]!;
     expect(win.setAlwaysOnTop).toHaveBeenCalledWith(true, 'floating');
     expect(win.setMenuBarVisibility).toHaveBeenCalledWith(false);
+  });
+
+  it('uses sandboxed webPreferences aligned with account windows', async () => {
+    const aboutPanel = await loadAboutPanel();
+    aboutPanel(asBrowserWindow({ id: 1 }));
+
+    const win = getInstances()[getInstances().length - 1]!;
+    const prefs = win.options?.['webPreferences'] as Record<string, unknown> | undefined;
+    expect(prefs).toEqual({
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+    });
+  });
+
+  it('HTML-escapes package fields in the about document', async () => {
+    const { getPackageInfo } = await import('../utils/platform/packageInfo.js');
+    vi.mocked(getPackageInfo).mockReturnValue({
+      productName: 'Gog<script>Chat',
+      version: '1.0.0"><img',
+      author: "O'Reilly & Co",
+      name: 'gogchat',
+      homepage: '',
+      repository: '',
+      description: '',
+    });
+
+    const aboutPanel = await loadAboutPanel();
+    aboutPanel(asBrowserWindow({ id: 1 }));
+
+    const rawUrl: string = getInstances()[0]!.loadURL.mock.calls[0][0];
+    const decoded = decodeURIComponent(rawUrl.replace('data:text/html;charset=utf-8,', ''));
+    expect(decoded).not.toContain('<script>');
+    expect(decoded).toContain('Gog&lt;script&gt;Chat');
+    expect(decoded).toContain('1.0.0&quot;&gt;&lt;img');
+    expect(decoded).toContain('O&#39;Reilly &amp; Co');
   });
 
   it('shows window on ready-to-show event', async () => {

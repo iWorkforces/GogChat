@@ -239,13 +239,17 @@ export function startSessionMaintenance(
   );
 
   // Register memory pressure handler to shed idle renderers.
-  // macOS sends 'memory-pressure' when the system is low on RAM. We respond
-  // by dehydrating ALL idle accounts (including account-0 when idle) to
-  // immediately free renderer memory.
+  // macOS sends 'memory-pressure' when the system is low on RAM. We dehydrate
+  // idle non-primary accounts only — account-0 stays live for badge/notification
+  // reliability (Open Q2 / KD3).
   pressureHandler = () => {
     const pressureIdle = tracker.getIdleAccounts(PRESSURE_IDLE_THRESHOLD_MS);
     let dehydratedCount = 0;
     for (const idx of pressureIdle) {
+      // Never dehydrate account-0 under pressure (aligns with blur timer + WCV).
+      if (Number(idx) === 0) {
+        continue;
+      }
       // Bootstrap accounts must never be dehydrated — they are mid-auth.
       if (manager.isBootstrap(idx)) {
         continue;

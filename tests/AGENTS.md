@@ -34,10 +34,10 @@ bun run check:doc-claims
 
 - Startup/spec changes: generated feature plan and phase ordering.
 - IPC changes: validation, rate limiting, dedup behavior, success and failure paths.
-- Account changes: partition persistence, auth-page protection, switching, dehydration, single hydration navigation, `enumerateAccountWebContents` (both backends).
+- Account changes: partition persistence, auth-page protection, switching, dehydration, single hydration navigation, `enumerateAccountWebContents` (both backends), sparse `listAccountIndices` / `hasAccount` (includes dehydrated), WCV three-state, hooks re-fire on BW dehydrate→hydrate, WC-first `loadAccountURL` (never WCV host loadURL).
 - Preload/offline changes: false online replies produce zero reloads; true reply produces one app-URL replace; bridge cleanup on unload.
-- Security changes: URL validation, shell wrapper usage, CSP exceptions, media TCC, and notification permission (`notificationAccess` first-run dialog + probe, CI skip, flag only on `show`).
-- Notification presentation: `nativeNotification`, `notificationFocus`, `accountNotificationIdentity`, `accountLabelStore`, bridge vs unread-delta sources, multi-account subtitle/tag namespacing.
+- Security changes: URL validation (including `validateNotificationIconURL`), shell wrapper usage, CSP exceptions, media TCC, empty/unknown-only `mediaTypes` deny, requesting-origin trust (no embeddingOrigin allow), notification permission (`notificationAccess` first-run dialog + probe, CI skip, flag only on `show`), and no custom `certificate-error` listeners after security phase init.
+- Notification presentation: `nativeNotification`, `notificationFocus`, `accountNotificationIdentity`, `accountLabelStore`, bridge vs unread-delta sources, multi-account subtitle/tag namespacing, unread-delta suppress only when host focused **and** `isAccountVisible`.
 - Performance contract changes (TDD preferred):
   - Finalizer: no early export; complete+valid only with required markers + renderer samples.
   - Headless aggregation: invalid runs retained as failures; no medians from incomplete sets.

@@ -3,7 +3,6 @@ import { app } from 'electron';
 import log from 'electron-log';
 import { platform } from '../utils/platform/platformDetection.js';
 import { getAccountWindowManager } from '../utils/account/accountWindowManager.js';
-import { asAccountIndex } from '../../shared/types/branded.js';
 import type { IAccountWindowManager } from '../../shared/types/window.js';
 
 let willQuit = false;
@@ -41,18 +40,17 @@ export default (window: BrowserWindow) => {
 };
 
 /**
- * Dehydrate every non-primary account window so the tray-only state holds
- * only account-0 in memory. Account-0 is intentionally preserved to keep
- * badges and notifications flowing while the app is hidden.
+ * Dehydrate every non-primary account so tray-only state holds only
+ * account-0 in memory. Uses sparse `listAccountIndices()` (not 0..count-1)
+ * so holes like accounts {0, 2} still park account 2.
+ * Account-0 is preserved for badges/notifications while hidden.
  */
 function dehydrateBackgroundAccounts(manager: IAccountWindowManager): void {
-  const accountCount = manager.getAccountCount();
-  for (let i = 1; i < accountCount; i++) {
-    const idx = asAccountIndex(i);
-    if (manager.hasAccount(idx) && !manager.isDehydrated(idx)) {
-      manager.dehydrateAccount(idx);
-      log.debug(`[CloseToTray] Dehydrated account ${i} on tray close`);
-    }
+  for (const idx of manager.listAccountIndices()) {
+    if (Number(idx) === 0) continue;
+    if (manager.isDehydrated(idx)) continue;
+    manager.dehydrateAccount(idx);
+    log.debug(`[CloseToTray] Dehydrated account ${idx} on tray close`);
   }
 }
 

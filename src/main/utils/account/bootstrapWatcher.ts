@@ -8,10 +8,11 @@
  * Used by both bootstrapPromotion.ts (init) and externalLinks.ts (routing).
  */
 
-import type { BrowserWindow } from 'electron';
+import type { BrowserWindow, WebContents } from 'electron';
 import log from 'electron-log';
 import { isAuthenticatedChatUrl } from '../../../shared/urlValidators.js';
 import { getAccountWindowManager } from './accountWindowManager.js';
+import { loadAccountURL } from './accountNavigation.js';
 import type { AccountIndex } from '../../../shared/types/branded.js';
 import { asAccountIndex } from '../../../shared/types/branded.js';
 
@@ -32,7 +33,7 @@ const cleanupByAccount = new Map<AccountIndex, (() => void) | null>();
  *
  * Returns a detach function for early removal.
  */
-function watchForAuth(win: BrowserWindow, onAuth: (url: string) => void): () => void {
+function watchForAuth(wc: WebContents, onAuth: (url: string) => void): () => void {
   const handler = (_event: Electron.Event, url: string) => {
     if (isAuthenticatedChatUrl(url)) {
       // Self-remove before calling back (prevents double-fire if caller
@@ -43,16 +44,16 @@ function watchForAuth(win: BrowserWindow, onAuth: (url: string) => void): () => 
   };
 
   const detach = () => {
-    // Always remove the listener — webContents outlives the window destroy call
-    // and we must not leave dangling handlers regardless of window state.
     try {
-      win.webContents.removeListener('did-navigate', handler);
+      if (!wc.isDestroyed()) {
+        wc.removeListener('did-navigate', handler);
+      }
     } catch {
       // webContents already garbage-collected in some edge cases
     }
   };
 
-  win.webContents.on('did-navigate', handler);
+  wc.on('did-navigate', handler);
   return detach;
 }
 
@@ -82,16 +83,19 @@ export function watchBootstrapAccount(accountIndex: AccountIndex): () => void {
     return noop;
   }
 
-  const win = mgr.getAccountWindow(accountIndex);
-  if (!win || win.isDestroyed()) {
-    log.warn(`[BootstrapPromotion] Account-${accountIndex} window not found — skipping`);
+  const accountWc = mgr.getAccountWebContents(accountIndex);
+  if (!accountWc || accountWc.isDestroyed()) {
+    log.warn(`[BootstrapPromotion] Account-${accountIndex} WebContents not found — skipping`);
     return noop;
   }
 
+  // Host/window for child-window events and close cleanup (BW account window or WCV host).
+  const win = mgr.getAccountWindow(accountIndex);
+
   log.info(`[BootstrapPromotion] Watching account-${accountIndex} for authentication`);
 
-  // ── Path A: user authenticates inside the same window ──────────────────────
-  const detachMain = watchForAuth(win, (url) => {
+  // ── Path A: user authenticates inside the same account document ────────────
+  const detachMain = watchForAuth(accountWc, (url) => {
     log.info(`[BootstrapPromotion] Account-${accountIndex} authenticated in main window: ${url}`);
     detachChildCreated();
     if (mgr.isBootstrap(accountIndex)) {
@@ -114,7 +118,7 @@ export function watchBootstrapAccount(accountIndex: AccountIndex): () => void {
     // If a previous child watcher is still attached, remove it first.
     detachChild?.();
 
-    detachChild = watchForAuth(childWindow, (url) => {
+    detachChild = watchForAuth(childWindow.webContents, (url) => {
       log.info(
         `[BootstrapPromotion] Account-${accountIndex} authenticated via child window: ${url}`
       );
@@ -126,13 +130,7 @@ export function watchBootstrapAccount(accountIndex: AccountIndex): () => void {
       }
 
       if (accountIndex === asAccountIndex(0)) {
-        const mainWindow = mgr.getAccountWindow(asAccountIndex(0));
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          const currentUrl = mainWindow.webContents.getURL();
-          if (currentUrl !== url) {
-            void mainWindow.loadURL(url);
-          }
-        }
+        loadAccountURL(mgr, asAccountIndex(0), url);
       }
 
       // Close the child window if still alive.
@@ -154,7 +152,9 @@ export function watchBootstrapAccount(accountIndex: AccountIndex): () => void {
 
   const detachChildCreated = () => {
     try {
-      win.webContents.removeListener('did-create-window', childCreatedHandler);
+      if (!accountWc.isDestroyed()) {
+        accountWc.removeListener('did-create-window', childCreatedHandler);
+      }
     } catch {
       // webContents already garbage-collected
     }
@@ -164,15 +164,17 @@ export function watchBootstrapAccount(accountIndex: AccountIndex): () => void {
 
   // `did-create-window` is emitted on webContents when a new BrowserWindow is
   // opened as a child (e.g. the Google OAuth popup).
-  win.webContents.on('did-create-window', childCreatedHandler);
+  accountWc.on('did-create-window', childCreatedHandler);
 
-  // Also self-clean if the account window is closed before auth completes.
-  win.once('closed', () => {
-    detachMain();
-    detachChildCreated();
-    cleanupByAccount.delete(accountIndex);
-    log.debug(`[BootstrapPromotion] Account-${accountIndex} window closed — listeners removed`);
-  });
+  // Also self-clean if the account window/host is closed before auth completes.
+  if (win && !win.isDestroyed()) {
+    win.once('closed', () => {
+      detachMain();
+      detachChildCreated();
+      cleanupByAccount.delete(accountIndex);
+      log.debug(`[BootstrapPromotion] Account-${accountIndex} window closed — listeners removed`);
+    });
+  }
 
   const fullCleanup = () => {
     detachMain();

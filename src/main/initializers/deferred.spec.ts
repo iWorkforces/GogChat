@@ -196,11 +196,12 @@ export const DEFERRED_FEATURES = [
       );
     },
   },
-  // Telemetry: local-only CDP RUM — zero network, killable via secure flag
+  // Telemetry: after shell UI batch (appMenu) so CDP does not race first paint path
   {
     name: 'cdpTelemetry',
     phase: 'deferred',
     required: false,
+    dependencies: ['appMenu'],
     description: 'Local-only Chrome DevTools Protocol RUM telemetry',
     init: async ({ accountWindowManager, callbacks }) => {
       const module = await import('../features/cdpTelemetry.js');
