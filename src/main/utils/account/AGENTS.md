@@ -40,8 +40,13 @@ This directory owns multi-account window/view backends and per-account session p
 ## Dehydration differences
 
 - BrowserWindow dehydration may destroy a window, but must preserve the partition/session.
-- WebContentsView dehydration hides/throttles the view; it does not destroy per-account sessions.
+- WebContentsView uses a **three-state** model: `visible` | `hidden-live` | `dehydrated-parked`.
+  - Switch-away → `hidden-live` (`isDehydrated === false`).
+  - `dehydrateAccount` → `dehydrated-parked` (hide + throttle; session preserved).
+  - `isDehydrated` is **only** true for `dehydrated-parked`, never for mere switch-away.
+  - Account 0 and bootstrap accounts are never parked on WCV.
 - Keep backend-specific behavior behind the shared manager contract whenever possible.
+- Router hydration hooks must hydrate only when `isDehydrated===true`, not when merely non-visible.
 
 ## Deferred phase / metrics hook
 
