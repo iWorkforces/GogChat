@@ -5,9 +5,24 @@ import { registerMenuAction } from './menuActionRegistry.js';
 import { getIconCache } from '../utils/platform/iconCache.js';
 let aboutWindow: BrowserWindow | null = null;
 
+/** Escape text for safe interpolation into HTML text nodes / attributes. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function buildAboutHtml(auraIconDataUrl: string): string {
   const packageJson = getPackageInfo();
   const platform = [os.type(), os.release(), os.arch()].join(', ');
+  const productName = escapeHtml(packageJson.productName);
+  const version = escapeHtml(packageJson.version);
+  const author = escapeHtml(packageJson.author);
+  const platformSafe = escapeHtml(platform);
+  const iconSrc = escapeHtml(auraIconDataUrl);
 
   return `<!DOCTYPE html>
 <html>
@@ -36,11 +51,11 @@ function buildAboutHtml(auraIconDataUrl: string): string {
 </style>
 </head>
 <body>
-  <div class="icon-wrap"><img src="${auraIconDataUrl}" alt="GogChat" /></div>
-  <div class="name">${packageJson.productName}</div>
-  <div class="ver">Version ${packageJson.version}</div>
-  <div class="copy">${packageJson.author}</div>
-  <div class="plat">${platform}</div>
+  <div class="icon-wrap"><img src="${iconSrc}" alt="GogChat" /></div>
+  <div class="name">${productName}</div>
+  <div class="ver">Version ${version}</div>
+  <div class="copy">${author}</div>
+  <div class="plat">${platformSafe}</div>
 </body>
 </html>`;
 }
@@ -77,6 +92,7 @@ export default function showAboutPanel(mainWindow: BrowserWindow): void {
     backgroundColor: '#FFFFFF',
     webPreferences: {
       contextIsolation: true,
+      sandbox: true,
       nodeIntegration: false,
     },
   });
