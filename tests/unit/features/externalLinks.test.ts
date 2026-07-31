@@ -31,8 +31,8 @@ vi.mock('../../../src/shared/constants', () => ({
   },
 }));
 
-// ── shared/validators stub ───────────────────────────────────────────────────
-vi.mock('../../../src/shared/validators', () => ({
+// ── shared/urlValidators stub ────────────────────────────────────────────────
+vi.mock('../../../src/shared/urlValidators.js', () => ({
   validateExternalURL: (url: string) => url,
   isWhitelistedHost: () => true,
   isGoogleAuthUrl: (url: unknown) => {
@@ -53,22 +53,33 @@ vi.mock('../../../src/main/utils/lifecycle/resourceCleanup', () => ({
 
 // ── accountWindowManager stub ─────────────────────────────────────────────────
 // Controlled mocks — set per test.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetAccountIndex = vi.fn();
-const mockGetWindowForAccount = vi.fn();
 const mockCreateAccountWindow = vi.fn();
 const mockIsBootstrap = vi.fn();
 const mockMarkAsBootstrap = vi.fn();
+const mockHasAccount = vi.fn();
+const mockFocusAccount = vi.fn();
 const mockWatchBootstrapAccount = vi.fn();
+const mockGetAccountURL = vi.fn();
+const mockLoadAccountURL = vi.fn().mockReturnValue(true);
 
 vi.mock('../../../src/main/utils/account/accountWindowManager', () => ({
   getAccountIndex: (...args: unknown[]) => mockGetAccountIndex(...args),
-  getWindowForAccount: (...args: unknown[]) => mockGetWindowForAccount(...args),
+  getWindowForAccount: vi.fn().mockReturnValue(null),
   createAccountWindow: (...args: unknown[]) => mockCreateAccountWindow(...args),
   getAccountWindowManager: () => ({
     isBootstrap: (...args: unknown[]) => mockIsBootstrap(...args),
     markAsBootstrap: (...args: unknown[]) => mockMarkAsBootstrap(...args),
+    hasAccount: (...args: unknown[]) => mockHasAccount(...args),
+    focusAccount: (...args: unknown[]) => mockFocusAccount(...args),
+    getAccountWindow: vi.fn().mockReturnValue(null),
+    enumerateAccountWebContents: vi.fn(() => []),
   }),
+}));
+
+vi.mock('../../../src/main/utils/account/accountNavigation.js', () => ({
+  getAccountURL: (...args: unknown[]) => mockGetAccountURL(...args),
+  loadAccountURL: (...args: unknown[]) => mockLoadAccountURL(...args),
 }));
 
 vi.mock('../../../src/main/utils/account/bootstrapWatcher', () => ({
@@ -142,38 +153,36 @@ describe('routeAccountUrl — bootstrap guard', () => {
     return { preventDefaultSpy };
   }
 
-  it('shows/focuses existing bootstrap auth window and does NOT call loadURL', () => {
-    const authWindow = makeWindow('https://accounts.google.com/signin/v2/identifier');
-    mockGetWindowForAccount.mockReturnValue(authWindow);
+  it('focuses existing bootstrap auth account and does NOT call loadAccountURL', () => {
+    mockHasAccount.mockReturnValue(true);
     mockIsBootstrap.mockReturnValue(true);
+    mockGetAccountURL.mockReturnValue('https://accounts.google.com/signin/v2/identifier');
 
     const { preventDefaultSpy } = navigate(sourceWindow, 'https://chat.google.com/u/1/some-room');
 
-    expect(authWindow.show).toHaveBeenCalled();
-    expect(authWindow.focus).toHaveBeenCalled();
-    expect(
-      (authWindow as unknown as Record<string, ReturnType<typeof vi.fn>>).loadURL
-    ).not.toHaveBeenCalled();
+    expect(mockFocusAccount).toHaveBeenCalledWith(1);
+    expect(mockLoadAccountURL).not.toHaveBeenCalled();
     expect(preventDefaultSpy).toHaveBeenCalled();
     expect(mockMarkAsBootstrap).not.toHaveBeenCalled();
   });
 
-  it('calls loadURL for a bootstrap window that is NOT on a Google auth URL', () => {
-    const nonAuthWindow = makeWindow('https://chat.google.com/u/1/');
-    mockGetWindowForAccount.mockReturnValue(nonAuthWindow);
+  it('calls loadAccountURL for a bootstrap account that is NOT on a Google auth URL', () => {
+    mockHasAccount.mockReturnValue(true);
     mockIsBootstrap.mockReturnValue(true);
+    mockGetAccountURL.mockReturnValue('https://chat.google.com/u/1/');
 
     navigate(sourceWindow, 'https://chat.google.com/u/1/some-room');
 
-    // loadURL should be called because the current URL differs from the target
-    expect(
-      (nonAuthWindow as unknown as Record<string, ReturnType<typeof vi.fn>>).loadURL
-    ).toHaveBeenCalled();
+    expect(mockLoadAccountURL).toHaveBeenCalledWith(
+      expect.anything(),
+      1,
+      'https://chat.google.com/u/1/some-room'
+    );
+    expect(mockFocusAccount).toHaveBeenCalledWith(1);
   });
 
-  it('marks a newly created secondary window as bootstrap', () => {
-    // No existing window for account 1 → createAccountWindow is called
-    mockGetWindowForAccount.mockReturnValue(null);
+  it('marks a newly created secondary account as bootstrap', () => {
+    mockHasAccount.mockReturnValue(false);
     const newWindow = makeWindow('https://chat.google.com/u/1/');
     mockCreateAccountWindow.mockReturnValue(newWindow);
 
@@ -184,17 +193,18 @@ describe('routeAccountUrl — bootstrap guard', () => {
       1
     );
     expect(mockMarkAsBootstrap).toHaveBeenCalledWith(1);
+    expect(mockFocusAccount).toHaveBeenCalledWith(1);
   });
 
-  it('does NOT mark an already-registered window as bootstrap on re-route', () => {
-    const existingWindow = makeWindow('https://chat.google.com/u/1/');
-    mockGetWindowForAccount.mockReturnValue(existingWindow);
+  it('does NOT mark an already-registered account as bootstrap on re-route', () => {
+    mockHasAccount.mockReturnValue(true);
     mockIsBootstrap.mockReturnValue(false);
+    mockGetAccountURL.mockReturnValue('https://chat.google.com/u/1/');
 
     navigate(sourceWindow, 'https://chat.google.com/u/1/some-room');
 
-    // Window already existed — must NOT call markAsBootstrap
     expect(mockMarkAsBootstrap).not.toHaveBeenCalled();
+    expect(mockLoadAccountURL).toHaveBeenCalled();
   });
 
   it('returns false (no redirect) when source and target are the same account', () => {
@@ -205,35 +215,26 @@ describe('routeAccountUrl — bootstrap guard', () => {
     expect(preventDefaultSpy).not.toHaveBeenCalled();
   });
 
-  it('restores a minimized bootstrap auth window before show/focus, and skips loadURL', () => {
-    const authWindow = makeWindow('https://accounts.google.com/o/oauth2/auth');
-    (authWindow as unknown as Record<string, unknown>).isMinimized = vi.fn(() => true);
-    mockGetWindowForAccount.mockReturnValue(authWindow);
+  it('focuses target account for bootstrap auth and skips loadAccountURL', () => {
+    mockHasAccount.mockReturnValue(true);
     mockIsBootstrap.mockReturnValue(true);
+    mockGetAccountURL.mockReturnValue('https://accounts.google.com/o/oauth2/auth');
 
     navigate(sourceWindow, 'https://chat.google.com/u/1/some-room');
 
-    expect(
-      (authWindow as unknown as Record<string, ReturnType<typeof vi.fn>>).restore
-    ).toHaveBeenCalled();
-    expect(authWindow.show).toHaveBeenCalled();
-    expect(
-      (authWindow as unknown as Record<string, ReturnType<typeof vi.fn>>).loadURL
-    ).not.toHaveBeenCalled();
+    expect(mockFocusAccount).toHaveBeenCalledWith(1);
+    expect(mockLoadAccountURL).not.toHaveBeenCalled();
   });
 
-  it('does NOT re-show or re-focus the source window after routing to secondary account', () => {
-    const targetWindow = makeWindow('https://chat.google.com/u/1/');
-    mockGetWindowForAccount.mockReturnValue(targetWindow);
+  it('focuses target account and does not focus the source host after routing', () => {
+    mockHasAccount.mockReturnValue(true);
     mockIsBootstrap.mockReturnValue(false);
+    mockGetAccountURL.mockReturnValue('https://chat.google.com/u/1/');
 
     navigate(sourceWindow, 'https://chat.google.com/u/1/some-room');
 
-    // Source window should NOT be shown or focused — only the target window
     expect(sourceWindow.show).not.toHaveBeenCalled();
     expect(sourceWindow.focus).not.toHaveBeenCalled();
-    // Target window SHOULD be shown and focused
-    expect(targetWindow.show).toHaveBeenCalled();
-    expect(targetWindow.focus).toHaveBeenCalled();
+    expect(mockFocusAccount).toHaveBeenCalledWith(1);
   });
 });

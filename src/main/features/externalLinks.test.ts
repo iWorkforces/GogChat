@@ -78,13 +78,22 @@ vi.mock('../../shared/urlValidators.js', () => ({
   isGoogleAuthUrl: vi.fn().mockReturnValue(false),
 }));
 
+const mockFocusAccount = vi.fn();
+const mockHasAccount = vi.fn().mockReturnValue(false);
+const mockIsBootstrap = vi.fn().mockReturnValue(false);
+const mockMarkAsBootstrap = vi.fn();
+const mockLoadAccountURL = vi.fn().mockReturnValue(true);
+const mockGetAccountURL = vi.fn().mockReturnValue(null);
+
 // Mock accountWindowManager
 vi.mock('../utils/account/accountWindowManager.js', () => ({
   getAccountWindowManager: () => ({
-    isBootstrap: vi.fn().mockReturnValue(false),
-    markAsBootstrap: vi.fn(),
+    isBootstrap: (...args: unknown[]) => mockIsBootstrap(...args),
+    markAsBootstrap: (...args: unknown[]) => mockMarkAsBootstrap(...args),
     getAccountIndex: vi.fn().mockReturnValue(0),
     getAccountWindow: vi.fn().mockReturnValue(null),
+    hasAccount: (...args: unknown[]) => mockHasAccount(...args),
+    focusAccount: (...args: unknown[]) => mockFocusAccount(...args),
     enumerateAccountWebContents: vi.fn(() => []),
   }),
   createAccountWindow: vi.fn().mockReturnValue({
@@ -98,6 +107,11 @@ vi.mock('../utils/account/accountWindowManager.js', () => ({
   }),
   getWindowForAccount: vi.fn().mockReturnValue(null),
   getAccountIndex: vi.fn().mockReturnValue(0),
+}));
+
+vi.mock('../utils/account/accountNavigation.js', () => ({
+  loadAccountURL: (...args: unknown[]) => mockLoadAccountURL(...args),
+  getAccountURL: (...args: unknown[]) => mockGetAccountURL(...args),
 }));
 
 vi.mock('../utils/account/accountWebContentsHooks.js', () => ({
@@ -187,6 +201,32 @@ describe('externalLinks feature', () => {
       navHandler({ preventDefault } as unknown as Electron.Event, 'https://chat.google.com/u/1/');
 
       expect(preventDefault).toHaveBeenCalled();
+      expect(mockFocusAccount).toHaveBeenCalledWith(1);
+    });
+
+    it('routes existing secondary accounts via loadAccountURL (not host loadURL)', async () => {
+      mockHasAccount.mockReturnValue(true);
+      mockGetAccountURL.mockReturnValue('https://chat.google.com/u/1/');
+      const win = makeFakeWindow('https://chat.google.com/u/0/');
+      const feature = await import('./externalLinks.js');
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
+
+      const handler = win.webContents.setWindowOpenHandler.mock.calls[0][0];
+      const result = handler({
+        url: 'https://chat.google.com/u/1/room/abc',
+      } as Electron.HandlerDetails);
+
+      expect(result).toEqual({ action: 'deny' });
+      expect(mockLoadAccountURL).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        'https://chat.google.com/u/1/room/abc'
+      );
+      expect(mockFocusAccount).toHaveBeenCalledWith(1);
+      expect(win.loadURL).not.toHaveBeenCalled();
     });
 
     it('will-navigate prevents non-HTTP schemes (parity with window-open handler)', async () => {

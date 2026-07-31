@@ -13,9 +13,9 @@ import { asAccountIndex } from '../../shared/types/branded.js';
 import {
   createAccountWindow,
   getAccountIndex,
-  getWindowForAccount,
   getAccountWindowManager,
 } from '../utils/account/accountWindowManager.js';
+import { loadAccountURL, getAccountURL } from '../utils/account/accountNavigation.js';
 import {
   onAccountWebContentsCreated,
   setAccountWebContentsHooksManager,
@@ -71,6 +71,8 @@ function getAccountIndexFromUrl(input: string) {
 
 function routeAccountUrl(window: BrowserWindow, url: string): boolean {
   const targetAccountIndex = getAccountIndexFromUrl(url);
+  // Host window association (BW account window or WCV host → most-recent).
+  // Used only to detect same-account opens; navigation always uses WC helpers.
   const currentAccountIndex = getAccountIndex(window) ?? asAccountIndex(0);
 
   if (targetAccountIndex === currentAccountIndex) {
@@ -78,50 +80,37 @@ function routeAccountUrl(window: BrowserWindow, url: string): boolean {
   }
 
   const manager = getAccountWindowManager();
-  const existingWindow = getWindowForAccount(targetAccountIndex);
+  const accountExists = manager.hasAccount(targetAccountIndex);
 
-  // If the target window exists and is a bootstrap window currently on a Google
-  // auth URL, just show/focus it — do NOT call loadURL again so we don't interrupt
-  // an in-flight sign-in flow.
-  if (
-    existingWindow &&
-    !existingWindow.isDestroyed() &&
-    manager.isBootstrap(targetAccountIndex) &&
-    isGoogleAuthUrl(existingWindow.webContents.getURL())
-  ) {
-    if (existingWindow.isMinimized()) {
-      existingWindow.restore();
+  // Bootstrap mid-auth: focus only — never interrupt Google sign-in (WC-first URL).
+  if (accountExists && manager.isBootstrap(targetAccountIndex)) {
+    const currentUrl = getAccountURL(manager, targetAccountIndex);
+    if (currentUrl !== null && isGoogleAuthUrl(currentUrl)) {
+      manager.focusAccount(targetAccountIndex);
+      log.info(
+        `[ExternalLinks] Bootstrap auth already active for account ${targetAccountIndex} — skipping loadURL`
+      );
+      return true;
     }
-    existingWindow.show();
-    existingWindow.focus();
-    log.info(
-      `[ExternalLinks] Bootstrap auth window already active for account ${targetAccountIndex} — skipping loadURL`
-    );
-    return true;
   }
 
-  const targetWindow = existingWindow ?? createAccountWindow(url, targetAccountIndex);
-
-  // Mark newly created secondary-account windows as bootstrap so subsequent
-  // routing calls know an auth flow may be in progress.
-  if (!existingWindow) {
+  if (!accountExists) {
+    createAccountWindow(url, targetAccountIndex);
     manager.markAsBootstrap(targetAccountIndex);
     watchBootstrapAccount(targetAccountIndex);
     log.debug(`[ExternalLinks] Marked new account ${targetAccountIndex} window as bootstrap`);
+  } else {
+    const currentUrl = getAccountURL(manager, targetAccountIndex);
+    if (currentUrl !== url) {
+      loadAccountURL(manager, targetAccountIndex, url);
+    }
   }
 
-  if (targetWindow.isMinimized()) {
-    targetWindow.restore();
-  }
-
-  targetWindow.show();
-  targetWindow.focus();
-  if (targetWindow.webContents.getURL() !== url) {
-    void targetWindow.loadURL(url);
-  }
+  // Bring the target account UI forward (BW show/focus; WCV switch + unthrottle).
+  manager.focusAccount(targetAccountIndex);
 
   log.info(
-    `[ExternalLinks] Routed account URL to isolated window: ${currentAccountIndex} -> ${targetAccountIndex}`
+    `[ExternalLinks] Routed account URL to isolated account: ${currentAccountIndex} -> ${targetAccountIndex}`
   );
 
   return true;
@@ -334,6 +323,11 @@ const startReGuardTimer = () => {
 export function cleanupExternalLinks(): void {
   try {
     log.debug('[ExternalLinks] Cleaning up external links handler');
+    if (hooksUnsub) {
+      hooksUnsub();
+      hooksUnsub = null;
+    }
+    setAccountWebContentsHooksManager(null);
     stopReGuardTimer();
     guardAgainstExternalLinks = true;
     log.info('[ExternalLinks] External links handler cleaned up');
