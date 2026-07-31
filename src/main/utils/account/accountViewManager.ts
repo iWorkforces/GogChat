@@ -446,6 +446,19 @@ export class AccountViewManager implements IAccountWindowManager {
     return this.views.has(accountIndex);
   }
 
+  listAccountIndices(): AccountIndex[] {
+    return Array.from(this.views.keys()).sort((a, b) => Number(a) - Number(b));
+  }
+
+  /**
+   * Frontmost account view only. After the Wave 2 three-state split, switched-away
+   * accounts stay non-visible without being dehydrated-parked.
+   */
+  isAccountVisible(accountIndex: AccountIndex): boolean {
+    const entry = this.views.get(accountIndex);
+    return entry?.isVisible === true;
+  }
+
   unregisterAccount(accountIndex: AccountIndex): void {
     const entry = this.views.get(accountIndex);
     if (!entry) return;

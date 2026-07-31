@@ -143,6 +143,13 @@ export class AccountWindowRegistry {
   }
 
   /**
+   * Live registered account indices only (not dehydrated), sorted ascending.
+   */
+  listAccountIndices(): AccountIndex[] {
+    return Array.from(this.windows.keys()).sort((a, b) => Number(a) - Number(b));
+  }
+
+  /**
    * Get the most recently created account window
    * @returns The most recent BrowserWindow or null if none exist
    */

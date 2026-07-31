@@ -375,3 +375,25 @@ describe('AccountWindowRegistry — destroyAll', () => {
     expect(registry.getAccountCount()).toBe(0);
   });
 });
+
+describe('AccountWindowRegistry — listAccountIndices', () => {
+  let registry: AccountWindowRegistry;
+
+  beforeEach(() => {
+    nextWebContentsId = 1000;
+    registry = new AccountWindowRegistry();
+  });
+
+  it('returns sorted sparse indices', () => {
+    const win0 = makeTypedWindow();
+    const win2 = makeTypedWindow();
+    registry.registerWindow(win0, 0);
+    registry.registerWindow(win2, 2);
+    expect(registry.listAccountIndices()).toEqual([0, 2]);
+    expect(registry.getAccountCount()).toBe(2);
+  });
+
+  it('returns empty array when no accounts', () => {
+    expect(registry.listAccountIndices()).toEqual([]);
+  });
+});

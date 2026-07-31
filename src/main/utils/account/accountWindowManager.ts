@@ -345,6 +345,28 @@ export class AccountWindowManager implements IAccountWindowManager {
     return this.registry.hasAccount(accountIndex);
   }
 
+  /**
+   * Live registry indices plus dehydrated-parked indices, sorted ascending.
+   */
+  listAccountIndices(): AccountIndex[] {
+    const indices = new Set<AccountIndex>(this.registry.listAccountIndices());
+    for (const accountIndex of this.dehydratedAccounts.keys()) {
+      indices.add(accountIndex);
+    }
+    return Array.from(indices).sort((a, b) => Number(a) - Number(b));
+  }
+
+  isAccountVisible(accountIndex: AccountIndex): boolean {
+    if (this.dehydratedAccounts.has(accountIndex)) {
+      return false;
+    }
+    const window = this.registry.getAccountWindow(accountIndex);
+    if (!window || window.isDestroyed()) {
+      return false;
+    }
+    return window.isVisible();
+  }
+
   getAccountCount(): number {
     return this.registry.getAccountCount();
   }
