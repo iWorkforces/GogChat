@@ -1,8 +1,8 @@
 # GogChat Agent Guide
 
-**Generated:** 2026-07-30
-**Commit:** aae1e4e
-**Branch:** support-native-notifications
+**Generated:** 2026-07-31
+**Commit:** 892dbe2
+**Branch:** deep-perf-enhancements
 **Version:** 3.18.1
 
 ## Project shape
@@ -16,6 +16,7 @@ This is **not** a typical Electron app:
 - Multi-account state uses per-account `persist:account-N` session partitions.
 - The default backend is one BrowserWindow per account; `app.useWebContentsView` switches to a WebContentsView host backend.
 - Security, IPC, preload, and URL validation are layered and intentionally strict.
+- Custom certificate pinning was **removed**; Chromium is the sole TLS trust authority (security phase must not install `certificate-error` listeners).
 - Unauthenticated CI startup metrics use a versioned export contract; document load and account readiness are **not** first paint or first interaction.
 
 ## Commands
@@ -104,7 +105,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | Config                         | `src/shared/types/config.ts` + `src/main/utils/config/configSchema.ts` + `src/main/config.ts` | Update shared types, schema/defaults, and accessors together.          |
 | Secure flags                   | `src/main/utils/security/secureFlags.ts`                                        | SafeStorage-backed kill switches; not electron-store config.                  |
 | Error types                    | `src/shared/types/errors.ts` + `src/main/utils/lifecycle/errors.ts`             | Prefer typed errors and `{ cause }`.                                          |
-| Historical webview constraints | `docs/windowWrapper-history.md`                                                 | `webSecurity:false` and CSP exceptions are deliberate.                        |
+| Historical webview constraints | `docs/windowWrapper-history.md`                                                 | Historical notes; current factory uses `webSecurity: true` + targeted CSP fixes. |
 | Perf types / units / schema    | `src/main/utils/lifecycle/performanceTypes.ts`                                  | Schema version, MB memory, required markers.                                  |
 | Perf final export              | `src/main/utils/lifecycle/performanceFinalizer.ts`                              | One-shot after deferred + document load + renderer sample.                    |
 | Perf monitor / sampling        | `src/main/utils/lifecycle/performanceMonitor.ts`                                | Markers, memory, account renderer sampling.                                   |
@@ -130,12 +131,20 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 
 ### Startup order
 
-1. `setupCertificatePinning()` before any network.
-2. `reportExceptions()`.
-3. `enforceSingleInstance()`.
-4. `setupDeepLinkListener()` before app ready.
-5. In `registerAppReady.ts`: error handler, global cleanups + security phase, critical phase + store init, account bootstrap, shared feature context, UI phase; arm performance finalizer and account-0 document-load markers.
-6. Deferred phase is scheduled after first window work; it includes tray/menu/badges/bootstrap promotion/window state/passkeys/notifications/network/external links/close-to-tray/open-at-login/updates/context menu/first launch/app-location/CDP telemetry/cache warming. Deferred signals the finalizer; it does **not** own metrics export.
+1. **Pre-ready (before any Chromium process):** set V8 heap via `app.commandLine.appendSwitch('js-flags', '--max-old-space-size=…')`. Default **512** MB; override with `GOGCHAT_V8_HEAP_CAP_MB` (clamped 128–4096). Config store cannot be used here (needs SafeStorage / `app.ready`).
+2. `perfMonitor.mark('app-start')`.
+3. `enforceSingleInstance()` — only the first instance continues startup wiring.
+4. `setupDeepLinkListener()` before app ready (macOS may fire `open-url` early).
+5. `registerAppReady(...)` owns `app.whenReady()`; `registerShutdownHandler()` registers the async shutdown path.
+6. In `registerAppReady.ts` when ready:
+   - Centralized error handler.
+   - Parallel: global cleanup registration + **security** phase (`reportExceptions`, `mediaPermissions`).
+   - Parallel: **critical** phase (`userAgent`) + encrypted config store init.
+   - Optional session preconnect for Google Chat/auth/CDN hosts on `persist:account-0` (disabled when `GOGCHAT_DISABLE_PRECONNECT=1`).
+   - Create account-0 window, set shared feature context, mark `account-0-ready`.
+   - Arm `performanceFinalizer`; on main-frame `did-finish-load` mark `account-0-content-loaded` and `notifyDocumentLoadComplete()`. Hard `did-fail-load` is logged only (non-terminal); capture timeout still invalidates incomplete runs.
+   - **UI** phase (`singleInstance` restore + `deepLinkHandler`).
+   - `setImmediate`: warm icon tiers + deferred phase (tray/menu/badges/bootstrap/window state/passkeys/notifications/network/external links/close-to-tray/open-at-login/updates/context menu/first launch/app-location/CDP telemetry). Deferred calls `notifyDeferredPhaseComplete()`; it does **not** own metrics export.
 
 ### Feature lifecycle
 
@@ -155,6 +164,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 - BrowserWindow hydration: the window factory owns the single restored `loadURL`; the manager must not re-dispatch navigation.
 - Renderer observability: use `enumerateAccountWebContents()` (both backends). Do not sample host-only WebContents under WebContentsView.
 - BrowserWindow remains the default backend; WebContentsView stays opt-in. Do not change backend policy without measured evidence and an explicit decision.
+- Background throttling: account-0 keeps `backgroundThrottling: false` for badge/notification reliability; accounts 1+ enable it (and may toggle via `setBackgroundThrottling` on focus/blur).
 
 ### Performance metrics
 
@@ -176,7 +186,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 - Optional unread-delta OS banners (`app.unreadDeltaNotifications`, default false) live in `badgeHelpers` via `nativeNotification.ts`; primary path remains Chat Web Notification bridge.
 - Multi-account banners always set macOS `subtitle` (`Account N`, 1-based, or `app.accountLabels` custom) and `groupId`; tags are namespaced `a${index}:…` from IPC sender identity only. Dock badge is the sum of per-account unreads capped at `BADGE.DISPLAY_MAX` (99). Labels: Preferences → Account Labels.
 - Use `validateExternalURL()` and `shellWrapper.ts`; never call `shell.openExternal()` directly in main.
-- Certificate pinning covers Google domains; kill switches live in SafeStorage-backed secure flags.
+- TLS trust is Chromium’s; do not reintroduce custom `certificate-error` handlers. SafeStorage-backed secure flags (`secureFlags.ts`) hold kill switches such as `disableCdpTelemetry` (and a residual `disableCertPinning` storage key that no startup path consults after pinning removal).
 - Do not wholesale replace Google CSP. Existing COEP/COOP/frame-ancestors stripping is targeted and intentional.
 
 ## Type and code conventions

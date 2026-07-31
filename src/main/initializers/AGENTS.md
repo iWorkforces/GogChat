@@ -6,10 +6,11 @@ This directory is the canonical home for app startup/shutdown sequencing and bui
 
 ## Files
 
-- `registerAppReady.ts` - owns `app.whenReady()` sequencing.
+- `registerAppReady.ts` - owns `app.whenReady()` sequencing (phases, store, account-0, finalizer arming, deferred schedule).
 - `registerShutdown.ts` - async shutdown path before `app.exit()`.
-- `security.spec.ts`, `ui.spec.ts`, `deferred.spec.ts` - declarative startup plan input.
-- `initializerTypes.ts` - initializer contracts.
+- `registerGlobalCleanups.ts` - lazy `require()` of cleanup owners (avoid startup import cycles).
+- `singletonDestroyers.ts` / `shutdownDiagnostics.ts` - ordered teardown helpers used by shutdown.
+- `security.spec.ts`, `ui.spec.ts`, `deferred.spec.ts` - declarative startup plan input (`FeatureSpec` from `utils/lifecycle/featureConfigTypes.ts`).
 
 ## Feature plan contract
 
@@ -36,9 +37,11 @@ In `registerAppReady.ts`, after account-0 window construction:
 1. Call `armPerformanceFinalizer({ getAccountManager })`.
 2. Mark `account-0-ready` for native window readiness only.
 3. On main-frame `did-finish-load`, mark `account-0-content-loaded` and `notifyDocumentLoadComplete()`.
-4. On main-frame hard `did-fail-load` (not ERR_ABORTED), `notifyDocumentLoadFailed(...)`.
+4. On main-frame hard `did-fail-load` (not ERR_ABORTED): **log only**. Intermediate Google auth redirects often surface as fail-load events; do not treat them as terminal. Incomplete captures still fail via finalizer timeout / missing required markers. `notifyDocumentLoadFailed` exists on the finalizer for tests or explicit callers but is not wired from production `registerAppReady` today.
 
-Deferred phase (via `cacheWarmer`) calls `notifyDeferredPhaseComplete()` after features load. Final metrics export is not owned by deferred-only paths.
+Before account-0 creation, optional session preconnect warms Google Chat/auth/CDN hosts unless `GOGCHAT_DISABLE_PRECONNECT=1`.
+
+Deferred phase (via `cacheWarmer.runDeferredPhase`) calls `notifyDeferredPhaseComplete()` after features load. Final metrics export is not owned by deferred-only paths. Icon warming (`warmInitialIcons` / `warmSoonDeferredIcons`) runs on the same `setImmediate` path as deferred — not on the critical path before first window.
 
 ## Shutdown
 

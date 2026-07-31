@@ -22,7 +22,11 @@ Features are self-contained startup/runtime units registered through initializer
 3. Declare dependencies explicitly with `dependencies`.
 4. Run a build to regenerate `src/main/generated/featurePlan.ts`.
 
-Known dependencies include `badgeIcons -> trayIcon`, `windowState -> singleInstance/deepLinkHandler/bootstrapPromotion`, `appMenu -> openAtLogin/externalLinks`, `externalLinks -> bootstrapPromotion`, and `closeToTray -> trayIcon`.
+Known dependencies (from current specs) include `badgeIcons -> trayIcon`, `windowState -> singleInstance/deepLinkHandler/bootstrapPromotion`, `appMenu -> openAtLogin/externalLinks`, `externalLinks -> bootstrapPromotion`, and `closeToTray -> trayIcon`.
+
+Security phase features (no deps): `reportExceptions`, `mediaPermissions`. Critical: `userAgent`. UI: `singleInstance` (restore handler), `deepLinkHandler`. Deferred also includes `trayIcon`, `bootstrapPromotion`, `openAtLogin`, `appUpdates`, `firstLaunch`, `enforceMacOSAppLocation`, `passkeySupport`, `handleNotification`, `contextMenu`, `inOnline`, `cdpTelemetry` (optional).
+
+`aboutPanel` is **not** a phased `FeatureSpec`; it self-registers a menu action and is invoked from the app menu.
 
 ## Menu actions
 
@@ -49,6 +53,7 @@ Known dependencies include `badgeIcons -> trayIcon`, `windowState -> singleInsta
 
 ## Gotchas
 
-- `badgeHandlers.ts` lives in `src/main/utils/platform/`, not here.
-- Feature config/types live under `src/main/utils/lifecycle/`.
-- Google Chat webview constraints are documented in `docs/windowWrapper-history.md`; do not change CSP/webSecurity behavior casually.
+- Badge IPC/dock logic lives in `src/main/utils/platform/badgeHelpers.ts` (`setupBadgeHandlers`); `badgeIcon.ts` is only the thin feature lifecycle wrapper.
+- Feature config/types live under `src/main/utils/lifecycle/` (`featureConfigTypes.ts`, not an `initializerTypes` module).
+- Custom certificate pinning feature modules are gone; do not re-add a security-phase cert pin feature without an explicit security plan. Chromium remains the trust authority.
+- Google Chat webview/CSP history is documented in `docs/windowWrapper-history.md`; current `windowWrapper` uses `webSecurity: true` — do not change CSP/webSecurity behavior casually.

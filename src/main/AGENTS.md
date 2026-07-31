@@ -6,11 +6,14 @@
 
 ## Entry and startup
 
-- `index.ts` must stay thin. It wires the top-level sequence only.
+- `index.ts` must stay thin. It wires the top-level sequence only: V8 heap cap (`GOGCHAT_V8_HEAP_CAP_MB`, default 512), `app-start` mark, single-instance lock, deep-link listener, `registerAppReady`, shutdown handler.
 - `initializers/registerAppReady.ts` owns `app.whenReady()` work.
-- Startup order is security-sensitive: certificate pinning, exception reporting, single-instance lock, deep links, app-ready security/critical phases, account bootstrap, context store, UI phase, then deferred phase.
-- After account-0 window creation, `registerAppReady` arms `performanceFinalizer` and marks `account-0-content-loaded` on main-frame `did-finish-load` (document load, not first paint/interaction).
+- Startup order (do not invent a pre-ready certificate-pinning step — custom pinning was removed):
+  1. Pre-ready V8 heap + single-instance + deep links.
+  2. Ready: error handler → security phase (`reportExceptions`, `mediaPermissions`) ∥ global cleanups → critical (`userAgent`) ∥ store init → optional Google preconnect (`GOGCHAT_DISABLE_PRECONNECT=1` kills it) → account-0 bootstrap → arm finalizer / document-load markers → UI phase → `setImmediate` deferred (icon warm + deferred features).
+- After account-0 window creation, `registerAppReady` arms `performanceFinalizer` and marks `account-0-content-loaded` on main-frame `did-finish-load` (document load, not first paint/interaction). Hard `did-fail-load` is logged only; finalizer timeout still invalidates incomplete captures.
 - Feature specs live in `initializers/{security,ui,deferred}.spec.ts`; generated plan lives in `generated/featurePlan.ts` and must not be hand-edited.
+- Window factory (`windowWrapper.ts`): `contextIsolation` / `sandbox` / `nodeIntegration: false`; account-0 disables background throttling for badge/notification reliability; accounts 1+ enable it.
 
 ## Module map
 
@@ -59,7 +62,8 @@
 - Preserve `persist:account-N` partitions and Google auth page handling.
 - BrowserWindow hydration: factory owns the single restored `loadURL`; manager must not double-navigate.
 - Observability: implement/use `enumerateAccountWebContents()`; do not sample host-only under WebContentsView.
-- BrowserWindow remains the default backend; WebContentsView stays opt-in until measured policy evidence exists.
+- BrowserWindow remains the default backend; WebContentsView stays opt-in (`app.useWebContentsView`) until measured policy evidence exists.
+- Keep account-0 unthrottled for badge/notification reliability when changing focus/blur or factory `backgroundThrottling` defaults.
 
 ### Touch performance export
 
