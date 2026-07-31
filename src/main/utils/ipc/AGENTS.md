@@ -42,7 +42,7 @@ Prefer the current factory helpers in this directory over ad-hoc `ipcMain.handle
 
 - Renderer → main (`IPC_CHANNELS`): `UNREAD_COUNT`, `FAVICON_CHANGED`, `NOTIFICATION_SHOW`, `NOTIFICATION_CLICKED`, `CHECK_IF_ONLINE`, `PASSKEY_AUTH_FAILED`.
 - Main → renderer: `SEARCH_SHORTCUT`, `ONLINE_STATUS`.
-- Notification show handlers must validate payloads, then use `nativeNotification` / `notificationFocus` — not ad-hoc `new Notification` outside those helpers (except the permission probe in `notificationAccess`).
+- Notification show handlers must validate payloads (including icon allowlist via shared validators), then use `nativeNotification` / `notificationFocus` — not ad-hoc `new Notification` outside those helpers (except the permission probe in `notificationAccess`).
 
 ## Anti-patterns
 

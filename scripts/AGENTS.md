@@ -27,7 +27,8 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 - `verify-mac-release-signing.js` - codesign / spctl / stapler trust checks on a macOS GHA runner for the current job's `dist/`.
 - `verify-macos-package-artifacts.js` - checks macOS DMG basenames, required arm64/x64 outputs, duplicates, and forbidden labels (`amd64`, `ia32`, `universal`).
 - `verify-packaged-dependency-closure.js` - derives runtime externals from emitted main/preload imports + Rsbuild string externals; classifies packages (including `@rspack`, `@ast-grep`, `@rslib`); compares to packaged fixture/artifact. Run **before** removing payload.
-- `notarize.cjs` - uses notarytool with `APPLE_ID`, `APPLE_APP_PASSWORD`, and `APPLE_TEAM_ID`.
+- `app-identity.cjs` - fixed `APP_ID` / `NOTARIZE_BUNDLE_ID` = `com.ocworkforces.gogchat`. Keep lockstep with `src/shared/appIdentity.ts` and `electron-builder.yml` `appId`. Covered by `notarize-identity.test.js` (forbids productFilename-derived / typo bundle ids).
+- `notarize.cjs` - uses notarytool with `APPLE_ID`, `APPLE_APP_PASSWORD`, and `APPLE_TEAM_ID`; bundle id from `app-identity.cjs` only.
 - `after-pack.cjs` - strip/locale optimizations for darwin **arm64 and x64** (not universal).
 - `remove-locales.js` - standalone locale helper; accepts optional arch (`arm64` default, or `x64`). Prefer after-pack for release packaging.
 - `verify-windows-package-artifacts.js` - checks guarded Windows NSIS setup names, required x64/arm64 outputs, and forbidden package types.
@@ -39,7 +40,7 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 
 - `verify-remediation-evidence.js` - validates Todo evidence receipts and distinguishes core-remediation vs release-readiness approval.
 - `verify-performance-claims.js` - rejects unsupported runtime-savings claims (package bytes ≠ startup wins).
-- `check-doc-claims.js` - audits documented AGENTS claims against source (singleton destroyers, lazy cleanups, branded helpers, feature isolation). Pure config readers (for example `accountLabelStore` get helpers) belong on the destroyer allowlist when they are not process singletons.
+- `check-doc-claims.js` - audits documented AGENTS claims against source (singleton destroyers, lazy cleanups, branded helpers, feature isolation). Pure config readers (for example `accountLabelStore` get helpers) and pure helpers such as `accountNavigation.getAccountURL` belong on the destroyer allowlist when they are not process singletons. Architecture-scoped only — does not assert version strings or marketing TLS claims.
 - `hooks/pre-push` - blocks pushes on lint/check failures.
 
 ## Build invariants
@@ -69,7 +70,7 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 - Schema version and `units.memory: "MB"` / `units.time: "ms"` are required; incomplete or invalid runs must not feed medians or gated PASS.
 - Gated vs warn-only budget behavior must stay explicit. Missing gated metrics → exit 1. IPC latency remains warn-only until a real producer and baseline exist.
 - Do not represent `account-0-ready` or `account-0-content-loaded` as first paint or first interaction in script messages or claims.
-- Evidence roots: `.omo/evidence/performance-remediation/task-<N>-*.{json,md,log}` and `.omo/evidence/macos-intel-x64-dmg/` for dual-arch packaging receipts.
+- Evidence roots: `.omo/evidence/performance-remediation/task-<N>-*.{json,md,log}`, `.omo/evidence/macos-intel-x64-dmg/` for dual-arch packaging receipts, and `.omo/evidence/deep-enhancements/` for dual-backend/truth/safety closeout (often gitignored).
 
 ## Packaging
 

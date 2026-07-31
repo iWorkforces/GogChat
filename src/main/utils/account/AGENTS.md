@@ -59,9 +59,15 @@ This directory owns multi-account window/view backends and per-account session p
 - `cacheWarmer.runDeferredPhase` runs deferred features, logs the perf summary, optional dev config profiling (`runDevPostDeferred`), then `notifyDeferredPhaseComplete()`.
 - Metrics JSON export is **not** owned here; see `performanceFinalizer.ts`.
 
+## Callers outside this directory
+
+- Features (`externalLinks`, `deepLinkHandler`, `appMenu`, bootstrap promotion) must use `accountNavigation` + `focusAccount`, not host `BrowserWindow.loadURL`, under WCV.
+- Content-loaded metrics in `registerAppReady` use `getAccountWebContents(0)`.
+- Session pressure / close-to-tray use sparse `listAccountIndices` and never dehydrate account-0 under pressure.
+
 ## Change checklist
 
 - If behavior is user-visible, update both backends or document why one is intentionally different.
 - Keep bootstrap promotion compatible with `src/main/initializers/registerAppReady.ts` and lifecycle context storage.
-- Add/update tests around auth pages, partition persistence, active account switching, dehydration, single hydration navigation, and `enumerateAccountWebContents`.
+- Add/update tests around auth pages, partition persistence, active account switching, dehydration, single hydration navigation, hooks reinstall after BW hydrate, WCV unthrottle/fallback, and `enumerateAccountWebContents`.
 - Do not add Google Chat URL assumptions here; use validators from `src/shared/urlValidators.ts`.

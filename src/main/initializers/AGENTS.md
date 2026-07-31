@@ -36,12 +36,12 @@ In `registerAppReady.ts`, after account-0 window construction:
 
 1. Call `armPerformanceFinalizer({ getAccountManager })`.
 2. Mark `account-0-ready` for native window readiness only.
-3. On main-frame `did-finish-load`, mark `account-0-content-loaded` and `notifyDocumentLoadComplete()`.
-4. On main-frame hard `did-fail-load` (not ERR_ABORTED): **log only**. Intermediate Google auth redirects often surface as fail-load events; do not treat them as terminal. Incomplete captures still fail via finalizer timeout / missing required markers. `notifyDocumentLoadFailed` exists on the finalizer for tests or explicit callers but is not wired from production `registerAppReady` today.
+3. On **account-0 WebContents** `did-finish-load` (`getAccountWebContents(0)`, not WCV host-only), mark `account-0-content-loaded` and `notifyDocumentLoadComplete()`.
+4. On hard `did-fail-load` (not ERR_ABORTED): **log only**. Intermediate Google auth redirects often surface as fail-load events; do not treat them as terminal. Incomplete captures still fail via finalizer timeout / missing required markers. `notifyDocumentLoadFailed` exists on the finalizer for tests or explicit callers but is not wired from production `registerAppReady` today.
 
 Before account-0 creation, optional session preconnect warms Google Chat/auth/CDN hosts unless `GOGCHAT_DISABLE_PRECONNECT=1`.
 
-Deferred phase (via `cacheWarmer.runDeferredPhase`) calls `notifyDeferredPhaseComplete()` after features load. Final metrics export is not owned by deferred-only paths. Icon warming (`warmInitialIcons` / `warmSoonDeferredIcons`) runs on the same `setImmediate` path as deferred — not on the critical path before first window.
+Deferred phase (via `cacheWarmer.runDeferredPhase`) calls `notifyDeferredPhaseComplete()` after features load. Final metrics export is not owned by deferred-only paths. Icon warming (`warmInitialIcons` / `warmSoonDeferredIcons`) runs on the same `setImmediate` path as deferred — not on the critical path before first window. Deferred ordering: `cdpTelemetry` depends on `appMenu` (see `deferred.spec.ts`).
 
 ## Shutdown
 

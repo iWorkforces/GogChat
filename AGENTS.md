@@ -1,20 +1,21 @@
 # GogChat Agent Guide
 
-**Generated:** 2026-07-31
-**Commit:** e44187e
+**Generated:** 2026-08-01
+**Commit:** 077b3ee
 **Branch:** deep-perf-enhancements
 **Version:** 3.18.2
+**Repository:** https://github.com/iWorkforces/GogChat
 
 ## Project shape
 
-GogChat is a macOS-first Electron desktop wrapper for Google Chat (`https://mail.google.com/chat/u/0`). It is TypeScript-first, packages dual macOS arches (Apple Silicon `arm64` and Intel `x64`) as **separate** DMGs, and is built with a dual Rsbuild pipeline: ESM main process plus CJS preload because Electron sandboxed preloads cannot load ESM.
+GogChat is a macOS-first Electron desktop wrapper for Google Chat (`https://mail.google.com/chat/u/0`). It is TypeScript-first, packages dual macOS arches (Apple Silicon `arm64` and Intel `x64`) as **separate** DMGs, and is built with a dual Rsbuild pipeline: ESM main process plus CJS preload because Electron sandboxed preloads cannot load ESM. Fixed bundle id / notarize identity: `com.ocworkforces.gogchat` (`src/shared/appIdentity.ts`, `scripts/app-identity.cjs`, `electron-builder.yml`).
 
 This is **not** a typical Electron app:
 
 - Feature startup is build-time generated from `src/main/initializers/*.spec.ts` into `src/main/generated/featurePlan.ts`.
 - Runtime feature execution is handled by `src/main/utils/lifecycle/featureRunner.ts`.
 - Multi-account state uses per-account `persist:account-N` session partitions.
-- The default backend is one BrowserWindow per account; `app.useWebContentsView` switches to a WebContentsView host backend.
+- The default backend is one BrowserWindow per account; `app.useWebContentsView` switches to a WebContentsView host backend (opt-in; no default flip without measured evidence).
 - Security, IPC, preload, and URL validation are layered and intentionally strict.
 - Custom certificate pinning was **removed**; Chromium is the sole TLS trust authority (security phase must not install `certificate-error` listeners).
 - Unauthenticated CI startup metrics use a versioned export contract; document load and account readiness are **not** first paint or first interaction.
@@ -93,6 +94,10 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | BrowserWindow accounts         | `src/main/utils/account/accountWindowManager.ts`                                | Default multi-account backend.                                                |
 | WebContentsView accounts       | `src/main/utils/account/accountViewManager.ts`                                  | Opt-in backend behind `app.useWebContentsView`.                               |
 | Account contract               | `src/shared/types/window.ts`                                                    | `IAccountWindowManager` boundary.                                             |
+| WC-first navigation            | `src/main/utils/account/accountNavigation.ts`                                   | `loadAccountURL` / `getAccountURL` / `sendToAccount` (never WCV host loadURL). |
+| Shared account webPreferences  | `src/main/utils/account/accountWebPreferences.ts`                               | `createAccountWebPreferences` for `windowWrapper` + WCV views.                |
+| Multi-account WC hooks         | `src/main/utils/account/accountWebContentsHooks.ts`                             | Create/destroy notify; `externalLinks` installs per-account guards.           |
+| App / notarize identity        | `src/shared/appIdentity.ts` + `scripts/app-identity.cjs`                        | Fixed `com.ocworkforces.gogchat`; keep lockstep with electron-builder.        |
 | IPC helpers                    | `src/main/utils/ipc/`                                                           | Rate limit, validate, dedup/fast-path, catch.                                 |
 | IPC channel names              | `src/shared/constants.ts`                                                       | Never hardcode channel strings.                                               |
 | Preload bridge                 | `src/preload/index.ts` + `src/shared/types/bridge.ts`                           | Sandboxed CJS preload. No raw `ipcRenderer` exposure.                         |
@@ -101,7 +106,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | Notification click focus       | `src/main/utils/platform/notificationFocus.ts`                                  | Route click → `IAccountWindowManager.focusAccount` (BW + WCV).                |
 | Notification permission        | `src/main/utils/security/notificationAccess.ts`                                 | First-run dialog + silent OS probe on `ready-to-show`; Settings helpers.      |
 | Account notification identity  | `src/main/utils/platform/accountNotificationIdentity.ts` + `accountLabelStore`  | Subtitle/groupId/tag namespace; Preferences → Account Labels.                  |
-| URL validation                 | `src/shared/urlValidators.ts`                                                   | Navigation, external links, deep links, Google auth detection.                |
+| URL validation                 | `src/shared/urlValidators.ts`                                                   | Navigation, external links, deep links, auth detection, notification icons.   |
 | Config                         | `src/shared/types/config.ts` + `src/main/utils/config/configSchema.ts` + `src/main/config.ts` | Update shared types, schema/defaults, and accessors together.          |
 | Secure flags                   | `src/main/utils/security/secureFlags.ts`                                        | SafeStorage-backed kill switches; not electron-store config.                  |
 | Error types                    | `src/shared/types/errors.ts` + `src/main/utils/lifecycle/errors.ts`             | Prefer typed errors and `{ cause }`.                                          |
@@ -143,9 +148,9 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
    - Parallel: **critical** phase (`userAgent`) + encrypted config store init.
    - Optional session preconnect for Google Chat/auth/CDN hosts on `persist:account-0` (disabled when `GOGCHAT_DISABLE_PRECONNECT=1`).
    - Create account-0 window, set shared feature context, mark `account-0-ready`.
-   - Arm `performanceFinalizer`; on main-frame `did-finish-load` mark `account-0-content-loaded` and `notifyDocumentLoadComplete()`. Hard `did-fail-load` is logged only (non-terminal); capture timeout still invalidates incomplete runs.
+   - Arm `performanceFinalizer`; on **account-0 WebContents** `did-finish-load` (via `getAccountWebContents(0)`, not WCV host-only) mark `account-0-content-loaded` and `notifyDocumentLoadComplete()`. Hard `did-fail-load` is logged only (non-terminal); capture timeout still invalidates incomplete runs.
    - **UI** phase (`singleInstance` restore + `deepLinkHandler`).
-   - `setImmediate`: warm icon tiers + deferred phase (tray/menu/badges/bootstrap/window state/passkeys/notifications/network/external links/close-to-tray/open-at-login/updates/context menu/first launch/app-location/CDP telemetry). Deferred calls `notifyDeferredPhaseComplete()`; it does **not** own metrics export.
+   - `setImmediate`: warm icon tiers + deferred phase (tray/menu/badges/bootstrap/window state/passkeys/notifications/network/external links/close-to-tray/open-at-login/updates/context menu/first launch/app-location/CDP telemetry after `appMenu`). Deferred calls `notifyDeferredPhaseComplete()`; it does **not** own metrics export.
 
 ### Feature lifecycle
 
@@ -159,14 +164,15 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 
 - Always go through `IAccountWindowManager` when possible.
 - Use branded helpers: `asAccountIndex()`, `toPartition()`, `asWebContentsId()`.
-- Never interrupt Google auth pages with `loadURL`; check `isGoogleAuthUrl()`.
-- BrowserWindow dehydration may destroy windows but must preserve session partitions.
-- WebContentsView dehydration hides/throttles views; it does not destroy per-account sessions.
+- Never interrupt Google auth pages with `loadURL`; check `isGoogleAuthUrl()` (prefer `loadAccountURL` / `getAccountURL`).
+- BrowserWindow dehydration may destroy windows but must preserve session partitions; **notify WC hooks** on dehydrate/hydrate so multi-account feature guards reinstall.
+- WebContentsView parks (hide + throttle); it does not destroy per-account sessions. Three-state: `visible` | `hidden-live` | `dehydrated-parked`; `isDehydrated` only for parked.
 - BrowserWindow hydration: the window factory owns the single restored `loadURL`; the manager must not re-dispatch navigation.
 - Renderer observability: use `enumerateAccountWebContents()` (both backends). Do not sample host-only WebContents under WebContentsView.
 - BrowserWindow remains the default backend; WebContentsView stays opt-in. Do not change backend policy without measured evidence and an explicit decision.
-- Prefer `accountNavigation` helpers and `listAccountIndices()` / `isAccountVisible()` over host `webContents` and dense `0..count-1` loops.
-- WCV three-state: visible | hidden-live | dehydrated-parked; `isDehydrated` only for parked. Memory pressure never dehydrates account-0.
+- Prefer `accountNavigation` helpers and `listAccountIndices()` / `isAccountVisible()` / `hasAccount()` (includes dehydrated-parked) over host `webContents` and dense `0..count-1` loops.
+- Cross-account Chat opens (`externalLinks`) and deep links must use URL `/u/N/` + WC-first navigation + `focusAccount` — never `hostWindow.loadURL` under WCV.
+- WCV: `visible` ⇒ unthrottled (`switchToAccount` / `focusAccount`); parking the frontmost non-0 account promotes a visible fallback (prefer account-0). Memory pressure never dehydrates account-0.
 - Background throttling: account-0 keeps `backgroundThrottling: false` for badge/notification reliability; accounts 1+ enable it (and may toggle via `setBackgroundThrottling` on focus/blur).
 
 ### Performance metrics
@@ -186,11 +192,13 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 - Use `IPC_CHANNELS`; never string-literal IPC channel names.
 - Google Chat web `Notification` calls are bridged from page world through `src/preload/notificationBridge.ts`; keep raw `ipcRenderer` isolated in preload and validate notification payloads before `NOTIFICATION_SHOW`.
 - macOS notification authorization: `windowWrapper` and WCV host call `ensureNotificationPermission({ parentWindow })` on **`ready-to-show`**. When the config flag is false, show a short first-run dialog (Enable / System Settings / Not Now), then a silent probe `Notification`. Persist `app.notificationPermissionRequested` only after probe `show` (request path completed — not live grant status). Log every `ensure →` result. “Not Now” skips for the process session only; probe `failed` clears the in-flight guard so a later launch can retry. Skip interactive probes in CI. Preferences → Notification Settings… opens System Settings when the user needs to fix grant/deny later.
-- Optional unread-delta OS banners (`app.unreadDeltaNotifications`, default false) live in `badgeHelpers` via `nativeNotification.ts`; primary path remains Chat Web Notification bridge.
+- Optional unread-delta OS banners (`app.unreadDeltaNotifications`, default false) live in `badgeHelpers` via `nativeNotification.ts`; primary path remains Chat Web Notification bridge. Suppress only when host focused **and** `isAccountVisible(accountIndex)`.
 - Multi-account banners always set macOS `subtitle` (`Account N`, 1-based, or `app.accountLabels` custom) and `groupId`; tags are namespaced `a${index}:…` from IPC sender identity only. Dock badge is the sum of per-account unreads capped at `BADGE.DISPLAY_MAX` (99). Labels: Preferences → Account Labels.
+- Notification icon URLs must pass `validateNotificationIconURL` (`data:image/*` or allowlisted Google static HTTPS hosts).
+- Permission media requests: deny empty or unknown-only `mediaTypes`; require `video` and/or `audio` before TCC. Trust the first present requesting identity (do not rescue untrusted `requestingUrl` via `securityOrigin`); never use `embeddingOrigin` for allow.
 - Use `validateExternalURL()` and `shellWrapper.ts`; never call `shell.openExternal()` directly in main.
 - TLS trust is Chromium’s; do not reintroduce custom `certificate-error` handlers. SafeStorage-backed secure flags (`secureFlags.ts`) hold kill switches such as `disableCdpTelemetry` (and a residual `disableCertPinning` storage key that no startup path consults after pinning removal).
-- Do not wholesale replace Google CSP. Existing COEP/COOP/frame-ancestors stripping is targeted and intentional.
+- Do not wholesale replace Google CSP. Existing COEP/COOP/frame-ancestors stripping is targeted and intentional. Account `webSecurity` is `true` via `createAccountWebPreferences`.
 
 ## Type and code conventions
 
@@ -271,4 +279,4 @@ Nested guides supplement this root and are intentionally more specific:
 - `mac/AGENTS.md`
 - `resources/AGENTS.md`
 
-Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans under `docs/plans/`: performance remediation, macOS Intel x64 DMG, and native OS notifications.
+Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans under `docs/plans/`: performance remediation, macOS Intel x64 DMG, native OS notifications, and **deep enhancements** (`deep-enhancements.md` — mostly implemented @ v3.18.2; Wave 3 matrix/auth/signed smoke still residual).

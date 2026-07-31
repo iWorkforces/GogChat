@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-`src/main` is the Electron main process: startup orchestration, feature execution, BrowserWindow/WebContentsView account backends, app-level security, IPC handlers, and macOS integration. Arch-specific packaging (arm64/x64 DMGs) is not owned here; see `mac/AGENTS.md` and `scripts/AGENTS.md`.
+`src/main` is the Electron main process: startup orchestration, feature execution, BrowserWindow/WebContentsView account backends, app-level security, IPC handlers, and macOS integration. Arch-specific packaging (arm64/x64 DMGs) is not owned here; see `mac/AGENTS.md` and `scripts/AGENTS.md`. Product version and dual-backend multi-account contracts are summarized in root `AGENTS.md` (v3.18.2 / deep enhancements).
 
 ## Entry and startup
 
@@ -10,10 +10,10 @@
 - `initializers/registerAppReady.ts` owns `app.whenReady()` work.
 - Startup order (do not invent a pre-ready certificate-pinning step — custom pinning was removed):
   1. Pre-ready V8 heap + single-instance + deep links.
-  2. Ready: error handler → security phase (`reportExceptions`, `mediaPermissions`) ∥ global cleanups → critical (`userAgent`) ∥ store init → optional Google preconnect (`GOGCHAT_DISABLE_PRECONNECT=1` kills it) → account-0 bootstrap → arm finalizer / document-load markers → UI phase → `setImmediate` deferred (icon warm + deferred features).
-- After account-0 window creation, `registerAppReady` arms `performanceFinalizer` and marks `account-0-content-loaded` on main-frame `did-finish-load` (document load, not first paint/interaction). Hard `did-fail-load` is logged only; finalizer timeout still invalidates incomplete captures.
+  2. Ready: error handler → security phase (`reportExceptions`, `mediaPermissions` fire-and-forget TCC) ∥ global cleanups → critical (`userAgent`) ∥ store init → optional Google preconnect (`GOGCHAT_DISABLE_PRECONNECT=1` kills it) → account-0 bootstrap → arm finalizer / document-load markers → UI phase → `setImmediate` deferred (icon warm + deferred features; `cdpTelemetry` after `appMenu`).
+- After account-0 window creation, `registerAppReady` arms `performanceFinalizer` and marks `account-0-content-loaded` on **account-0 WebContents** `did-finish-load` via `getAccountWebContents(0)` (not WCV host-only; document load, not first paint/interaction). Hard `did-fail-load` is logged only; finalizer timeout still invalidates incomplete captures.
 - Feature specs live in `initializers/{security,ui,deferred}.spec.ts`; generated plan lives in `generated/featurePlan.ts` and must not be hand-edited.
-- Window factory (`windowWrapper.ts`): `contextIsolation` / `sandbox` / `nodeIntegration: false`; account-0 disables background throttling for badge/notification reliability; accounts 1+ enable it.
+- Window factory (`windowWrapper.ts`) uses shared `createAccountWebPreferences`: `contextIsolation` / `sandbox` / `nodeIntegration: false` / `webSecurity: true`; account-0 disables background throttling for badge/notification reliability; accounts 1+ enable it.
 
 ## Module map
 
@@ -60,10 +60,13 @@
 - Prefer the `IAccountWindowManager` contract from `src/shared/types/window.ts`.
 - Update both `accountWindowManager.ts` and `accountViewManager.ts` unless the behavior is backend-specific.
 - Preserve `persist:account-N` partitions and Google auth page handling.
+- Use `accountNavigation` (`loadAccountURL` / `getAccountURL` / `sendToAccount`) and never navigate the WCV host shell.
+- Multi-account feature attach (e.g. externalLinks) goes through `accountWebContentsHooks` — managers must notify create/destroy on live WC paths including BW dehydrate/hydrate.
 - BrowserWindow hydration: factory owns the single restored `loadURL`; manager must not double-navigate.
 - Observability: implement/use `enumerateAccountWebContents()`; do not sample host-only under WebContentsView.
+- Sparse iteration: `listAccountIndices()` / `hasAccount()` (includes dehydrated-parked) / `isAccountVisible()` — not dense `0..count-1`.
 - BrowserWindow remains the default backend; WebContentsView stays opt-in (`app.useWebContentsView`) until measured policy evidence exists.
-- Keep account-0 unthrottled for badge/notification reliability when changing focus/blur or factory `backgroundThrottling` defaults.
+- Keep account-0 unthrottled for badge/notification reliability when changing focus/blur or factory `backgroundThrottling` defaults. WCV frontmost is unthrottled via `switchToAccount`.
 
 ### Touch performance export
 

@@ -22,11 +22,17 @@ Features are self-contained startup/runtime units registered through initializer
 3. Declare dependencies explicitly with `dependencies`.
 4. Run a build to regenerate `src/main/generated/featurePlan.ts`.
 
-Known dependencies (from current specs) include `badgeIcons -> trayIcon`, `windowState -> singleInstance/deepLinkHandler/bootstrapPromotion`, `appMenu -> openAtLogin/externalLinks`, `externalLinks -> bootstrapPromotion`, and `closeToTray -> trayIcon`.
+Known dependencies (from current specs) include `badgeIcons -> trayIcon`, `windowState -> singleInstance/deepLinkHandler/bootstrapPromotion`, `appMenu -> openAtLogin/externalLinks`, `externalLinks -> bootstrapPromotion`, `closeToTray -> trayIcon`, and **`cdpTelemetry -> appMenu`** (CDP after shell UI batch).
 
-Security phase features (no deps): `reportExceptions`, `mediaPermissions`. Critical: `userAgent`. UI: `singleInstance` (restore handler), `deepLinkHandler`. Deferred also includes `trayIcon`, `bootstrapPromotion`, `openAtLogin`, `appUpdates`, `firstLaunch`, `enforceMacOSAppLocation`, `passkeySupport`, `handleNotification`, `contextMenu`, `inOnline`, `cdpTelemetry` (optional).
+Security phase features (no deps): `reportExceptions`, `mediaPermissions` (fire-and-forget TCC; does not block the phase). Critical: `userAgent`. UI: `singleInstance` (restore handler), `deepLinkHandler`. Deferred also includes `trayIcon`, `bootstrapPromotion`, `openAtLogin`, `appUpdates`, `firstLaunch`, `enforceMacOSAppLocation`, `passkeySupport`, `handleNotification`, `contextMenu`, `inOnline`, `cdpTelemetry` (optional).
 
-`aboutPanel` is **not** a phased `FeatureSpec`; it self-registers a menu action and is invoked from the app menu.
+`aboutPanel` is **not** a phased `FeatureSpec`; it self-registers a menu action and is invoked from the app menu. About panel BrowserWindow is sandboxed with HTML-escaped fields.
+
+## Multi-account feature attach
+
+- `externalLinks` subscribes to `accountWebContentsHooks` and installs open/will-navigate guards on **each** account WebContents (backfill on subscribe). Cleanup must unsubscribe hooks.
+- Cross-account Chat routing and deep links use URL `/u/N/`, `loadAccountURL` / `getAccountURL`, and `manager.focusAccount` — never host-window `loadURL` under WebContentsView.
+- `closeToTray` / sparse dehydrate use `listAccountIndices()` and skip account-0.
 
 ## Menu actions
 
@@ -38,7 +44,7 @@ Security phase features (no deps): `reportExceptions`, `mediaPermissions`. Criti
 
 - `handleNotification.ts` shows Electron (OS) notifications for validated `NOTIFICATION_SHOW` IPC payloads via `nativeNotification.showNativeNotification` (source `bridge`).
 - Click focus uses `notificationFocus.focusNotificationSource` → `IAccountWindowManager.focusAccount` when the IPC sender maps to an account (BW + WCV); otherwise `BrowserWindow.fromWebContents` / feature main window.
-- Unread-delta opt-in banners live in `badgeHelpers` (source `unread-delta`) and are suppressed for `TIMING.NOTIFICATION_BRIDGE_COOLDOWN_MS` after a bridge show.
+- Unread-delta opt-in banners live in `badgeHelpers` (source `unread-delta`) and are suppressed for `TIMING.NOTIFICATION_BRIDGE_COOLDOWN_MS` after a bridge show; also suppress only when host focused **and** `isAccountVisible` for that account.
 - Permission request UX lives in `utils/security/notificationAccess.ts`. Call sites: `windowWrapper` and WCV host on **`ready-to-show`** with `{ parentWindow }` (first-run Enable / System Settings / Not Now dialog, then silent OS probe).
 - Preferences menu (`appMenu.ts`): **Notification Settings…**, **Notify on Unread Badge Increase**, and **Account Labels** (custom notification subtitles).
 

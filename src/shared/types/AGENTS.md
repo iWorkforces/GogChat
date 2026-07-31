@@ -16,7 +16,7 @@ This directory defines contracts crossing main, preload, tests, and shared valid
 
 ## Account window contract notes
 
-- Both backends implement `IAccountWindowManager`, including `enumerateAccountWebContents()`, `listAccountIndices()`, and `isAccountVisible()`.
+- Both backends implement `IAccountWindowManager`, including `enumerateAccountWebContents()`, `listAccountIndices()`, `hasAccount()` (live **and** dehydrated-parked), `isAccountVisible()`, and `focusAccount()`.
 - `AccountWebContentsInfo` carries `accountIndex`, `webContentsId`, `osProcessId`, `backend`, and live `webContents`.
 - Performance sampling and multi-account diagnostics depend on this enumeration; do not drop it from the interface.
 - Prefer `src/main/utils/account/accountNavigation.ts` free helpers for load/getURL/send instead of growing the interface with loadURL methods.

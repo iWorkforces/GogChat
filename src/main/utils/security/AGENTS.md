@@ -23,6 +23,8 @@ This directory contains main-process security wrappers and SafeStorage-backed ki
 ## Permissions and media
 
 - `permissionHandler.ts` allowlists only expected Chromium permissions such as notifications, mediaKeySystem, and geolocation (web permission layer — separate from OS notification authorization).
+- Trust algorithm: first present requesting identity must be trusted (`requestingOrigin` arg → `requestingUrl` → `securityOrigin`). **Never** use `embeddingOrigin` for allow decisions. Do not rescue an untrusted requesting URL via `securityOrigin`.
+- Media permission requests: deny empty/missing `mediaTypes`; deny lists with no `video`/`audio` (unknown-only types must not grant). Then AND TCC checks for each present type.
 - `mediaAccess.ts` deduplicates macOS TCC camera/mic prompts via `systemPreferences` and returns false in CI/headless contexts. Security-phase `mediaPermissions` schedules proactive TCC checks fire-and-forget (does not block window creation).
 - `notificationAccess.ts` owns **macOS OS-level** notification authorization (Electron has no `getNotificationAccessStatus` API):
   - Call `ensureNotificationPermission({ parentWindow })` from `windowWrapper` / WCV host on **`ready-to-show`**.
@@ -35,7 +37,7 @@ This directory contains main-process security wrappers and SafeStorage-backed ki
 
 ## Secure flags gotchas
 
-- Kill-switch reads default to safe `false` on missing file, decrypt failure, or unavailable SafeStorage.
+- Kill-switch reads default to safe `false` (flag unset / no-op) on missing file, decrypt failure, or unavailable SafeStorage. Residual `disableCertPinning` is **not** “pinning enabled when false” — pinning is product-gone.
 - Do not move kill switches into electron-store (no MAC on that path).
 - Dual-arch packaging and performance work must not reintroduce silent TLS MITM bypasses.
 
