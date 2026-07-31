@@ -46,6 +46,7 @@ This directory owns multi-account window/view backends and per-account session p
   - `dehydrateAccount` → `dehydrated-parked` (hide + throttle; session preserved).
   - `isDehydrated` is **only** true for `dehydrated-parked`, never for mere switch-away.
   - Account 0 and bootstrap accounts are never parked on WCV.
+- Memory-pressure dehydration **never** targets account-0 (BW pressure path aligned with AGENTS).
 - Keep backend-specific behavior behind the shared manager contract whenever possible.
 - Router hydration hooks must hydrate only when `isDehydrated===true`, not when merely non-visible.
 

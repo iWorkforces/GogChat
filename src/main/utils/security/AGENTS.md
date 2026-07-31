@@ -23,7 +23,7 @@ This directory contains main-process security wrappers and SafeStorage-backed ki
 ## Permissions and media
 
 - `permissionHandler.ts` allowlists only expected Chromium permissions such as notifications, mediaKeySystem, and geolocation (web permission layer — separate from OS notification authorization).
-- `mediaAccess.ts` deduplicates macOS TCC camera/mic prompts via `systemPreferences` and returns false in CI/headless contexts. Security-phase `mediaPermissions` feature triggers proactive checks at startup.
+- `mediaAccess.ts` deduplicates macOS TCC camera/mic prompts via `systemPreferences` and returns false in CI/headless contexts. Security-phase `mediaPermissions` schedules proactive TCC checks fire-and-forget (does not block window creation).
 - `notificationAccess.ts` owns **macOS OS-level** notification authorization (Electron has no `getNotificationAccessStatus` API):
   - Call `ensureNotificationPermission({ parentWindow })` from `windowWrapper` / WCV host on **`ready-to-show`**.
   - First-run short dialog when config flag is false and a parent window is provided: **Enable** / **System Settings** / **Not Now**.

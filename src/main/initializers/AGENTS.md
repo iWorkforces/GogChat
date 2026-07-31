@@ -23,7 +23,7 @@ This directory is the canonical home for app startup/shutdown sequencing and bui
 
 ## Startup phases
 
-1. Security before network.
+1. Security before network (mediaPermissions is fire-and-forget TCC — does not block the phase).
 2. Critical before account bootstrap completes.
 3. UI after account manager/window state exists.
 4. Deferred after first-window work.

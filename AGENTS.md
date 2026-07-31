@@ -1,9 +1,9 @@
 # GogChat Agent Guide
 
 **Generated:** 2026-07-31
-**Commit:** 892dbe2
+**Commit:** e44187e
 **Branch:** deep-perf-enhancements
-**Version:** 3.18.1
+**Version:** 3.18.2
 
 ## Project shape
 
@@ -123,6 +123,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | Perf plan                      | `docs/plans/performance-remediation.md`                                         | Phased remediation work plan and guardrails.                                  |
 | macOS Intel x64 plan           | `docs/plans/macos-intel-x64-dmg.md`                                             | Dual-arch DMG production plan and acceptance criteria.                        |
 | Native notifications plan      | `docs/plans/native-os-notifications.md`                                         | Permission, bridge, multi-account banners, unread-delta fallback.             |
+| Deep enhancements plan         | `docs/plans/deep-enhancements.md`                                               | Dual-backend contract, truth/safety, measure handoff, v3.18.2 closeout.       |
 | Tests                          | `tests/AGENTS.md`                                                               | Unit/integration/e2e/perf/packaging contract guidance.                        |
 | Packaging                      | `mac/AGENTS.md` + `scripts/AGENTS.md`                                           | DMG, signing, notarization, dual-arch, perf gates.                            |
 | Icons / resources              | `resources/AGENTS.md`                                                           | Icon variants, generation, extraResources.                                    |
@@ -164,6 +165,8 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 - BrowserWindow hydration: the window factory owns the single restored `loadURL`; the manager must not re-dispatch navigation.
 - Renderer observability: use `enumerateAccountWebContents()` (both backends). Do not sample host-only WebContents under WebContentsView.
 - BrowserWindow remains the default backend; WebContentsView stays opt-in. Do not change backend policy without measured evidence and an explicit decision.
+- Prefer `accountNavigation` helpers and `listAccountIndices()` / `isAccountVisible()` over host `webContents` and dense `0..count-1` loops.
+- WCV three-state: visible | hidden-live | dehydrated-parked; `isDehydrated` only for parked. Memory pressure never dehydrates account-0.
 - Background throttling: account-0 keeps `backgroundThrottling: false` for badge/notification reliability; accounts 1+ enable it (and may toggle via `setBackgroundThrottling` on focus/blur).
 
 ### Performance metrics
