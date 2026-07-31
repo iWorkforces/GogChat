@@ -20,7 +20,7 @@
 - `account/` owns BrowserWindow and WebContentsView account backends, hydration navigation ownership, `enumerateAccountWebContents()`, and WCV host `ready-to-show` notification permission ensure.
 - `lifecycle/` owns feature execution, cleanup tracking, errors, performance monitors/export/finalizer, and context storage.
 - `ipc/` owns main-side handler wrappers, rate limiting, dedup, fast-path send helpers, and validators.
-- `security/` owns shell wrappers, secure flags, permission/CSP helpers, media access, **notification authorization** (`notificationAccess.ts`), and encryption key utilities.
+- `security/` owns shell wrappers, SafeStorage secure flags (e.g. CDP kill switch), permission/CSP helpers, media access, **notification authorization** (`notificationAccess.ts`), and encryption key utilities. Custom certificate pinning is **not** owned here (feature removed; Chromium is TLS trust).
 - `platform/` owns tray, badges, native notification **presentation** (`nativeNotification`, `notificationFocus`, account label/identity helpers), icon cache, dock/menu helpers, and window defaults (shared across arm64/x64 packaging arches).
 - `config/` owns typed electron-store schema/cache helpers only; secure flags are not config.
 
