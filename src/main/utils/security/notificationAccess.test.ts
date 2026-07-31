@@ -185,7 +185,22 @@ describe('notificationAccess', () => {
       expect(NotificationCtor).toHaveBeenCalledTimes(1);
     });
 
-    it('opens System Settings and probes when user chooses Open System Settings', async () => {
+    it('persists flag on Enable even when probe never emits show', async () => {
+      const window = parentWindow();
+      mockShowMessageBox.mockResolvedValue({ response: 0 });
+
+      ensureNotificationPermission({ parentWindow: window });
+      await flushImmediates();
+
+      // Critical: do not wait for Notification `show` — macOS often never fires it.
+      expect(mockConfigSet).toHaveBeenCalledWith('app.notificationPermissionRequested', true);
+
+      mockConfigGet.mockReturnValue(true);
+      expect(ensureNotificationPermission({ parentWindow: window })).toBe('already-requested');
+      expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens System Settings, persists flag, and probes when user chooses System Settings', async () => {
       const window = parentWindow();
       mockShowMessageBox.mockResolvedValue({ response: 1 });
 
@@ -193,7 +208,30 @@ describe('notificationAccess', () => {
       await flushImmediates();
 
       expect(mockOpenExternal).toHaveBeenCalled();
+      expect(mockConfigSet).toHaveBeenCalledWith('app.notificationPermissionRequested', true);
       expect(NotificationCtor).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not clear first-run flag when probe fails after Enable', async () => {
+      const window = parentWindow();
+      mockShowMessageBox.mockResolvedValue({ response: 0 });
+
+      ensureNotificationPermission({ parentWindow: window });
+      await flushImmediates();
+
+      expect(mockConfigSet).toHaveBeenCalledWith('app.notificationPermissionRequested', true);
+
+      const instance = NotificationCtor.mock.instances[0] as {
+        on: ReturnType<typeof vi.fn>;
+      };
+      const failedHandler = instance.on.mock.calls.find((call) => call[0] === 'failed')?.[1] as
+        | (() => void)
+        | undefined;
+      failedHandler?.();
+
+      // Flag was already set on Enable; failed must not require re-prompt
+      mockConfigGet.mockReturnValue(true);
+      expect(ensureNotificationPermission({ parentWindow: window })).toBe('already-requested');
     });
 
     it('does not probe when user chooses Not Now; later calls return prompt-declined', async () => {

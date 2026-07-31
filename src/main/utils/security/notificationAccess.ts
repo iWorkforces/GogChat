@@ -7,15 +7,21 @@
  *
  * First-run UX (when a parent BrowserWindow is provided):
  *   1. In-app dialog explaining desktop notifications
- *   2. Enable → silent probe (may also surface the OS authorization sheet)
- *   3. Open System Settings → deep-link + probe
+ *   2. Enable → mark first-run complete + silent OS probe
+ *   3. Open System Settings → mark complete + deep-link + probe
  *   4. Not Now → skip for this process; next launch may prompt again
  *
  * Semantics of `app.notificationPermissionRequested`:
- *   true  → a probe Notification emitted `show` for this profile (request path
- *           completed successfully). Does NOT mean the user currently allows
- *           banners (they may revoke later in System Settings).
- *   false → probe never completed; next ensure() may schedule again.
+ *   true  → first-run request path completed for this profile (user chose
+ *           Enable / System Settings, and/or a probe Notification emitted
+ *           `show`). Does NOT mean the user currently allows banners (they
+ *           may revoke later in System Settings).
+ *   false → first-run not completed; next ensure() may show the dialog again.
+ *
+ * Important: do **not** rely only on Notification `show` to persist the flag.
+ * On macOS, `show` often never fires (permission denied, Focus modes, unsigned
+ * builds emit `failed`, silent delivery quirks). Re-prompting the in-app dialog
+ * every launch after Enable is a product bug — persist on explicit user choice.
  */
 
 import { type BrowserWindow, Notification, dialog, shell } from 'electron';
@@ -85,6 +91,21 @@ function logEnsureResult(
 }
 
 /**
+ * Persist first-run completion. Idempotent; safe to call from dialog and probe.
+ */
+function markNotificationPermissionRequested(reason: string): void {
+  try {
+    if (configGet('app.notificationPermissionRequested') === true) {
+      return;
+    }
+    configSet('app.notificationPermissionRequested', true);
+    log.info(`[NotificationAccess] notificationPermissionRequested=true (${reason})`);
+  } catch (error: unknown) {
+    log.error('[NotificationAccess] Failed to persist notificationPermissionRequested:', error);
+  }
+}
+
+/**
  * Fire the silent Electron Notification that triggers macOS requestAuthorization.
  * Must only be called after process/config guards have approved a schedule.
  */
@@ -97,13 +118,18 @@ function showPermissionProbe(): void {
     });
     probe.on('show', () => {
       probe.close();
-      configSet('app.notificationPermissionRequested', true);
+      markNotificationPermissionRequested('probe-show');
       notificationPermissionScheduled = false;
-      log.info('[NotificationAccess] macOS notification permission request completed (show)');
+      log.info('[NotificationAccess] macOS notification permission probe completed (show)');
     });
     probe.on('failed', () => {
+      // Do not clear a flag already set by Enable / System Settings. Only release
+      // the in-flight guard so a later launch can re-probe if the flag is still false
+      // (probe-only path without first-run dialog).
       notificationPermissionScheduled = false;
-      log.warn('[NotificationAccess] macOS notification permission probe failed');
+      log.warn(
+        '[NotificationAccess] macOS notification permission probe failed (unsigned build, denied, or delivery error)'
+      );
     });
     probe.show();
   } catch (error: unknown) {
@@ -141,11 +167,15 @@ async function runFirstRunPromptThenProbe(parentWindow: BrowserWindow): Promise<
       return;
     }
 
+    // User completed first-run intent — never re-show this dialog on next launches
+    // even if the OS probe never emits `show` (common on macOS).
     if (response.response === 1) {
       log.info('[NotificationAccess] User chose Open System Settings from first-run prompt');
+      markNotificationPermissionRequested('first-run-system-settings');
       await openNotificationSystemSettings();
     } else {
       log.info('[NotificationAccess] User chose Enable Notifications from first-run prompt');
+      markNotificationPermissionRequested('first-run-enable');
     }
 
     showPermissionProbe();
