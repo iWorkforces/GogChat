@@ -48,6 +48,12 @@ vi.mock('./iconCache.js', () => ({
   getIconCache: () => ({ getIcon: mockGetIcon }),
 }));
 
+vi.mock('../account/accountWindowManager.js', () => ({
+  getAccountWindowManager: vi.fn(() => ({
+    isAccountVisible: vi.fn(() => true),
+  })),
+}));
+
 const mockSetTrayUnread = vi.fn();
 vi.mock('./trayIconState.js', () => ({
   setTrayUnread: mockSetTrayUnread,

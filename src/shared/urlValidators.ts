@@ -66,6 +66,35 @@ export function validateFaviconURL(href: unknown): string {
   return href;
 }
 
+const GOOGLE_STATIC_ICON_HOSTS = new Set([
+  'www.gstatic.com',
+  'ssl.gstatic.com',
+  'fonts.gstatic.com',
+  'lh3.googleusercontent.com',
+  'lh4.googleusercontent.com',
+  'lh5.googleusercontent.com',
+  'lh6.googleusercontent.com',
+]);
+
+/**
+ * Notification icons: only data:image/* or known Google static hosts (P19).
+ * Falls back to rejecting arbitrary remote URLs used for tracking/CDN load.
+ */
+export function validateNotificationIconURL(href: unknown): string {
+  const validated = validateFaviconURL(href);
+  const url = new URL(validated);
+  if (url.protocol === 'data:') {
+    if (!url.pathname.startsWith('image/')) {
+      throw new Error('Notification icon data URL must be image/*');
+    }
+    return validated;
+  }
+  if (url.protocol === 'https:' && GOOGLE_STATIC_ICON_HOSTS.has(url.hostname)) {
+    return validated;
+  }
+  throw new Error('Notification icon must be data:image/* or a Google static HTTPS host');
+}
+
 /**
  * Validates and sanitizes external URLs before opening
  * @param url - URL to be opened externally

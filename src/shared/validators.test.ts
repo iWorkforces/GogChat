@@ -692,13 +692,13 @@ describe('validateNotificationData', () => {
     const data = {
       title: 'New message',
       body: 'Hello world',
-      icon: 'https://example.com/icon.png',
+      icon: 'data:image/png;base64,iVBORw0KGgo=',
       tag: 'msg-123',
     };
     const result = validateNotificationData(data);
     expect(result.title).toBe('New message');
     expect(result.body).toBe('Hello world');
-    expect(result.icon).toBe('https://example.com/icon.png');
+    expect(result.icon).toBe('data:image/png;base64,iVBORw0KGgo=');
     expect(result.tag).toBe('msg-123');
     expect(typeof result.timestamp).toBe('number');
   });
@@ -821,10 +821,16 @@ describe('validateNotificationData', () => {
     expect(result.icon).toBe(icon);
   });
 
-  it('should accept http icon URLs', () => {
-    const icon = 'http://example.com/favicon.ico';
+  it('should accept Google static HTTPS notification icons', () => {
+    const icon = 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/logo_gmail_lockup_default_1x_r5.png';
     const result = validateNotificationData({ title: 'T', icon });
     expect(result.icon).toBe(icon);
+  });
+
+  it('should reject arbitrary remote notification icons', () => {
+    expect(() =>
+      validateNotificationData({ title: 'T', icon: 'https://evil.example/track.png' })
+    ).toThrow(/Notification icon must be/);
   });
 });
 

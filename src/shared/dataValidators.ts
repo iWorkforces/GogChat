@@ -4,7 +4,7 @@
  */
 
 import { BADGE } from './constants.js';
-import { validateFaviconURL } from './urlValidators.js';
+import { validateNotificationIconURL } from './urlValidators.js';
 import type { PasskeyErrorType } from './types/domain.js';
 
 /**
@@ -191,8 +191,8 @@ export function validateNotificationData(data: unknown): {
   }
 
   if (data['icon'] !== undefined && data['icon'] !== null && data['icon'] !== '') {
-    // Validate icon URL (can be data: URL for inline images)
-    result.icon = validateFaviconURL(data['icon']);
+    // Allowlist: data:image/* or Google static HTTPS hosts only
+    result.icon = validateNotificationIconURL(data['icon']);
   }
 
   if (data['tag'] !== undefined && data['tag'] !== null && data['tag'] !== '') {
