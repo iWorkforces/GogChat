@@ -28,8 +28,7 @@
  * @module accountViewManager
  */
 
-import { app, BrowserWindow, WebContentsView, type WebContents, type Rectangle } from 'electron';
-import path from 'path';
+import { BrowserWindow, WebContentsView, type WebContents, type Rectangle } from 'electron';
 import log from 'electron-log';
 
 import type {
@@ -65,6 +64,7 @@ import { installHeaderFix } from '../security/cspHeaderHandler.js';
 import { getWindowDefaults } from '../platform/windowUtils.js';
 import { logger } from '../lifecycle/logger.js';
 import { asUnsafe } from '../../../shared/typeUtils.js';
+import { createAccountWebPreferences } from './accountWebPreferences.js';
 
 /**
  * WCV account resource state (KD2 three-state machine).
@@ -272,20 +272,7 @@ export class AccountViewManager implements IAccountWindowManager {
 
     const partition = toPartition(accountIndex);
     const view = new WebContentsView({
-      webPreferences: {
-        autoplayPolicy: 'user-gesture-required',
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        webSecurity: true,
-        allowRunningInsecureContent: false,
-        disableBlinkFeatures: 'Auxclick',
-        // Account-0 keeps throttling disabled to preserve badge and
-        // notification updates when the host is hidden/blurred.
-        backgroundThrottling: accountIndex > 0,
-        partition,
-        preload: path.join(app.getAppPath(), 'lib/preload/index.js'),
-      },
+      webPreferences: createAccountWebPreferences({ partition }),
     });
 
     host.contentView.addChildView(view);
