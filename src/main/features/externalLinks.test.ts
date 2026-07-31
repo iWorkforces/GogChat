@@ -84,6 +84,8 @@ vi.mock('../utils/account/accountWindowManager.js', () => ({
     isBootstrap: vi.fn().mockReturnValue(false),
     markAsBootstrap: vi.fn(),
     getAccountIndex: vi.fn().mockReturnValue(0),
+    getAccountWindow: vi.fn().mockReturnValue(null),
+    enumerateAccountWebContents: vi.fn(() => []),
   }),
   createAccountWindow: vi.fn().mockReturnValue({
     webContents: { getURL: () => '' },
@@ -96,6 +98,11 @@ vi.mock('../utils/account/accountWindowManager.js', () => ({
   }),
   getWindowForAccount: vi.fn().mockReturnValue(null),
   getAccountIndex: vi.fn().mockReturnValue(0),
+}));
+
+vi.mock('../utils/account/accountWebContentsHooks.js', () => ({
+  setAccountWebContentsHooksManager: vi.fn(),
+  onAccountWebContentsCreated: vi.fn(() => () => {}),
 }));
 
 // Mock bootstrapPromotion
@@ -121,24 +128,24 @@ describe('externalLinks feature', () => {
   // ── default export / window.open handler ───────────────────────────────────
 
   describe('default export (window setup)', () => {
-    it('registers setWindowOpenHandler on webContents', async () => {
+    it('installExternalLinkGuards registers handlers on the account WebContents', async () => {
       const win = makeFakeWindow('https://chat.google.com');
       const feature = await import('./externalLinks.js');
-      feature.default(win as unknown as Electron.BrowserWindow);
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
       expect(win.webContents.setWindowOpenHandler).toHaveBeenCalled();
-    });
-
-    it('registers will-navigate listener on webContents', async () => {
-      const win = makeFakeWindow('https://chat.google.com');
-      const feature = await import('./externalLinks.js');
-      feature.default(win as unknown as Electron.BrowserWindow);
       expect(win.webContents.on).toHaveBeenCalledWith('will-navigate', expect.any(Function));
     });
 
     it('handler denies non-HTTP URLs', async () => {
       const win = makeFakeWindow('https://chat.google.com');
       const feature = await import('./externalLinks.js');
-      feature.default(win as unknown as Electron.BrowserWindow);
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
 
       const handler = win.webContents.setWindowOpenHandler.mock.calls[0][0];
       const result = handler({ url: 'javascript:alert(1)' } as Electron.HandlerDetails);
@@ -149,7 +156,10 @@ describe('externalLinks feature', () => {
     it('handler allows whitelisted navigation', async () => {
       const win = makeFakeWindow('https://chat.google.com');
       const feature = await import('./externalLinks.js');
-      feature.default(win as unknown as Electron.BrowserWindow);
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
 
       const handler = win.webContents.setWindowOpenHandler.mock.calls[0][0];
       const result = handler({ url: 'https://accounts.google.com' } as Electron.HandlerDetails);
@@ -160,9 +170,11 @@ describe('externalLinks feature', () => {
     it('will-navigate prevents default for Chat account routing', async () => {
       const win = makeFakeWindow('https://chat.google.com');
       const feature = await import('./externalLinks.js');
-      feature.default(win as unknown as Electron.BrowserWindow);
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
 
-      // Find will-navigate handler
       const navCall = (win.webContents.on as ReturnType<typeof vi.fn>).mock.calls.find(
         (call: unknown[]) => call[0] === 'will-navigate'
       );
@@ -180,7 +192,10 @@ describe('externalLinks feature', () => {
     it('will-navigate prevents non-HTTP schemes (parity with window-open handler)', async () => {
       const win = makeFakeWindow('https://chat.google.com');
       const feature = await import('./externalLinks.js');
-      feature.default(win as unknown as Electron.BrowserWindow);
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
 
       const navCall = (win.webContents.on as ReturnType<typeof vi.fn>).mock.calls.find(
         (call: unknown[]) => call[0] === 'will-navigate'
@@ -208,7 +223,10 @@ describe('externalLinks feature', () => {
     it('will-navigate allows same-host http(s) without preventDefault when guard on', async () => {
       const win = makeFakeWindow('https://mail.google.com/chat/u/0');
       const feature = await import('./externalLinks.js');
-      feature.default(win as unknown as Electron.BrowserWindow);
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
 
       const navCall = (win.webContents.on as ReturnType<typeof vi.fn>).mock.calls.find(
         (call: unknown[]) => call[0] === 'will-navigate'
@@ -219,13 +237,7 @@ describe('externalLinks feature', () => {
       ) => void;
 
       const preventDefault = vi.fn();
-      // Same host + chat path stays in-app (not externalized)
-      navHandler(
-        { preventDefault },
-        'https://mail.google.com/chat/u/0/room/abc'
-      );
-      // routeAccountUrl may or may not prevent; for same account index 0 typically false
-      // shouldOpenExternally for chat prefix on mail.google.com should be false
+      navHandler({ preventDefault }, 'https://mail.google.com/chat/u/0/room/abc');
       expect(preventDefault).not.toHaveBeenCalled();
     });
   });

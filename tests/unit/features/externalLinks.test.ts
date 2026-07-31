@@ -102,7 +102,7 @@ import type { BrowserWindow } from 'electron';
 // We need to capture the will-navigate handler that the default export attaches.
 // We do this by inspecting the calls to webContents.on after running the default
 // export.
-import setupExternalLinks from '../../../src/main/features/externalLinks';
+import { installExternalLinkGuards } from '../../../src/main/features/externalLinks';
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
@@ -119,16 +119,17 @@ describe('routeAccountUrl — bootstrap guard', () => {
   });
 
   /**
-   * Helper: extract the will-navigate handler attached by setupExternalLinks and
-   * invoke it with a synthetic navigation URL, returning the event.preventDefault
-   * spy so callers can assert on it.
+   * Helper: install guards and invoke will-navigate with a synthetic URL.
    */
   function navigate(
     window: MockBrowserWindow,
     url: string
   ): { preventDefaultSpy: ReturnType<typeof vi.fn> } {
     const preventDefaultSpy = vi.fn();
-    setupExternalLinks(window as unknown as BrowserWindow);
+    installExternalLinkGuards(
+      window.webContents as unknown as Electron.WebContents,
+      window as unknown as BrowserWindow
+    );
 
     // Find the will-navigate listener registered on this window's webContents.on
     const onMock = window.webContents.on as ReturnType<typeof vi.fn>;

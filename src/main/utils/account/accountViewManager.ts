@@ -65,6 +65,10 @@ import { getWindowDefaults } from '../platform/windowUtils.js';
 import { logger } from '../lifecycle/logger.js';
 import { asUnsafe } from '../../../shared/typeUtils.js';
 import { createAccountWebPreferences } from './accountWebPreferences.js';
+import {
+  notifyAccountWebContentsCreated,
+  notifyAccountWebContentsDestroyed,
+} from './accountWebContentsHooks.js';
 
 /**
  * WCV account resource state (KD2 three-state machine).
@@ -333,6 +337,12 @@ export class AccountViewManager implements IAccountWindowManager {
       `[AccountViewManager] Created view for account ${accountIndex} (partition=${partition})`
     );
 
+    notifyAccountWebContentsCreated({
+      accountIndex,
+      webContents: view.webContents,
+      backend: 'web-contents-view',
+    });
+
     return host;
   }
 
@@ -470,6 +480,7 @@ export class AccountViewManager implements IAccountWindowManager {
   unregisterAccount(accountIndex: AccountIndex): void {
     const entry = this.views.get(accountIndex);
     if (!entry) return;
+    notifyAccountWebContentsDestroyed(accountIndex);
     try {
       this.webContentsToAccountIndex.delete(asWebContentsId(entry.view.webContents.id));
     } catch {

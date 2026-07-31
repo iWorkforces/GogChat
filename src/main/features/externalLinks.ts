@@ -16,6 +16,10 @@ import {
   getWindowForAccount,
   getAccountWindowManager,
 } from '../utils/account/accountWindowManager.js';
+import {
+  onAccountWebContentsCreated,
+  setAccountWebContentsHooksManager,
+} from '../utils/account/accountWebContentsHooks.js';
 import { openExternal } from '../utils/security/shellWrapper.js';
 import { registerMenuAction } from './menuActionRegistry.js';
 
@@ -149,36 +153,44 @@ function shouldOpenExternally(url: string, currentHost: string): boolean {
   return false;
 }
 
-export default (window: BrowserWindow) => {
+/**
+ * Install open-handler + will-navigate guards on one account WebContents.
+ * `hostWindow` is used for account routing / show-focus (BW account or WCV host).
+ */
+export function installExternalLinkGuards(
+  webContents: Electron.WebContents,
+  hostWindow: BrowserWindow
+): () => void {
   const handleRedirect = (
     details: HandlerDetails
   ): typeof ACTION_DENIED | typeof ACTION_ALLOWED => {
     const url = details.url;
 
-    // Validate URL protocol first
     if (!isValidHttpURL(url)) {
       log.warn('[ExternalLinks] Blocked non-HTTP URL:', url);
       return ACTION_DENIED;
     }
 
-    // If guard is disabled, allow everything (temporary auth fix mode)
     if (!guardAgainstExternalLinks) {
       log.debug('[ExternalLinks] Guard disabled, allowing:', url);
       return ACTION_ALLOWED;
     }
 
     try {
-      const currentHost = extractHostname(window.webContents.getURL());
+      let currentHost = '';
+      try {
+        currentHost = extractHostname(webContents.getURL());
+      } catch {
+        currentHost = extractHostname(hostWindow.webContents.getURL());
+      }
 
-      if (extractHostname(url) === 'chat.google.com' && routeAccountUrl(window, url)) {
+      if (extractHostname(url) === 'chat.google.com' && routeAccountUrl(hostWindow, url)) {
         return ACTION_DENIED;
       }
 
-      // Check if should open externally
       if (shouldOpenExternally(url, currentHost)) {
         setImmediate(() => {
           try {
-            // Sanitize URL before opening
             const sanitizedURL = validateExternalURL(url);
             void openExternal(sanitizedURL);
             log.info('[ExternalLinks] Opened external URL:', sanitizedURL);
@@ -190,7 +202,6 @@ export default (window: BrowserWindow) => {
         return ACTION_DENIED;
       }
 
-      // Allow navigation within whitelisted hosts
       log.debug('[ExternalLinks] Allowing whitelisted navigation:', url);
       return ACTION_ALLOWED;
     } catch (error: unknown) {
@@ -199,25 +210,25 @@ export default (window: BrowserWindow) => {
     }
   };
 
-  window.webContents.setWindowOpenHandler(handleRedirect);
-  window.webContents.on('will-navigate', (event, url) => {
-    // Parity with setWindowOpenHandler: always block non-http(s) schemes
-    // (javascript:, file:, data:, etc.) — do not hand them to openExternal.
+  const onWillNavigate = (event: Electron.Event, url: string): void => {
     if (!isValidHttpURL(url)) {
       event.preventDefault();
       log.warn('[ExternalLinks] will-navigate: blocked non-HTTP URL:', url);
       return;
     }
 
-    const currentHost = extractHostname(window.webContents.getURL());
+    let currentHost = '';
+    try {
+      currentHost = extractHostname(webContents.getURL());
+    } catch {
+      currentHost = extractHostname(hostWindow.webContents.getURL());
+    }
 
-    // Handle Chat account routing
-    if (extractHostname(url) === 'chat.google.com' && routeAccountUrl(window, url)) {
+    if (extractHostname(url) === 'chat.google.com' && routeAccountUrl(hostWindow, url)) {
       event.preventDefault();
       return;
     }
 
-    // Block and open externally all non-whitelisted URLs (when guard enabled)
     if (guardAgainstExternalLinks && shouldOpenExternally(url, currentHost)) {
       event.preventDefault();
       setImmediate(() => {
@@ -230,6 +241,40 @@ export default (window: BrowserWindow) => {
         }
       });
     }
+  };
+
+  webContents.setWindowOpenHandler(handleRedirect);
+  webContents.on('will-navigate', onWillNavigate);
+
+  return () => {
+    try {
+      if (!webContents.isDestroyed()) {
+        webContents.removeListener('will-navigate', onWillNavigate);
+        webContents.setWindowOpenHandler(() => ACTION_DENIED);
+      }
+    } catch {
+      // webContents already gone
+    }
+  };
+}
+
+let hooksUnsub: (() => void) | null = null;
+
+export default (window: BrowserWindow) => {
+  const manager = getAccountWindowManager();
+  setAccountWebContentsHooksManager(manager);
+
+  if (hooksUnsub) {
+    hooksUnsub();
+    hooksUnsub = null;
+  }
+
+  hooksUnsub = onAccountWebContentsCreated(({ webContents, accountIndex }) => {
+    const host = manager.getAccountWindow(accountIndex) ?? window;
+    if (!host || host.isDestroyed()) {
+      return;
+    }
+    return installExternalLinkGuards(webContents, host);
   });
 };
 

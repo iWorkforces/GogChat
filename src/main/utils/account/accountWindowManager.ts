@@ -46,6 +46,11 @@ import {
   getAccountViewManager,
   resetAccountViewManagerSingleton,
 } from './accountViewManager.js';
+import {
+  notifyAccountWebContentsCreated,
+  notifyAccountWebContentsDestroyed,
+  setAccountWebContentsHooksManager,
+} from './accountWebContentsHooks.js';
 
 /**
  * Idle threshold after which a blurred or hidden non-primary
@@ -335,6 +340,7 @@ export class AccountWindowManager implements IAccountWindowManager {
   }
 
   unregisterAccount(accountIndex: AccountIndex): void {
+    notifyAccountWebContentsDestroyed(accountIndex);
     const window = this.registry.getAccountWindow(accountIndex);
     if (window) {
       this.detachActivityListeners(window);
@@ -400,7 +406,21 @@ export class AccountWindowManager implements IAccountWindowManager {
       isDehydrated: (i) => this.isDehydrated(i),
       hydrate: (i) => this.hydrateAccount(i),
     };
-    return routeAccountWindow(this.registry, this.windowFactory, url, accountIndex, hydrationHook);
+    const window = routeAccountWindow(
+      this.registry,
+      this.windowFactory,
+      url,
+      accountIndex,
+      hydrationHook
+    );
+    if (window && !window.isDestroyed() && window.webContents && !window.webContents.isDestroyed()) {
+      notifyAccountWebContentsCreated({
+        accountIndex,
+        webContents: window.webContents,
+        backend: 'browser-window',
+      });
+    }
+    return window;
   }
 
   // ─── Bootstrap window tracking ───────────────────────────────────────────
@@ -604,6 +624,7 @@ export function getAccountWindowManager(factory?: WindowFactory): IAccountWindow
       );
     }
     accountManagerSingleton = next;
+    setAccountWebContentsHooksManager(next);
     return next;
   }
   return accountManagerSingleton;
@@ -622,6 +643,7 @@ export function destroyAccountWindowManager(): void {
     accountManagerSingleton = null;
     log.info('[AccountWindowManager] Manager destroyed');
   }
+  setAccountWebContentsHooksManager(null);
   // Clear WCV module pointer whether or not it was the active facade instance.
   resetAccountViewManagerSingleton();
 }
