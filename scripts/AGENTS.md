@@ -62,6 +62,9 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 
 - Headless startup uses env such as `NODE_ENV=development`, `GOGCHAT_EXPORT_METRICS=1`, `GOGCHAT_AUTO_QUIT_AFTER_MS=12000` (capture timeout), and `CI=1`.
 - CI may set `HEADLESS_TIMEOUT_MS=60000` and `GOGCHAT_PERF_RUNS=5`.
+- Optional product env toggles (not script-only):
+  - `GOGCHAT_V8_HEAP_CAP_MB` — renderer V8 heap cap before ready (default 512, clamp 128–4096).
+  - `GOGCHAT_DISABLE_PRECONNECT=1` — skip Google domain session preconnect for A/B cold-start measurement.
 - Metrics are produced by the main-process finalizer after document load + deferred + renderer sample — not by early deferred-phase export.
 - Schema version and `units.memory: "MB"` / `units.time: "ms"` are required; incomplete or invalid runs must not feed medians or gated PASS.
 - Gated vs warn-only budget behavior must stay explicit. Missing gated metrics → exit 1. IPC latency remains warn-only until a real producer and baseline exist.

@@ -36,7 +36,7 @@ bun run check:doc-claims
 - IPC changes: validation, rate limiting, dedup behavior, success and failure paths.
 - Account changes: partition persistence, auth-page protection, switching, dehydration, single hydration navigation, `enumerateAccountWebContents` (both backends).
 - Preload/offline changes: false online replies produce zero reloads; true reply produces one app-URL replace; bridge cleanup on unload.
-- Security changes: URL validation, shell wrapper usage, CSP exceptions, media TCC, and notification permission (`notificationAccess` first-run dialog + probe, CI skip, flag only on `show`).
+- Security changes: URL validation, shell wrapper usage, CSP exceptions, media TCC, notification permission (`notificationAccess` first-run dialog + probe, CI skip, flag only on `show`), and no custom `certificate-error` listeners after security phase init.
 - Notification presentation: `nativeNotification`, `notificationFocus`, `accountNotificationIdentity`, `accountLabelStore`, bridge vs unread-delta sources, multi-account subtitle/tag namespacing.
 - Performance contract changes (TDD preferred):
   - Finalizer: no early export; complete+valid only with required markers + renderer samples.

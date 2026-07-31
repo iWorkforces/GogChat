@@ -19,13 +19,13 @@ This directory owns platform integration: tray, dock/taskbar badges, native noti
 
 ## Icon cache
 
-`iconCache.ts` intentionally warms assets in tiers:
+`iconCache.ts` intentionally warms assets in tiers. Account-0 window icon (`resources/icons/normal/256.png`) loads on demand in `windowWrapper`; bulk warm runs after the UI phase on `setImmediate` (same path as deferred features):
 
-1. INITIAL: immediate startup-critical icons (critical path via `cacheWarmer.warmInitialIcons`).
-2. SOON_DEFERRED: short-delay warmup after critical path (`warmSoonDeferredIcons` on `setImmediate`).
+1. INITIAL: first warm set via `cacheWarmer.warmInitialIcons` (not on the pre-window critical path).
+2. SOON_DEFERRED: short-delay follow-up (`warmSoonDeferredIcons` on `setImmediate` inside the warmer).
 3. IDLE / ADDITIONAL: later idle warmup (`cacheWarmer` ADDITIONAL set; disjoint from INITIAL and SOON_DEFERRED).
 
-Do not move all icon work into startup; it affects app-ready latency. Keep the triple-set partition disjoint (no overlap between INITIAL, SOON_DEFERRED, and ADDITIONAL).
+Do not move icon warming back onto the pre-window critical path; it affects app-ready latency. Keep the triple-set partition disjoint (no overlap between INITIAL, SOON_DEFERRED, and ADDITIONAL).
 
 ## Anti-patterns
 

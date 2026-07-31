@@ -31,8 +31,9 @@ This directory owns runtime lifecycle mechanics: feature execution, shared featu
 
 - Development/CI export is owned by `performanceFinalizer.ts`, armed from `registerAppReady.ts`.
 - Export runs exactly once when deferred phase has signaled complete **and** account-0 document load has completed (or failed/timed out), after an immediate `sampleAllRenderers`.
+- Production path: `did-finish-load` → `notifyDocumentLoadComplete()`. Hard `did-fail-load` is logged in `registerAppReady` and is **not** treated as terminal (auth redirects). `notifyDocumentLoadFailed(reason)` remains available for tests/explicit callers and still forces an invalid export when used.
+- Capture timeout or missing required markers produces `capture.complete=false` / `valid=false`, not a silent incomplete median.
 - `cacheWarmer.runDevPostDeferred()` may profile config; it must **not** write metrics JSON.
-- Load failure or capture timeout produces `capture.complete=false` / `valid=false`, not a silent incomplete median.
 - Use `getPerformanceMonitor()` inside the finalizer (not a stale module-level singleton after destroy).
 
 ### Renderer sampling

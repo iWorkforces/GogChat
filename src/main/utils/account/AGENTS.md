@@ -6,12 +6,13 @@ This directory owns multi-account window/view backends and per-account session p
 
 ## Backends
 
-- `accountWindowManager.ts` is the default BrowserWindow-per-account backend.
-- `accountViewManager.ts` is the opt-in WebContentsView host backend selected by `app.useWebContentsView`.
+- `accountWindowManager.ts` is the default BrowserWindow-per-account backend. `getAccountWindowManager(factory)` routes to `getAccountViewManager` when `app.useWebContentsView === true`.
+- `accountViewManager.ts` is the opt-in WebContentsView host backend.
 - Both implement `IAccountWindowManager` from `src/shared/types/window.ts`.
 - `focusAccount(accountIndex)` brings that account’s UI forward (BW: show/focus window; WCV: switch visible view + focus host). Used by notification click routing.
 - WCV host `ready-to-show` must call `ensureNotificationPermission({ parentWindow })` (same first-run dialog + probe as `windowWrapper`).
 - Shared routing/registry/bootstrap helpers live in `accountRouter.ts`, `accountWindowRegistry.ts`, `bootstrapTracker.ts`, `bootstrapWatcher.ts`, `accountSessionMaintenance.ts`, `cacheWarmer.ts`, and `deepLinkUtils.ts`.
+- Background throttling: account-0 stays unthrottled for badge/notification reliability; accounts 1+ enable Chromium background throttling (window factory + focus/blur toggles). Preserve that split when changing activity listeners.
 - Do **not** change the default backend or WebContentsView hide/throttle/destroy semantics without controlled multi-account evidence and an explicit policy decision.
 
 ## Session contract
@@ -43,7 +44,8 @@ This directory owns multi-account window/view backends and per-account session p
 
 ## Deferred phase / metrics hook
 
-- `cacheWarmer.runDeferredPhase` runs deferred features, logs the perf summary, optional dev config profiling, then `notifyDeferredPhaseComplete()`.
+- `registerAppReady` schedules `warmInitialIcons` + `warmSoonDeferredIcons` + `runDeferredPhase` on `setImmediate` after the UI phase (icons are off the critical path; account-0 window icon loads on demand in `windowWrapper`).
+- `cacheWarmer.runDeferredPhase` runs deferred features, logs the perf summary, optional dev config profiling (`runDevPostDeferred`), then `notifyDeferredPhaseComplete()`.
 - Metrics JSON export is **not** owned here; see `performanceFinalizer.ts`.
 
 ## Change checklist

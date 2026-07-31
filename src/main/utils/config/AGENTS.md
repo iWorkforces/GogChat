@@ -12,13 +12,14 @@ This directory owns typed electron-store access and read-through caching for app
 - Cache helpers here (`configCache.ts`) are for normal app config only.
 - SafeStorage-backed security flags live in `src/main/utils/security/secureFlags.ts`, not config.
 
-## Notification-related keys (`app.*`)
+## Notable keys (`app.*`)
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `notificationPermissionRequested` | `false` | Probe path completed once (`show`); not live OS grant status |
 | `unreadDeltaNotifications` | `false` | Opt-in badge-increase OS banners (Preferences) |
 | `accountLabels` | `{}` | Optional per-account subtitle strings for multi-account banners |
+| `useWebContentsView` | `false` | Opt-in WebContentsView account backend (BrowserWindow remains default) |
 
 ## Cache behavior
 
