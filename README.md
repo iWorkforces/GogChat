@@ -32,13 +32,12 @@ GogChat is an unofficial macOS desktop wrapper for Google Chat, built with Elect
 
 ### Security
 
-- `contextIsolation: true`, `sandbox: true`, and `nodeIntegration: false`
-- Certificate pinning for Google domains, with a safeStorage-backed kill switch
-- AES-256-GCM encrypted `electron-store` configuration
-- macOS safeStorage / Keychain support for security-sensitive flags and encryption-key migration
+- `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, and `webSecurity: true`
+- TLS trust is Chromium’s (no app-level custom certificate-pinning feature)
+- Encrypted `electron-store` configuration; macOS safeStorage / Keychain for security-sensitive flags
 - URL whitelist validation for navigation and external links
 - IPC channel constants, validators, rate limiting, and structured error handling
-- Content Security Policy header handling for embedded Google Chat pages
+- Targeted Content Security Policy header handling for embedded Google Chat pages (not a wholesale CSP rewrite)
 
 ### Performance and observability
 
