@@ -54,9 +54,10 @@ function readOriginDetails(details: unknown): PermissionOriginDetails {
 
 /**
  * Trust algorithm (request + check handlers must agree):
- * Ordered candidates — first match wins for "any trusted":
+ * First present identity must be trusted (do not rescue an untrusted
+ * requesting URL/origin via securityOrigin):
  *   1. requestingOriginArg (check-handler string; request-handler usually omits)
- *   2. details.requestingUrl → origin
+ *   2. details.requestingUrl → origin (when non-empty)
  *   3. details.securityOrigin → origin
  * NEVER use details.embeddingOrigin for allow decisions.
  */
@@ -64,12 +65,15 @@ function isTrustedPermissionOrigin(
   requestingOrigin: string | undefined,
   details: unknown
 ): boolean {
-  if (isTrustedOrigin(requestingOrigin)) {
-    return true;
+  if (requestingOrigin !== undefined && requestingOrigin.trim().length > 0) {
+    return isTrustedOrigin(requestingOrigin);
   }
 
   const { requestingUrl, securityOrigin } = readOriginDetails(details);
-  return isTrustedOrigin(requestingUrl) || isTrustedOrigin(securityOrigin);
+  if (requestingUrl !== undefined && requestingUrl.trim().length > 0) {
+    return isTrustedOrigin(requestingUrl);
+  }
+  return isTrustedOrigin(securityOrigin);
 }
 
 /**
@@ -97,12 +101,22 @@ export function installPermissionRequestHandler(window: BrowserWindow): void {
             return;
           }
 
-          // Unknown media type strings are ignored for TCC bits (do not auto-grant empty).
+          // Require at least one known media type — unknown-only lists must not grant.
+          const hasVideo = mediaTypes.includes('video');
+          const hasAudio = mediaTypes.includes('audio');
+          if (!hasVideo && !hasAudio) {
+            log.warn(
+              `[Security] Media permission denied: no video/audio in mediaTypes (${mediaTypes.join(', ')})`
+            );
+            callback(false);
+            return;
+          }
+
           let granted = true;
-          if (mediaTypes.includes('video')) {
+          if (hasVideo) {
             granted &&= await checkAndRequestMediaAccess('camera');
           }
-          if (mediaTypes.includes('audio')) {
+          if (hasAudio) {
             granted &&= await checkAndRequestMediaAccess('microphone');
           }
 

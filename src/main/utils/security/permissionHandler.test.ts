@@ -237,6 +237,32 @@ describe('permissionHandler', () => {
       expect(mockCheckMedia).not.toHaveBeenCalled();
     });
 
+    it('denies media permission when mediaTypes has only unknown types', async () => {
+      const { window, getRequestHandler } = createMockWindow();
+      installPermissionRequestHandler(window);
+
+      const callback = vi.fn();
+      await getRequestHandler()(null, 'media', callback, {
+        ...TRUSTED_PERMISSION_DETAILS,
+        mediaTypes: ['screen', 'foo'],
+      });
+
+      expect(callback).toHaveBeenCalledWith(false);
+      expect(mockCheckMedia).not.toHaveBeenCalled();
+    });
+
+    it('denies when requestingUrl is untrusted even if securityOrigin is trusted', async () => {
+      const { window, getRequestHandler } = createMockWindow();
+      installPermissionRequestHandler(window);
+
+      const callback = vi.fn();
+      await getRequestHandler()(null, 'notifications', callback, {
+        requestingUrl: 'https://evil.example/x',
+        securityOrigin: 'https://chat.google.com',
+      });
+      expect(callback).toHaveBeenCalledWith(false);
+    });
+
     it('grants media for trusted chat.google.com with video when TCC passes', async () => {
       mockCheckMedia.mockResolvedValue(true);
       mockGetMediaStatus.mockReturnValue('granted');

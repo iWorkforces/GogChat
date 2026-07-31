@@ -90,10 +90,12 @@ function writeSecureFlags(flags: SecureFlags): void {
 }
 
 /**
- * Returns the persisted `disableCertPinning` flag.
+ * Returns the persisted residual `disableCertPinning` flag.
  *
- * Defaults to `false` (the safe default — pinning enabled) on any error,
- * including missing file, decryption failure, or unavailable safeStorage.
+ * Certificate pinning was removed from the product; this key is storage/compat
+ * only and is not consulted for TLS trust. Defaults to `false` (flag unset /
+ * no-op) on any error, including missing file, decryption failure, or
+ * unavailable safeStorage.
  *
  * Safe to call before `app.whenReady` — `safeStorage` is queried
  * lazily and a missing file simply returns the default.
