@@ -201,6 +201,14 @@ export default (window: BrowserWindow) => {
 
   window.webContents.setWindowOpenHandler(handleRedirect);
   window.webContents.on('will-navigate', (event, url) => {
+    // Parity with setWindowOpenHandler: always block non-http(s) schemes
+    // (javascript:, file:, data:, etc.) — do not hand them to openExternal.
+    if (!isValidHttpURL(url)) {
+      event.preventDefault();
+      log.warn('[ExternalLinks] will-navigate: blocked non-HTTP URL:', url);
+      return;
+    }
+
     const currentHost = extractHostname(window.webContents.getURL());
 
     // Handle Chat account routing
@@ -209,7 +217,7 @@ export default (window: BrowserWindow) => {
       return;
     }
 
-    // Block and open externally all non-whitelisted URLs
+    // Block and open externally all non-whitelisted URLs (when guard enabled)
     if (guardAgainstExternalLinks && shouldOpenExternally(url, currentHost)) {
       event.preventDefault();
       setImmediate(() => {

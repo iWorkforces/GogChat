@@ -108,6 +108,10 @@ vi.mock('../utils/lifecycle/resourceCleanup.js', () => ({
   createTrackedInterval: vi.fn().mockReturnValue({} as NodeJS.Timeout),
 }));
 
+vi.mock('../utils/security/shellWrapper.js', () => ({
+  openExternal: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe('externalLinks feature', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -171,6 +175,58 @@ describe('externalLinks feature', () => {
       navHandler({ preventDefault } as unknown as Electron.Event, 'https://chat.google.com/u/1/');
 
       expect(preventDefault).toHaveBeenCalled();
+    });
+
+    it('will-navigate prevents non-HTTP schemes (parity with window-open handler)', async () => {
+      const win = makeFakeWindow('https://chat.google.com');
+      const feature = await import('./externalLinks.js');
+      feature.default(win as unknown as Electron.BrowserWindow);
+
+      const navCall = (win.webContents.on as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call: unknown[]) => call[0] === 'will-navigate'
+      );
+      const navHandler = navCall?.[1] as (
+        event: { preventDefault: ReturnType<typeof vi.fn> },
+        url: string
+      ) => void;
+
+      for (const bad of [
+        'javascript:alert(1)',
+        'file:///etc/passwd',
+        'data:text/html,hi',
+        'ftp://example.com/x',
+      ]) {
+        const preventDefault = vi.fn();
+        navHandler({ preventDefault }, bad);
+        expect(preventDefault).toHaveBeenCalled();
+      }
+
+      const { openExternal } = await import('../utils/security/shellWrapper.js');
+      expect(openExternal).not.toHaveBeenCalled();
+    });
+
+    it('will-navigate allows same-host http(s) without preventDefault when guard on', async () => {
+      const win = makeFakeWindow('https://mail.google.com/chat/u/0');
+      const feature = await import('./externalLinks.js');
+      feature.default(win as unknown as Electron.BrowserWindow);
+
+      const navCall = (win.webContents.on as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call: unknown[]) => call[0] === 'will-navigate'
+      );
+      const navHandler = navCall?.[1] as (
+        event: { preventDefault: ReturnType<typeof vi.fn> },
+        url: string
+      ) => void;
+
+      const preventDefault = vi.fn();
+      // Same host + chat path stays in-app (not externalized)
+      navHandler(
+        { preventDefault },
+        'https://mail.google.com/chat/u/0/room/abc'
+      );
+      // routeAccountUrl may or may not prevent; for same account index 0 typically false
+      // shouldOpenExternally for chat prefix on mail.google.com should be false
+      expect(preventDefault).not.toHaveBeenCalled();
     });
   });
 
