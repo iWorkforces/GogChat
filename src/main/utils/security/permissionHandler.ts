@@ -20,7 +20,8 @@ const TRUSTED_PERMISSION_ORIGINS = new Set([
 interface PermissionOriginDetails {
   readonly requestingUrl?: string;
   readonly securityOrigin?: string;
-  readonly embeddingOrigin?: string;
+  // embeddingOrigin is intentionally ignored for allow decisions — a trusted
+  // embedder must not grant permissions to an untrusted requesting frame.
 }
 
 function parseOrigin(value: string | undefined): string | null {
@@ -51,6 +52,14 @@ function readOriginDetails(details: unknown): PermissionOriginDetails {
   return asType<PermissionOriginDetails>(details);
 }
 
+/**
+ * Trust algorithm (request + check handlers must agree):
+ * Ordered candidates — first match wins for "any trusted":
+ *   1. requestingOriginArg (check-handler string; request-handler usually omits)
+ *   2. details.requestingUrl → origin
+ *   3. details.securityOrigin → origin
+ * NEVER use details.embeddingOrigin for allow decisions.
+ */
 function isTrustedPermissionOrigin(
   requestingOrigin: string | undefined,
   details: unknown
@@ -59,12 +68,8 @@ function isTrustedPermissionOrigin(
     return true;
   }
 
-  const { requestingUrl, securityOrigin, embeddingOrigin } = readOriginDetails(details);
-  return (
-    isTrustedOrigin(requestingUrl) ||
-    isTrustedOrigin(securityOrigin) ||
-    isTrustedOrigin(embeddingOrigin)
-  );
+  const { requestingUrl, securityOrigin } = readOriginDetails(details);
+  return isTrustedOrigin(requestingUrl) || isTrustedOrigin(securityOrigin);
 }
 
 /**
@@ -85,6 +90,14 @@ export function installPermissionRequestHandler(window: BrowserWindow): void {
         if (permission === 'media') {
           const mediaTypes: string[] = asType<{ mediaTypes?: string[] }>(details).mediaTypes ?? [];
 
+          // Empty or missing mediaTypes must not auto-grant (KD6).
+          if (mediaTypes.length === 0) {
+            log.warn('[Security] Media permission denied: empty mediaTypes');
+            callback(false);
+            return;
+          }
+
+          // Unknown media type strings are ignored for TCC bits (do not auto-grant empty).
           let granted = true;
           if (mediaTypes.includes('video')) {
             granted &&= await checkAndRequestMediaAccess('camera');
