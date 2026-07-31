@@ -12,7 +12,8 @@ This directory owns multi-account window/view backends and per-account session p
 - `focusAccount(accountIndex)` brings that account’s UI forward (BW: show/focus window; WCV: switch visible view + focus host). Used by notification click routing.
 - WCV host `ready-to-show` must call `ensureNotificationPermission({ parentWindow })` (same first-run dialog + probe as `windowWrapper`).
 - Shared routing/registry/bootstrap helpers live in `accountRouter.ts`, `accountWindowRegistry.ts`, `bootstrapTracker.ts`, `bootstrapWatcher.ts`, `accountSessionMaintenance.ts`, `cacheWarmer.ts`, `deepLinkUtils.ts`, **`accountNavigation.ts`** (WebContents-first load/getURL/send), and **`accountWebPreferences.ts`** (`createAccountWebPreferences` shared by `windowWrapper` and WCV views — do not duplicate security prefs).
-- `listAccountIndices()` is sparse-safe (sorted, includes live + dehydrated-parked). `isAccountVisible()` is frontmost UI only. Do not loop `0..getAccountCount()-1` for live accounts.
+- `listAccountIndices()` is sparse-safe (sorted, includes live + dehydrated-parked). `isAccountVisible()` is frontmost UI only. Do not loop `0..getAccountCount()-1` for live accounts (`closeToTray`, shutdown diagnostics use `listAccountIndices`).
+- `destroyAccountWindowManager()` runs `destroyAll` once, then `resetAccountViewManagerSingleton()` so WCV is not double-destroyed and the next `getAccountViewManager()` is fresh.
 - Background throttling: account-0 stays unthrottled for badge/notification reliability; accounts 1+ enable Chromium background throttling (window factory + focus/blur toggles). Preserve that split when changing activity listeners.
 - Do **not** change the default backend or WebContentsView hide/throttle/destroy semantics without controlled multi-account evidence and an explicit policy decision.
 

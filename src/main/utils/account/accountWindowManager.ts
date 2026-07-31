@@ -42,7 +42,10 @@ import {
   readAccountWindowState as _getAccountWindowState,
 } from './accountWindowsStore.js';
 import { createTrackedTimeout } from '../lifecycle/resourceCleanup.js';
-import { getAccountViewManager } from './accountViewManager.js';
+import {
+  getAccountViewManager,
+  resetAccountViewManagerSingleton,
+} from './accountViewManager.js';
 
 /**
  * Idle threshold after which a blurred or hidden non-primary
@@ -608,6 +611,10 @@ export function getAccountWindowManager(factory?: WindowFactory): IAccountWindow
 
 /**
  * Destroy the account window manager singleton (whichever backend is active).
+ *
+ * KD15: destroyAll runs at most once. When WebContentsView is active, the same
+ * instance lives in this facade singleton and the accountViewManager module
+ * singleton — after destroyAll, only null the view singleton (no second destroyAll).
  */
 export function destroyAccountWindowManager(): void {
   if (accountManagerSingleton) {
@@ -615,6 +622,8 @@ export function destroyAccountWindowManager(): void {
     accountManagerSingleton = null;
     log.info('[AccountWindowManager] Manager destroyed');
   }
+  // Clear WCV module pointer whether or not it was the active facade instance.
+  resetAccountViewManagerSingleton();
 }
 
 /**

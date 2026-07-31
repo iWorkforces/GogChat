@@ -237,6 +237,7 @@ vi.mock('./accountSessionMaintenance.js', () => ({
 }));
 
 vi.mock('./accountViewManager.js', () => ({
+  resetAccountViewManagerSingleton: vi.fn(),
   getAccountViewManager: vi.fn(() => {
     // Return a minimal IAccountWindowManager-shaped stub. Only invoked when
     // app.useWebContentsView is true, which the routing tests assert on.
@@ -251,6 +252,8 @@ vi.mock('./accountViewManager.js', () => ({
       getAllWindows: vi.fn(() => []),
       getMostRecentWindow: vi.fn(),
       hasAccount: vi.fn(),
+      listAccountIndices: vi.fn(() => []),
+      isAccountVisible: vi.fn(() => false),
       unregisterAccount: vi.fn(),
       getAccountCount: vi.fn(() => 0),
       destroyAll: vi.fn(),
@@ -289,7 +292,10 @@ import {
 import { asAccountIndex, asWebContentsId, toPartition } from '../../../shared/types/branded';
 import type { WindowFactory } from '../../../shared/types/window';
 import { startSessionMaintenance, stopSessionMaintenance } from './accountSessionMaintenance.js';
-import { getAccountViewManager } from './accountViewManager.js';
+import {
+  getAccountViewManager,
+  resetAccountViewManagerSingleton,
+} from './accountViewManager.js';
 import {
   clearAllBootstrap,
   markAsBootstrap as trackerMark,
@@ -1033,6 +1039,49 @@ describe('AccountWindowManager — singleton', () => {
     // Ensure clean state via beforeEach already; calling destroy again is safe
     destroyAccountWindowManager();
     expect(() => destroyAccountWindowManager()).not.toThrow();
+  });
+
+  it('WCV path: destroyAll once then clears view singleton (KD15)', () => {
+    const destroyAll = vi.fn();
+    const viewStub = {
+      createAccountWindow: vi.fn(),
+      registerWindow: vi.fn(),
+      getAccountIndex: vi.fn(),
+      getAccountWindow: vi.fn(),
+      getAccountWebContents: vi.fn(),
+      getAccountForWebContents: vi.fn(),
+      focusAccount: vi.fn(),
+      getAllWindows: vi.fn(() => []),
+      getMostRecentWindow: vi.fn(),
+      hasAccount: vi.fn(),
+      listAccountIndices: vi.fn(() => []),
+      isAccountVisible: vi.fn(() => false),
+      unregisterAccount: vi.fn(),
+      getAccountCount: vi.fn(() => 0),
+      destroyAll,
+      markAsBootstrap: vi.fn(),
+      promoteBootstrap: vi.fn(),
+      isBootstrap: vi.fn(),
+      clearBootstrap: vi.fn(),
+      getBootstrapAccounts: vi.fn(() => []),
+      saveAccountWindowState: vi.fn(),
+      getAccountWindowState: vi.fn(),
+      dehydrateAccount: vi.fn(),
+      hydrateAccount: vi.fn(),
+      isDehydrated: vi.fn(() => false),
+      enumerateAccountWebContents: vi.fn(() => []),
+    };
+    vi.mocked(getAccountViewManager).mockReturnValue(
+      viewStub as unknown as ReturnType<typeof getAccountViewManager>
+    );
+    h.mockStore['app'] = { useWebContentsView: true };
+
+    const m = getAccountWindowManager();
+    expect(m).toBe(viewStub);
+    destroyAccountWindowManager();
+
+    expect(destroyAll).toHaveBeenCalledTimes(1);
+    expect(resetAccountViewManagerSingleton).toHaveBeenCalled();
   });
 });
 

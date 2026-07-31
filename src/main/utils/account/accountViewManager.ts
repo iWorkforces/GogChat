@@ -644,6 +644,15 @@ export function destroyAccountViewManager(): void {
   }
 }
 
+/**
+ * Clear the module singleton without calling destroyAll.
+ * Used by {@link destroyAccountWindowManager} after it has already destroyed
+ * the shared instance (WCV is stored in both singletons — avoid double destroy).
+ */
+export function resetAccountViewManagerSingleton(): void {
+  accountViewManager = null;
+}
+
 // Re-export the factory parameter type for clarity at the call site even
 // though it is unused by the WebContentsView path. Keeps the signature
 // symmetric with getAccountWindowManager.

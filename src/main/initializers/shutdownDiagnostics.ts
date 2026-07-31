@@ -15,7 +15,6 @@ import type { CachedStore } from '../utils/config/configCache.js';
 import { getRateLimiter } from '../utils/ipc/rateLimiter.js';
 import { getDeduplicator } from '../utils/ipc/ipcDeduplicator.js';
 import { getAccountWindowManager } from '../utils/account/accountWindowManager.js';
-import { asAccountIndex } from '../../shared/types/branded.js';
 import { toPartition } from '../../shared/types/branded.js';
 import type { StoreType } from '../../shared/types/config.js';
 import { asType } from '../../shared/typeUtils.js';
@@ -114,21 +113,20 @@ export async function logShutdownDiagnostics(): Promise<void> {
       `[Main]   By phase: security=${summary.byPhase.security}, critical=${summary.byPhase.critical}, ui=${summary.byPhase.ui}, deferred=${summary.byPhase.deferred}`
     );
 
-    // Per-account disk cache sizes (diagnostics only).
+    // Per-account disk cache sizes (diagnostics only). Sparse-safe index list.
     try {
       const manager = getAccountWindowManager();
-      const accountCount = manager.getAccountCount();
       log.info('[Main] --- Account Disk Cache Sizes ---');
-      for (let i = 0; i < accountCount; i++) {
-        const partition = toPartition(asAccountIndex(i));
+      for (const accountIndex of manager.listAccountIndices()) {
+        const partition = toPartition(accountIndex);
         try {
           const sesh = session.fromPartition(partition);
           const sizeBytes = await sesh.getCacheSize();
           log.info(
-            `[Main]   Account ${i} (${partition}) disk cache: ${(sizeBytes / 1024 / 1024).toFixed(2)} MB`
+            `[Main]   Account ${accountIndex} (${partition}) disk cache: ${(sizeBytes / 1024 / 1024).toFixed(2)} MB`
           );
         } catch (err: unknown) {
-          log.debug(`[Main]   Account ${i} cache size unavailable:`, err);
+          log.debug(`[Main]   Account ${accountIndex} cache size unavailable:`, err);
         }
       }
     } catch (err: unknown) {

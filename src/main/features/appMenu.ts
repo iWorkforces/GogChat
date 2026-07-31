@@ -22,6 +22,9 @@ function buildAccountLabelsSubmenu(
   parentWindow: BrowserWindow,
   rebuildMenu: (window: BrowserWindow) => void
 ): MenuItemConstructorOptions {
+  // Dense 0..slotCount-1 slots are intentional for Preferences → Account Labels
+  // (users may label not-yet-created indices). Live account lifecycle code must
+  // use listAccountIndices() instead of getAccountCount() loops.
   let accountCount = 0;
   try {
     accountCount = getAccountWindowManager().getAccountCount();
