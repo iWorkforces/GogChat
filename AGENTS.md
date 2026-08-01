@@ -2,8 +2,8 @@
 
 **Generated:** 2026-07-30
 **Commit:** aae1e4e
-**Branch:** support-native-notifications
-**Version:** 3.18.1
+**Branch:** develop
+**Version:** 3.18.4
 
 ## Project shape
 
