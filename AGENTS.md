@@ -1,9 +1,9 @@
 # GogChat Agent Guide
 
 **Generated:** 2026-08-01
-**Commit:** 4b23c71
-**Branch:** deep-perf-enhancements
-**Version:** 3.18.3
+**Commit:** 32a2a4f
+**Branch:** develop
+**Version:** 3.18.4
 **Repository:** https://github.com/iWorkforces/GogChat
 
 ## Project shape
