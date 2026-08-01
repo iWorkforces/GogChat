@@ -21,7 +21,7 @@
     "build:watch": "bun scripts/build-rsbuild.js --dev --watch",
     "build:analyze": "ANALYZE=true NODE_ENV=production bun scripts/build-rsbuild.js",
     "prets": "bun run clean:lib",
-    "ts": "tsc",
+    "ts": "node ./node_modules/@typescript/native/bin/tsc",
     "package": "BUILD_ENV=${BUILD_ENV:-production} bun run build:prod && BUILD_ENV=${BUILD_ENV:-production} electron-builder --mac --$(if [ \"$(uname -m)\" = arm64 ]; then echo arm64; else echo x64; fi)",
     "package:mac:arm64": "bash ./scripts/package-mac-arch.sh arm64",
     "package:mac:x64": "bash ./scripts/package-mac-arch.sh x64",
@@ -51,7 +51,7 @@
     "build:mac:arm64:dev": "bash ./build-macOS-dmg.sh --environment develop --arch arm64",
     "build:mac:x64": "bash ./build-macOS-dmg.sh --environment production --arch x64",
     "build:mac:x64:dev": "bash ./build-macOS-dmg.sh --environment develop --arch x64",
-    "typecheck": "tsc -b"
+    "typecheck": "node ./node_modules/@typescript/native/bin/tsc -b"
   },
   "devDependencies": {
     "@electron/notarize": "^3.1.1",
@@ -66,6 +66,7 @@
     "@types/throttle-debounce": "^5.0.2",
     "@typescript-eslint/eslint-plugin": "^8.65.0",
     "@typescript-eslint/parser": "^8.65.0",
+    "@typescript/native": "npm:typescript@7.0.2",
     "@vitest/coverage-v8": "^4.1.10",
     "@vitest/ui": "^4.1.10",
     "electron": "^43.2.0",
