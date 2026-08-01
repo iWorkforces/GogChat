@@ -93,6 +93,17 @@ export interface IAccountWindowManager {
   getAllWindows(): Electron.BrowserWindow[];
   getMostRecentWindow(): Electron.BrowserWindow | null;
   hasAccount(accountIndex: AccountIndex): boolean;
+  /**
+   * All known account indices (live + dehydrated-parked), sorted ascending.
+   * Sparse-safe — do not assume contiguous 0..getAccountCount()-1.
+   */
+  listAccountIndices(): AccountIndex[];
+  /**
+   * Whether this account is the frontmost UI (visible / on-screen account).
+   * BrowserWindow: live window with `isVisible()`. WebContentsView: frontmost view.
+   * Dehydrated-parked and switched-away accounts return false.
+   */
+  isAccountVisible(accountIndex: AccountIndex): boolean;
   unregisterAccount(accountIndex: AccountIndex): void;
   getAccountCount(): number;
   destroyAll(): void;

@@ -133,7 +133,21 @@ vi.mock('../utils/security/notificationAccess', () => ({
 vi.mock('../utils/account/accountWindowManager.js', () => ({
   getAccountWindowManager: vi.fn(() => ({
     getAccountCount: vi.fn(() => 2),
+    getAccountIndex: vi.fn(() => 0),
+    getAccountWebContents: vi.fn(() => ({
+      isDestroyed: () => false,
+      goBack: vi.fn(),
+      goForward: vi.fn(),
+      send: vi.fn(),
+      getURL: () => 'https://chat.google.com/u/0/',
+    })),
   })),
+}));
+
+vi.mock('../utils/account/accountNavigation.js', () => ({
+  loadAccountURL: vi.fn().mockReturnValue(true),
+  getAccountURL: vi.fn().mockReturnValue('https://chat.google.com/u/0/'),
+  sendToAccount: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock('../utils/platform/accountLabelStore.js', () => ({
@@ -243,7 +257,7 @@ describe('appMenu', () => {
     expect(app.exit).toHaveBeenCalled();
   });
 
-  it('includes File menu with Sign Out action', () => {
+  it('includes File menu with Sign Out action', async () => {
     const window = makeFakeWindow();
     appMenu(window as BrowserWindow);
 
@@ -254,10 +268,11 @@ describe('appMenu', () => {
     );
 
     signOut.click();
-    expect(window.loadURL).toHaveBeenCalledWith('https://accounts.google.com/logout');
+    const { loadAccountURL } = await import('../utils/account/accountNavigation.js');
+    expect(loadAccountURL).toHaveBeenCalled();
   });
 
-  it('includes View menu with Search action', () => {
+  it('includes View menu with Search action', async () => {
     const window = makeFakeWindow();
     appMenu(window as BrowserWindow);
 
@@ -268,10 +283,15 @@ describe('appMenu', () => {
     );
 
     search.click();
-    expect(window.webContents.send).toHaveBeenCalledWith(IPC_CHANNELS.SEARCH_SHORTCUT);
+    const { sendToAccount } = await import('../utils/account/accountNavigation.js');
+    expect(sendToAccount).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      IPC_CHANNELS.SEARCH_SHORTCUT
+    );
   });
 
-  it('includes View menu with Copy Current URL action', () => {
+  it('includes View menu with Copy Current URL action', async () => {
     const window = makeFakeWindow();
     appMenu(window as BrowserWindow);
 
@@ -282,7 +302,7 @@ describe('appMenu', () => {
     );
 
     copyUrl.click();
-    expect(clipboard.writeText).toHaveBeenCalledWith('https://chat.google.com');
+    expect(clipboard.writeText).toHaveBeenCalledWith('https://chat.google.com/u/0/');
   });
 
   it('includes Preferences menu with checkbox items', () => {

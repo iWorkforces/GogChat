@@ -1,13 +1,21 @@
 # Performance Utilities Documentation
 
-This document provides detailed documentation for the performance optimization utilities in `src/main/utils/`.
+This document describes performance-related utilities under `src/main/utils/` (icon cache, package info helpers, config profiling notes). It is **historical/supplementary**.
+
+## Authoritative contracts
+
+For versioned startup metrics, MB units, required markers, and final export ownership, prefer:
+
+- `src/main/utils/lifecycle/AGENTS.md`
+- `src/main/utils/lifecycle/performanceTypes.ts` / `performanceFinalizer.ts`
+- `docs/plans/performance-remediation.md`
+- Evidence under `.omo/evidence/performance-remediation/` (when present)
+
+Do **not** treat unmeasured “ms faster” claims in older sections of this file as product truth. Package-byte reductions are not startup wins without a measured path.
 
 ## Overview
 
-The performance utilities were added to improve application startup time and runtime performance through intelligent caching and monitoring. These utilities work together to eliminate redundant file I/O operations and reduce encryption/decryption overhead.
-
-**Total Performance Impact**: 17-35ms faster startup
-**Memory Overhead**: ~115KB (negligible)
+Utilities here focus on caching and monitoring helpers (icons, package metadata, optional config profiling). Paths in older examples may refer to pre-`platform/` layouts — current icons live under `src/main/utils/platform/iconCache.ts`.
 
 ---
 
@@ -202,26 +210,21 @@ console.log(`Cache warming took ${duration}ms`);
 **Summary report:**
 ```typescript
 perfMonitor.logSummary();
-// Outputs:
-// [Performance] ========== Performance Summary ==========
-// [Performance] Total startup time: 1234ms
-// [Performance] app-start: 0ms
-// [Performance] cert-pinning-done: 15ms
-// [Performance] app-ready: 250ms
-// ...
+// Outputs a marker timeline — exact markers are owned by performanceTypes /
+// the finalizer (see lifecycle AGENTS). Custom certificate pinning was removed;
+// there is no product `cert-pinning-done` marker.
 ```
 
-### Current Markers
+### Required unauthenticated startup markers (see performanceTypes)
 
 | Marker | Description |
 |--------|-------------|
 | `app-start` | App initialization started |
-| `cert-pinning-done` | Certificate pinning setup complete |
 | `app-ready` | Electron app ready event |
-| `icons-cached` | Icons pre-loaded |
-| `window-created` | Main window created |
+| `account-0-ready` | Account-0 native window readiness |
+| `account-0-content-loaded` | Account-0 document load (not first paint/interaction) |
 | `features-loaded` | Critical features initialized |
-| `all-features-loaded` | All features including deferred ones |
+| `all-features-loaded` | Deferred phase features loaded |
 
 ### Performance
 
@@ -595,15 +598,14 @@ if (process.env.NODE_ENV !== 'test' && process.env.VITEST !== 'true') {
 - Memory: ~5KB
 
 **Performance:**
-- Total startup: 17-35ms faster
-- Memory overhead: ~115KB total
+- Measure startup via the versioned headless harness + budget gate (MB units), not ad-hoc estimates in this file
+- Cache memory overhead is small relative to Chat renderers; do not claim runtime wins from package size alone
 
 ### Monitoring in Production
 
-1. **Check logs** on app exit for cache stats
-2. **Monitor hit rates** - should be >50%
-3. **Track startup time** - compare with metrics
-4. **Watch memory usage** - should be +115KB or less
+1. Prefer development/CI `performance-metrics.json` from the finalizer
+2. Check logs on app exit for cache stats when debugging
+3. Track gated budgets with `scripts/check-perf-budget.js`
 
 ---
 

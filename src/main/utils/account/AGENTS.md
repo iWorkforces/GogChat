@@ -6,12 +6,16 @@ This directory owns multi-account window/view backends and per-account session p
 
 ## Backends
 
-- `accountWindowManager.ts` is the default BrowserWindow-per-account backend.
-- `accountViewManager.ts` is the opt-in WebContentsView host backend selected by `app.useWebContentsView`.
+- `accountWindowManager.ts` is the default BrowserWindow-per-account backend. `getAccountWindowManager(factory)` routes to `getAccountViewManager` when `app.useWebContentsView === true`.
+- `accountViewManager.ts` is the opt-in WebContentsView host backend.
 - Both implement `IAccountWindowManager` from `src/shared/types/window.ts`.
 - `focusAccount(accountIndex)` brings that account’s UI forward (BW: show/focus window; WCV: switch visible view + focus host). Used by notification click routing.
 - WCV host `ready-to-show` must call `ensureNotificationPermission({ parentWindow })` (same first-run dialog + probe as `windowWrapper`).
-- Shared routing/registry/bootstrap helpers live in `accountRouter.ts`, `accountWindowRegistry.ts`, `bootstrapTracker.ts`, `bootstrapWatcher.ts`, `accountSessionMaintenance.ts`, `cacheWarmer.ts`, and `deepLinkUtils.ts`.
+- Shared routing/registry/bootstrap helpers live in `accountRouter.ts`, `accountWindowRegistry.ts`, `bootstrapTracker.ts`, `bootstrapWatcher.ts`, `accountSessionMaintenance.ts`, `cacheWarmer.ts`, `deepLinkUtils.ts`, **`accountNavigation.ts`** (WebContents-first load/getURL/send), **`accountWebPreferences.ts`** (`createAccountWebPreferences` shared by `windowWrapper` and WCV views — do not duplicate security prefs), and **`accountWebContentsHooks.ts`** (KD13: managers notify create/destroy; features such as `externalLinks` subscribe and install per-account WC guards — never attach only to account-0 host).
+- `listAccountIndices()` is sparse-safe (sorted, includes live + dehydrated-parked). `hasAccount()` is true for live **and** dehydrated-parked. `isAccountVisible()` is frontmost UI only. Do not loop `0..getAccountCount()-1` for live accounts (`closeToTray`, shutdown diagnostics use `listAccountIndices`).
+- BrowserWindow `dehydrateAccount` / `hydrateAccount` must notify hooks (destroy then create) so multi-account feature guards reinstall after restore. WCV `switchToAccount` / `focusAccount` unthrottle the frontmost view; parking the frontmost promotes a fallback (prefer account-0).
+- `destroyAccountWindowManager()` runs `destroyAll` once, then `resetAccountViewManagerSingleton()` so WCV is not double-destroyed and the next `getAccountViewManager()` is fresh.
+- Background throttling: account-0 stays unthrottled for badge/notification reliability; accounts 1+ enable Chromium background throttling (window factory + focus/blur toggles). Preserve that split when changing activity listeners.
 - Do **not** change the default backend or WebContentsView hide/throttle/destroy semantics without controlled multi-account evidence and an explicit policy decision.
 
 ## Session contract
@@ -38,17 +42,32 @@ This directory owns multi-account window/view backends and per-account session p
 ## Dehydration differences
 
 - BrowserWindow dehydration may destroy a window, but must preserve the partition/session.
-- WebContentsView dehydration hides/throttles the view; it does not destroy per-account sessions.
+- WebContentsView uses a **three-state** model: `visible` | `hidden-live` | `dehydrated-parked`.
+  - Switch-away → `hidden-live` (`isDehydrated === false`).
+  - `dehydrateAccount` → `dehydrated-parked` (hide + throttle; session preserved).
+  - `visible` ⇒ unthrottled; park sets throttle true; `focusAccount` / `hydrateAccount` clear throttle via switch.
+  - `isDehydrated` is **only** true for `dehydrated-parked`, never for mere switch-away.
+  - Account 0 and bootstrap accounts are never parked on WCV.
+  - Parking a frontmost non-0 account promotes a visible fallback (prefer account-0).
+- Memory-pressure dehydration **never** targets account-0 (BW pressure path aligned with AGENTS).
 - Keep backend-specific behavior behind the shared manager contract whenever possible.
+- Router hydration hooks must hydrate only when `isDehydrated===true`, not when merely non-visible.
 
 ## Deferred phase / metrics hook
 
-- `cacheWarmer.runDeferredPhase` runs deferred features, logs the perf summary, optional dev config profiling, then `notifyDeferredPhaseComplete()`.
+- `registerAppReady` schedules `warmInitialIcons` + `warmSoonDeferredIcons` + `runDeferredPhase` on `setImmediate` after the UI phase (icons are off the critical path; account-0 window icon loads on demand in `windowWrapper`).
+- `cacheWarmer.runDeferredPhase` runs deferred features, logs the perf summary, optional dev config profiling (`runDevPostDeferred`), then `notifyDeferredPhaseComplete()`.
 - Metrics JSON export is **not** owned here; see `performanceFinalizer.ts`.
+
+## Callers outside this directory
+
+- Features (`externalLinks`, `deepLinkHandler`, `appMenu`, bootstrap promotion) must use `accountNavigation` + `focusAccount`, not host `BrowserWindow.loadURL`, under WCV.
+- Content-loaded metrics in `registerAppReady` use `getAccountWebContents(0)`.
+- Session pressure / close-to-tray use sparse `listAccountIndices` and never dehydrate account-0 under pressure.
 
 ## Change checklist
 
 - If behavior is user-visible, update both backends or document why one is intentionally different.
 - Keep bootstrap promotion compatible with `src/main/initializers/registerAppReady.ts` and lifecycle context storage.
-- Add/update tests around auth pages, partition persistence, active account switching, dehydration, single hydration navigation, and `enumerateAccountWebContents`.
+- Add/update tests around auth pages, partition persistence, active account switching, dehydration, single hydration navigation, hooks reinstall after BW hydrate, WCV unthrottle/fallback, and `enumerateAccountWebContents`.
 - Do not add Google Chat URL assumptions here; use validators from `src/shared/urlValidators.ts`.

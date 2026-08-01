@@ -78,12 +78,23 @@ vi.mock('../../shared/urlValidators.js', () => ({
   isGoogleAuthUrl: vi.fn().mockReturnValue(false),
 }));
 
+const mockFocusAccount = vi.fn();
+const mockHasAccount = vi.fn().mockReturnValue(false);
+const mockIsBootstrap = vi.fn().mockReturnValue(false);
+const mockMarkAsBootstrap = vi.fn();
+const mockLoadAccountURL = vi.fn().mockReturnValue(true);
+const mockGetAccountURL = vi.fn().mockReturnValue(null);
+
 // Mock accountWindowManager
 vi.mock('../utils/account/accountWindowManager.js', () => ({
   getAccountWindowManager: () => ({
-    isBootstrap: vi.fn().mockReturnValue(false),
-    markAsBootstrap: vi.fn(),
+    isBootstrap: (...args: unknown[]) => mockIsBootstrap(...args),
+    markAsBootstrap: (...args: unknown[]) => mockMarkAsBootstrap(...args),
     getAccountIndex: vi.fn().mockReturnValue(0),
+    getAccountWindow: vi.fn().mockReturnValue(null),
+    hasAccount: (...args: unknown[]) => mockHasAccount(...args),
+    focusAccount: (...args: unknown[]) => mockFocusAccount(...args),
+    enumerateAccountWebContents: vi.fn(() => []),
   }),
   createAccountWindow: vi.fn().mockReturnValue({
     webContents: { getURL: () => '' },
@@ -98,6 +109,16 @@ vi.mock('../utils/account/accountWindowManager.js', () => ({
   getAccountIndex: vi.fn().mockReturnValue(0),
 }));
 
+vi.mock('../utils/account/accountNavigation.js', () => ({
+  loadAccountURL: (...args: unknown[]) => mockLoadAccountURL(...args),
+  getAccountURL: (...args: unknown[]) => mockGetAccountURL(...args),
+}));
+
+vi.mock('../utils/account/accountWebContentsHooks.js', () => ({
+  setAccountWebContentsHooksManager: vi.fn(),
+  onAccountWebContentsCreated: vi.fn(() => () => {}),
+}));
+
 // Mock bootstrapPromotion
 vi.mock('./bootstrapPromotion.js', () => ({
   watchBootstrapAccount: vi.fn(),
@@ -106,6 +127,10 @@ vi.mock('./bootstrapPromotion.js', () => ({
 // Mock resourceCleanup for createTrackedInterval
 vi.mock('../utils/lifecycle/resourceCleanup.js', () => ({
   createTrackedInterval: vi.fn().mockReturnValue({} as NodeJS.Timeout),
+}));
+
+vi.mock('../utils/security/shellWrapper.js', () => ({
+  openExternal: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe('externalLinks feature', () => {
@@ -117,24 +142,24 @@ describe('externalLinks feature', () => {
   // ── default export / window.open handler ───────────────────────────────────
 
   describe('default export (window setup)', () => {
-    it('registers setWindowOpenHandler on webContents', async () => {
+    it('installExternalLinkGuards registers handlers on the account WebContents', async () => {
       const win = makeFakeWindow('https://chat.google.com');
       const feature = await import('./externalLinks.js');
-      feature.default(win as unknown as Electron.BrowserWindow);
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
       expect(win.webContents.setWindowOpenHandler).toHaveBeenCalled();
-    });
-
-    it('registers will-navigate listener on webContents', async () => {
-      const win = makeFakeWindow('https://chat.google.com');
-      const feature = await import('./externalLinks.js');
-      feature.default(win as unknown as Electron.BrowserWindow);
       expect(win.webContents.on).toHaveBeenCalledWith('will-navigate', expect.any(Function));
     });
 
     it('handler denies non-HTTP URLs', async () => {
       const win = makeFakeWindow('https://chat.google.com');
       const feature = await import('./externalLinks.js');
-      feature.default(win as unknown as Electron.BrowserWindow);
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
 
       const handler = win.webContents.setWindowOpenHandler.mock.calls[0][0];
       const result = handler({ url: 'javascript:alert(1)' } as Electron.HandlerDetails);
@@ -145,7 +170,10 @@ describe('externalLinks feature', () => {
     it('handler allows whitelisted navigation', async () => {
       const win = makeFakeWindow('https://chat.google.com');
       const feature = await import('./externalLinks.js');
-      feature.default(win as unknown as Electron.BrowserWindow);
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
 
       const handler = win.webContents.setWindowOpenHandler.mock.calls[0][0];
       const result = handler({ url: 'https://accounts.google.com' } as Electron.HandlerDetails);
@@ -156,9 +184,11 @@ describe('externalLinks feature', () => {
     it('will-navigate prevents default for Chat account routing', async () => {
       const win = makeFakeWindow('https://chat.google.com');
       const feature = await import('./externalLinks.js');
-      feature.default(win as unknown as Electron.BrowserWindow);
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
 
-      // Find will-navigate handler
       const navCall = (win.webContents.on as ReturnType<typeof vi.fn>).mock.calls.find(
         (call: unknown[]) => call[0] === 'will-navigate'
       );
@@ -171,6 +201,84 @@ describe('externalLinks feature', () => {
       navHandler({ preventDefault } as unknown as Electron.Event, 'https://chat.google.com/u/1/');
 
       expect(preventDefault).toHaveBeenCalled();
+      expect(mockFocusAccount).toHaveBeenCalledWith(1);
+    });
+
+    it('routes existing secondary accounts via loadAccountURL (not host loadURL)', async () => {
+      mockHasAccount.mockReturnValue(true);
+      mockGetAccountURL.mockReturnValue('https://chat.google.com/u/1/');
+      const win = makeFakeWindow('https://chat.google.com/u/0/');
+      const feature = await import('./externalLinks.js');
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
+
+      const handler = win.webContents.setWindowOpenHandler.mock.calls[0][0];
+      const result = handler({
+        url: 'https://chat.google.com/u/1/room/abc',
+      } as Electron.HandlerDetails);
+
+      expect(result).toEqual({ action: 'deny' });
+      expect(mockLoadAccountURL).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        'https://chat.google.com/u/1/room/abc'
+      );
+      expect(mockFocusAccount).toHaveBeenCalledWith(1);
+      expect(win.loadURL).not.toHaveBeenCalled();
+    });
+
+    it('will-navigate prevents non-HTTP schemes (parity with window-open handler)', async () => {
+      const win = makeFakeWindow('https://chat.google.com');
+      const feature = await import('./externalLinks.js');
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
+
+      const navCall = (win.webContents.on as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call: unknown[]) => call[0] === 'will-navigate'
+      );
+      const navHandler = navCall?.[1] as (
+        event: { preventDefault: ReturnType<typeof vi.fn> },
+        url: string
+      ) => void;
+
+      for (const bad of [
+        'javascript:alert(1)',
+        'file:///etc/passwd',
+        'data:text/html,hi',
+        'ftp://example.com/x',
+      ]) {
+        const preventDefault = vi.fn();
+        navHandler({ preventDefault }, bad);
+        expect(preventDefault).toHaveBeenCalled();
+      }
+
+      const { openExternal } = await import('../utils/security/shellWrapper.js');
+      expect(openExternal).not.toHaveBeenCalled();
+    });
+
+    it('will-navigate allows same-host http(s) without preventDefault when guard on', async () => {
+      const win = makeFakeWindow('https://mail.google.com/chat/u/0');
+      const feature = await import('./externalLinks.js');
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
+
+      const navCall = (win.webContents.on as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call: unknown[]) => call[0] === 'will-navigate'
+      );
+      const navHandler = navCall?.[1] as (
+        event: { preventDefault: ReturnType<typeof vi.fn> },
+        url: string
+      ) => void;
+
+      const preventDefault = vi.fn();
+      navHandler({ preventDefault }, 'https://mail.google.com/chat/u/0/room/abc');
+      expect(preventDefault).not.toHaveBeenCalled();
     });
   });
 

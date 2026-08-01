@@ -20,7 +20,8 @@ const TRUSTED_PERMISSION_ORIGINS = new Set([
 interface PermissionOriginDetails {
   readonly requestingUrl?: string;
   readonly securityOrigin?: string;
-  readonly embeddingOrigin?: string;
+  // embeddingOrigin is intentionally ignored for allow decisions — a trusted
+  // embedder must not grant permissions to an untrusted requesting frame.
 }
 
 function parseOrigin(value: string | undefined): string | null {
@@ -51,20 +52,28 @@ function readOriginDetails(details: unknown): PermissionOriginDetails {
   return asType<PermissionOriginDetails>(details);
 }
 
+/**
+ * Trust algorithm (request + check handlers must agree):
+ * First present identity must be trusted (do not rescue an untrusted
+ * requesting URL/origin via securityOrigin):
+ *   1. requestingOriginArg (check-handler string; request-handler usually omits)
+ *   2. details.requestingUrl → origin (when non-empty)
+ *   3. details.securityOrigin → origin
+ * NEVER use details.embeddingOrigin for allow decisions.
+ */
 function isTrustedPermissionOrigin(
   requestingOrigin: string | undefined,
   details: unknown
 ): boolean {
-  if (isTrustedOrigin(requestingOrigin)) {
-    return true;
+  if (requestingOrigin !== undefined && requestingOrigin.trim().length > 0) {
+    return isTrustedOrigin(requestingOrigin);
   }
 
-  const { requestingUrl, securityOrigin, embeddingOrigin } = readOriginDetails(details);
-  return (
-    isTrustedOrigin(requestingUrl) ||
-    isTrustedOrigin(securityOrigin) ||
-    isTrustedOrigin(embeddingOrigin)
-  );
+  const { requestingUrl, securityOrigin } = readOriginDetails(details);
+  if (requestingUrl !== undefined && requestingUrl.trim().length > 0) {
+    return isTrustedOrigin(requestingUrl);
+  }
+  return isTrustedOrigin(securityOrigin);
 }
 
 /**
@@ -85,11 +94,29 @@ export function installPermissionRequestHandler(window: BrowserWindow): void {
         if (permission === 'media') {
           const mediaTypes: string[] = asType<{ mediaTypes?: string[] }>(details).mediaTypes ?? [];
 
+          // Empty or missing mediaTypes must not auto-grant (KD6).
+          if (mediaTypes.length === 0) {
+            log.warn('[Security] Media permission denied: empty mediaTypes');
+            callback(false);
+            return;
+          }
+
+          // Require at least one known media type — unknown-only lists must not grant.
+          const hasVideo = mediaTypes.includes('video');
+          const hasAudio = mediaTypes.includes('audio');
+          if (!hasVideo && !hasAudio) {
+            log.warn(
+              `[Security] Media permission denied: no video/audio in mediaTypes (${mediaTypes.join(', ')})`
+            );
+            callback(false);
+            return;
+          }
+
           let granted = true;
-          if (mediaTypes.includes('video')) {
+          if (hasVideo) {
             granted &&= await checkAndRequestMediaAccess('camera');
           }
-          if (mediaTypes.includes('audio')) {
+          if (hasAudio) {
             granted &&= await checkAndRequestMediaAccess('microphone');
           }
 

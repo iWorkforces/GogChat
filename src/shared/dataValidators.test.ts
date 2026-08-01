@@ -12,6 +12,12 @@ vi.mock('./urlValidators.js', () => ({
     }
     return value;
   }),
+  validateNotificationIconURL: vi.fn((value: unknown) => {
+    if (typeof value !== 'string') {
+      throw new Error('Notification icon must be a string');
+    }
+    return value;
+  }),
 }));
 
 import {
@@ -24,7 +30,7 @@ import {
   validateNotificationData,
 } from './dataValidators.js';
 import { BADGE } from './constants.js';
-import { validateFaviconURL } from './urlValidators.js';
+import { validateNotificationIconURL } from './urlValidators.js';
 
 describe('validateUnreadCount', () => {
   it('floors a valid positive number', () => {
@@ -316,10 +322,10 @@ describe('validatePasskeyFailureData', () => {
 
 describe('validateNotificationData', () => {
   beforeEach(() => {
-    vi.mocked(validateFaviconURL).mockClear();
-    vi.mocked(validateFaviconURL).mockImplementation((value: unknown) => {
+    vi.mocked(validateNotificationIconURL).mockClear();
+    vi.mocked(validateNotificationIconURL).mockImplementation((value: unknown) => {
       if (typeof value !== 'string') {
-        throw new Error('Favicon URL must be a string');
+        throw new Error('Notification icon must be a string');
       }
       return value;
     });
@@ -341,14 +347,14 @@ describe('validateNotificationData', () => {
     const result = validateNotificationData({
       title: 'T',
       body: 'B',
-      icon: 'https://example.com/icon.png',
+      icon: 'data:image/png;base64,abc',
       tag: 'tag-1',
     });
     expect(result.title).toBe('T');
     expect(result.body).toBe('B');
-    expect(result.icon).toBe('https://example.com/icon.png');
+    expect(result.icon).toBe('data:image/png;base64,abc');
     expect(result.tag).toBe('tag-1');
-    expect(validateFaviconURL).toHaveBeenCalledWith('https://example.com/icon.png');
+    expect(validateNotificationIconURL).toHaveBeenCalledWith('data:image/png;base64,abc');
   });
 
   it('throws for non-object inputs', () => {
@@ -383,7 +389,7 @@ describe('validateNotificationData', () => {
     expect(result.body).toBeUndefined();
     expect(result.icon).toBeUndefined();
     expect(result.tag).toBeUndefined();
-    expect(validateFaviconURL).not.toHaveBeenCalled();
+    expect(validateNotificationIconURL).not.toHaveBeenCalled();
   });
 
   it('omits body/icon/tag when they are null', () => {
@@ -410,8 +416,8 @@ describe('validateNotificationData', () => {
     expect(result.tag).toBeUndefined();
   });
 
-  it('propagates errors from validateFaviconURL', () => {
-    vi.mocked(validateFaviconURL).mockImplementationOnce(() => {
+  it('propagates errors from validateNotificationIconURL', () => {
+    vi.mocked(validateNotificationIconURL).mockImplementationOnce(() => {
       throw new Error('bad favicon');
     });
     expect(() => validateNotificationData({ title: 'T', icon: 'javascript:alert(1)' })).toThrow(

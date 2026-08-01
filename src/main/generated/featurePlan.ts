@@ -41,9 +41,9 @@ export const FEATURE_PLAN: Readonly<Record<FeaturePriority, readonly (readonly F
         get('handleNotification'),
         get('contextMenu'),
         get('inOnline'),
-        get('cdpTelemetry'),
       ],
       [get('badgeIcons'), get('windowState'), get('externalLinks'), get('closeToTray')],
       [get('appMenu')],
+      [get('cdpTelemetry')],
     ],
   };

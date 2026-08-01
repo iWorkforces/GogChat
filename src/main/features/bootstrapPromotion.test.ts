@@ -23,8 +23,12 @@ import { EventEmitter } from 'events';
 
 // We build a minimal fake BrowserWindow with only the surface our feature uses.
 function makeFakeWindow() {
-  const wc = new EventEmitter() as EventEmitter & { getURL: () => string };
+  const wc = new EventEmitter() as EventEmitter & {
+    getURL: () => string;
+    isDestroyed: () => boolean;
+  };
   wc.getURL = vi.fn(() => '');
+  wc.isDestroyed = () => false;
 
   const win = new EventEmitter() as EventEmitter & {
     webContents: typeof wc;
@@ -52,6 +56,11 @@ function makeFakeMgr(
   return {
     isBootstrap: (idx: number) => bootstrapAccounts.has(idx),
     getAccountWindow: (idx: number) => windowMap.get(idx) ?? null,
+    getAccountWebContents: (idx: number) => {
+      const win = windowMap.get(idx);
+      if (!win || win.isDestroyed()) return null;
+      return win.webContents;
+    },
     getBootstrapAccounts: () => Array.from(bootstrapAccounts),
     promoteBootstrap: vi.fn((idx: number) => {
       const was = bootstrapAccounts.has(idx);
@@ -60,6 +69,10 @@ function makeFakeMgr(
     }),
   };
 }
+
+vi.mock('../utils/account/accountNavigation.js', () => ({
+  loadAccountURL: vi.fn().mockReturnValue(true),
+}));
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -227,7 +240,8 @@ describe('bootstrapPromotion feature', () => {
     account0Win.webContents.emit('did-create-window', childWin, {});
     childWin.webContents.emit('did-navigate', {}, 'https://chat.google.com/u/0/');
 
-    expect(account0Win.loadURL).toHaveBeenCalledWith('https://chat.google.com/u/0/');
+    const { loadAccountURL } = await import('../utils/account/accountNavigation.js');
+    expect(loadAccountURL).toHaveBeenCalled();
   });
 
   it('removes child auth listener after promotion (no double-fire)', async () => {

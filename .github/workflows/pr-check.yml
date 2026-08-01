@@ -39,6 +39,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Documentation claim audit
+        run: bun run check:doc-claims
+
       - name: Test
         run: bun run test
 
