@@ -2,7 +2,7 @@
 
 **Generated:** 2026-07-30
 **Commit:** aae1e4e
-**Branch:** support-typescript-v7
+**Branch:** develop
 **Version:** 3.18.4
 
 ## Project shape
