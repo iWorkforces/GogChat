@@ -9,7 +9,7 @@ This directory is the canonical home for app startup/shutdown sequencing and bui
 - `registerAppReady.ts` - owns `app.whenReady()` sequencing (phases, store, account-0, finalizer arming, deferred schedule).
 - `registerShutdown.ts` - async shutdown path before `app.exit()`.
 - `registerGlobalCleanups.ts` - lazy `require()` of cleanup owners (avoid startup import cycles).
-- `singletonDestroyers.ts` / `shutdownDiagnostics.ts` - ordered teardown helpers used by shutdown. Destroyers include `destroyAboutWindow` + `destroyUpdateWindow` before perf/IPC/icon singletons.
+- `singletonDestroyers.ts` / `shutdownDiagnostics.ts` - ordered teardown helpers used by shutdown. About/Update destroyers are **dynamic-imported** (keep aurora HTML out of main bundle); then perf/IPC/icon singletons.
 - `security.spec.ts`, `ui.spec.ts`, `deferred.spec.ts` - declarative startup plan input (`FeatureSpec` from `utils/lifecycle/featureConfigTypes.ts`).
 
 ## Feature plan contract

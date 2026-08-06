@@ -2,7 +2,8 @@
  * Unit tests for singletonDestroyers.ts
  *
  * Verifies destroyAllSingletons calls each destroyer exactly once and in
- * the expected order.
+ * the expected order. About/Update use dynamic import so they stay out of
+ * the main bundle — tests mock those modules for the async import path.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -54,8 +55,8 @@ describe('destroyAllSingletons', () => {
     vi.resetAllMocks();
   });
 
-  it('should call every destroyer exactly once', () => {
-    destroyAllSingletons();
+  it('should call every destroyer exactly once', async () => {
+    await destroyAllSingletons();
 
     expect(mockDestroyAboutWindow).toHaveBeenCalledTimes(1);
     expect(mockDestroyUpdateWindow).toHaveBeenCalledTimes(1);
@@ -65,7 +66,7 @@ describe('destroyAllSingletons', () => {
     expect(mockDestroyIconCache).toHaveBeenCalledTimes(1);
   });
 
-  it('should call destroyers in the documented order', () => {
+  it('should call destroyers in the documented order', async () => {
     const calls: string[] = [];
     mockDestroyAboutWindow.mockImplementation(() => calls.push('about'));
     mockDestroyUpdateWindow.mockImplementation(() => calls.push('update'));
@@ -74,16 +75,16 @@ describe('destroyAllSingletons', () => {
     mockDestroyRateLimiter.mockImplementation(() => calls.push('rate'));
     mockDestroyIconCache.mockImplementation(() => calls.push('icon'));
 
-    destroyAllSingletons();
+    await destroyAllSingletons();
 
     expect(calls).toEqual(['about', 'update', 'perf', 'dedup', 'rate', 'icon']);
   });
 
-  it('should propagate errors so callers can wrap in try/catch', () => {
+  it('should propagate errors so callers can wrap in try/catch', async () => {
     mockDestroyAboutWindow.mockImplementation(() => {
       throw new Error('about boom');
     });
 
-    expect(() => destroyAllSingletons()).toThrow('about boom');
+    await expect(destroyAllSingletons()).rejects.toThrow('about boom');
   });
 });
