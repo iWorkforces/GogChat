@@ -3,9 +3,12 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const { mockAboutHandler } = vi.hoisted(() => ({
+  mockAboutHandler: vi.fn(),
+}));
+
 vi.mock('electron', () => ({
   app: {
-    showAboutPanel: vi.fn(),
     exit: vi.fn(),
   },
   BrowserWindow: vi.fn(),
@@ -23,6 +26,13 @@ vi.mock('electron', () => ({
     };
   }),
   NativeImage: {},
+}));
+
+vi.mock('./menuActionRegistry', () => ({
+  getMenuAction: vi.fn((id: string) => {
+    if (id === 'aboutPanel') return { label: 'Show About Panel', handler: mockAboutHandler };
+    return undefined;
+  }),
 }));
 
 const mockTrayInstance = {
@@ -106,6 +116,20 @@ describe('trayIcon', () => {
     const tray = getLastTrayInstance()!;
     expect(Menu.buildFromTemplate).toHaveBeenCalled();
     expect(tray.setContextMenu).toHaveBeenCalled();
+  });
+
+  it('About menu item invokes registered aboutPanel handler', () => {
+    const window = makeFakeWindow();
+    createTrayIcon(window as BrowserWindow);
+
+    const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0]?.[0] as Array<{
+      label?: string;
+      click?: () => void;
+    }>;
+    const about = template?.find((item) => item.label === 'About');
+    expect(about).toBeDefined();
+    about?.click?.();
+    expect(mockAboutHandler).toHaveBeenCalledWith(window);
   });
 
   it('shows and focuses window on open click', () => {

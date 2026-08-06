@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-This directory owns platform integration: tray, dock/taskbar badges, native notifications presentation, account notification identity/labels, app menu helpers, help menu actions, icon cache, and window defaults.
+This directory owns platform integration: tray, dock/taskbar badges, native notifications presentation, account notification identity/labels, app menu helpers, help menu actions, icon cache, window defaults, and native About/Update dialog chrome (v3.19.0).
 
 ## Conventions
 
@@ -14,8 +14,12 @@ This directory owns platform integration: tray, dock/taskbar badges, native noti
 - Unread-delta OS banners in `badgeHelpers` suppress only when the host/window is focused **and** `manager.isAccountVisible(accountIndex)` (WCV: hidden-live secondary must still notify while another account is frontmost).
 - `accountNotificationIdentity.ts` builds account-aware title/body/tag/subtitle/groupId; identity always comes from the IPC sender (or badge account index), never from payload free text alone.
 - `accountLabelStore.ts` / `accountLabelDialog.ts` persist optional custom labels (`app.accountLabels`) for notification subtitles (Preferences → Account Labels). Store helpers are config readers/writers, not process singletons with destroyers.
-- `helpMenuBuilder.ts` consumes feature actions through `features/menuActionRegistry.ts`; it should not import feature modules directly.
+- `helpMenuBuilder.ts` consumes feature actions through `features/menuActionRegistry.ts` (`aboutPanel`, `checkForUpdates`, troubleshooting actions); it should not import feature modules directly.
 - Window defaults live in `windowUtils.ts` (`getWindowDefaults`) used by account managers and `windowWrapper`.
+- Auxiliary dialog chrome: `dialogChrome.ts` (About / Update solid canvas `#0d1117`, macOS `hiddenInset` + traffic-light inset).
+- Native update dialog: `updateWindow.ts` (data: HTML, brand aurora, hide-cache, checking/result phases; used by `features/appUpdates.checkForUpdatesManual`).
+- Brand-icon aurora CSS/HTML: `src/shared/appIconAurora.ts` (shared pure strings; About-tier fancy motion for About/Update).
+- About/Update app mark loads `resources/icons/normal/scalable.svg` (PNG fallback) as a data URI — CSS aurora is the glow, not the static `aura/` PNGs.
 - Icon assets are shared across mac packaging arches; see `resources/AGENTS.md`.
 
 ## Icon cache

@@ -31,7 +31,7 @@ export const FEATURE_PLAN: Readonly<Record<FeaturePriority, readonly (readonly F
     ui: [[get('singleInstance'), get('deepLinkHandler')]],
     deferred: [
       [
-        get('trayIcon'),
+        get('aboutPanel'),
         get('bootstrapPromotion'),
         get('openAtLogin'),
         get('appUpdates'),
@@ -42,8 +42,8 @@ export const FEATURE_PLAN: Readonly<Record<FeaturePriority, readonly (readonly F
         get('contextMenu'),
         get('inOnline'),
       ],
-      [get('badgeIcons'), get('windowState'), get('externalLinks'), get('closeToTray')],
-      [get('appMenu')],
+      [get('trayIcon'), get('windowState'), get('externalLinks')],
+      [get('badgeIcons'), get('appMenu'), get('closeToTray')],
       [get('cdpTelemetry')],
     ],
   };

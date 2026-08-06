@@ -20,22 +20,21 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('electron-update-notifier', () => ({
-  checkForUpdates: vi.fn(),
-}));
-
 vi.mock('electron-log', () => ({
   default: { log: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-const { mockAboutHandler, mockToggleGuardHandler } = vi.hoisted(() => ({
+const { mockAboutHandler, mockToggleGuardHandler, mockCheckUpdatesHandler } = vi.hoisted(() => ({
   mockAboutHandler: vi.fn(),
   mockToggleGuardHandler: vi.fn(),
+  mockCheckUpdatesHandler: vi.fn(),
 }));
 
 vi.mock('../../features/menuActionRegistry.js', () => ({
   getMenuAction: vi.fn((id: string) => {
     if (id === 'aboutPanel') return { label: 'Show About Panel', handler: mockAboutHandler };
+    if (id === 'checkForUpdates')
+      return { label: 'Check For Updates', handler: mockCheckUpdatesHandler };
     if (id === 'toggleExternalLinksGuard')
       return { label: 'Toggle Guard', handler: mockToggleGuardHandler };
     return undefined;
@@ -78,7 +77,6 @@ vi.mock('./packageInfo.js', () => ({
 
 import { buildHelpSubMenu, relaunchApp, resetAppAndRestart } from './helpMenuBuilder';
 import { app, shell } from 'electron';
-import { checkForUpdates } from 'electron-update-notifier';
 import store from '../../config';
 import { openNewGitHubIssue } from './platformHelpers';
 
@@ -145,14 +143,14 @@ describe('helpMenuBuilder', () => {
       expect(Array.isArray(menu.submenu)).toBe(true);
     });
 
-    it('Check For Updates triggers checkForUpdates', () => {
+    it('Check For Updates triggers registered checkForUpdates handler', () => {
       const window = makeFakeWindow();
       const menu = buildHelpSubMenu(window as unknown as BrowserWindow);
       const items = menu.submenu as MenuItemConstructorOptions[];
       const checkUpdates = items.find((i) => i.label === 'Check For Updates');
 
       checkUpdates?.click?.({} as never, undefined as never, {} as never);
-      expect(checkForUpdates).toHaveBeenCalledWith({ silent: false });
+      expect(mockCheckUpdatesHandler).toHaveBeenCalled();
     });
 
     it('Report issue triggers openNewGitHubIssue with repo URL', () => {

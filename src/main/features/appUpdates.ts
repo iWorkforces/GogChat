@@ -1,8 +1,238 @@
+/**
+ * Update checks — background silent poll (electron-update-notifier) plus
+ * manual “Check for Updates…” via the native aurora update window.
+ */
+
+import { app } from 'electron';
 import { setUpdateNotification, checkForUpdates } from 'electron-update-notifier';
+import log from 'electron-log';
 import { configGet } from '../config.js';
 import { createTrackedInterval, createTrackedTimeout } from '../utils/lifecycle/resourceCleanup.js';
+import { getPackageInfo } from '../utils/platform/packageInfo.js';
+import {
+  beginUpdateDialogSession,
+  isUpdateSessionDismissed,
+  presentUpdateDialog,
+} from '../utils/platform/updateWindow.js';
+import { asType } from '../../shared/typeUtils.js';
+import { validateExternalURL } from '../../shared/urlValidators.js';
+import { openExternal } from '../utils/security/shellWrapper.js';
+import { registerMenuAction } from './menuActionRegistry.js';
 
 let interval: ReturnType<typeof setInterval> | null = null;
+/** Single-flight guard for manual check sessions. */
+let manualGate = false;
+
+interface GithubRelease {
+  tag_name: string;
+  body?: string;
+  html_url: string;
+}
+
+/** Extract `owner/repo` from a GitHub repository URL or `owner/repo` string. */
+export function githubRepoSlug(repository: string): string | null {
+  const trimmed = repository.trim();
+  if (!trimmed) return null;
+
+  // Bare owner/repo
+  if (/^[\w.-]+\/[\w.-]+$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  try {
+    const url = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+    if (url.hostname !== 'github.com' && url.hostname !== 'www.github.com') {
+      return null;
+    }
+    const parts = url.pathname
+      .replace(/^\//, '')
+      .replace(/\.git$/, '')
+      .split('/')
+      .filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0]}/${parts[1]}`;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** Strip leading `v` and compare dotted numeric segments (semver-ish). */
+export function isVersionNewer(latest: string, current: string): boolean {
+  const parse = (v: string): number[] =>
+    v
+      .replace(/^v/i, '')
+      .split(/[.+-]/)
+      .map((p) => {
+        const n = Number.parseInt(p, 10);
+        return Number.isFinite(n) ? n : 0;
+      });
+
+  const a = parse(latest);
+  const b = parse(current);
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const av = a[i] ?? 0;
+    const bv = b[i] ?? 0;
+    if (av > bv) return true;
+    if (av < bv) return false;
+  }
+  return false;
+}
+
+async function fetchLatestRelease(repo: string): Promise<GithubRelease | null> {
+  const response = await fetch(`https://api.github.com/repos/${repo}/releases`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': `GogChat/${app.getVersion()}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub releases HTTP ${response.status}`);
+  }
+  const releases = asType<GithubRelease[]>(await response.json());
+  if (!Array.isArray(releases) || releases.length === 0) {
+    return null;
+  }
+  const first = releases[0];
+  if (!first || typeof first.tag_name !== 'string' || typeof first.html_url !== 'string') {
+    return null;
+  }
+  return first;
+}
+
+async function openReleasePage(url: string): Promise<void> {
+  try {
+    const validated = validateExternalURL(url);
+    await openExternal(validated);
+  } catch (err: unknown) {
+    log.error('[Updates] Failed to open release URL:', err);
+  }
+}
+
+/**
+ * User-initiated “Check for Updates…” from Help / tray.
+ * Always surfaces the native update dialog for terminal outcomes.
+ */
+export async function checkForUpdatesManual(): Promise<void> {
+  if (manualGate) {
+    return;
+  }
+  manualGate = true;
+
+  try {
+    beginUpdateDialogSession();
+
+    if (!app.isPackaged) {
+      await presentUpdateDialog({
+        type: 'info',
+        title: 'GogChat Updates',
+        message: 'Updates are only available in packaged installs',
+        detail: 'Run a packaged build (DMG) to check for and install updates.',
+        buttons: [],
+        phase: 'result',
+      });
+      return;
+    }
+
+    await presentUpdateDialog({
+      type: 'info',
+      title: 'GogChat Updates',
+      message: 'Checking for updates…',
+      phase: 'checking',
+    });
+
+    if (isUpdateSessionDismissed()) {
+      return;
+    }
+
+    const pkg = getPackageInfo();
+    const repo = githubRepoSlug(pkg.repository);
+    if (!repo) {
+      await presentUpdateDialog({
+        type: 'error',
+        title: 'GogChat Updates',
+        message: 'Couldn’t check for updates',
+        detail: 'Repository URL is missing or invalid in package metadata.',
+        buttons: [],
+        phase: 'result',
+      });
+      return;
+    }
+
+    let latest: GithubRelease | null;
+    try {
+      latest = await fetchLatestRelease(repo);
+    } catch (err: unknown) {
+      log.error('[Updates] Manual check failed:', err);
+      if (isUpdateSessionDismissed()) return;
+      await presentUpdateDialog({
+        type: 'error',
+        title: 'GogChat Updates',
+        message: 'Couldn’t check for updates',
+        detail: 'Check your network connection and try again. Details are in the log.',
+        buttons: [],
+        phase: 'result',
+      });
+      return;
+    }
+
+    if (isUpdateSessionDismissed()) {
+      return;
+    }
+
+    if (!latest) {
+      await presentUpdateDialog({
+        type: 'info',
+        title: 'GogChat Updates',
+        message: `GogChat is up to date (v${app.getVersion()})`,
+        detail: 'No releases were found on GitHub.',
+        buttons: [],
+        phase: 'result',
+      });
+      return;
+    }
+
+    if (!isVersionNewer(latest.tag_name, app.getVersion())) {
+      await presentUpdateDialog({
+        type: 'info',
+        title: 'GogChat Updates',
+        message: `GogChat is up to date (v${app.getVersion()})`,
+        detail: `Latest release on GitHub is ${latest.tag_name}.`,
+        buttons: [],
+        phase: 'result',
+      });
+      return;
+    }
+
+    const bodySnippet = (latest.body ?? '').trim().slice(0, 400);
+    const detail = [
+      `Installed: v${app.getVersion()}`,
+      `Latest: ${latest.tag_name}`,
+      bodySnippet.length > 0 ? `\n${bodySnippet}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const { response } = await presentUpdateDialog({
+      type: 'info',
+      title: 'GogChat Updates',
+      message: 'New release available',
+      detail,
+      buttons: ['Download', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      phase: 'result',
+    });
+
+    if (response === 0) {
+      await openReleasePage(latest.html_url);
+    }
+  } finally {
+    manualGate = false;
+  }
+}
 
 export default () => {
   if (interval) clearInterval(interval);
@@ -11,7 +241,7 @@ export default () => {
     return configGet('app.autoCheckForUpdates');
   };
 
-  // Runs once at startup
+  // Runs once at startup (silent system path via electron-update-notifier)
   createTrackedTimeout(
     () => {
       if (shouldCheckForUpdates()) {
@@ -32,3 +262,10 @@ export default () => {
     'appUpdates-daily-check'
   );
 };
+
+registerMenuAction('checkForUpdates', {
+  label: 'Check For Updates',
+  handler: () => {
+    void checkForUpdatesManual();
+  },
+});

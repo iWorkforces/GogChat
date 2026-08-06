@@ -10,14 +10,20 @@ import type { BrowserWindow } from 'electron';
 interface MockBrowserWindow {
   loadURL: ReturnType<typeof vi.fn>;
   show: ReturnType<typeof vi.fn>;
-  setAlwaysOnTop: ReturnType<typeof vi.fn>;
   setMenuBarVisibility: ReturnType<typeof vi.fn>;
   once: ReturnType<typeof vi.fn>;
+  on: ReturnType<typeof vi.fn>;
   focus: ReturnType<typeof vi.fn>;
-  restore: ReturnType<typeof vi.fn>;
-  isMinimized: ReturnType<typeof vi.fn>;
+  isVisible: ReturnType<typeof vi.fn>;
   isDestroyed: ReturnType<typeof vi.fn>;
-  webContents: { url: string };
+  hide: ReturnType<typeof vi.fn>;
+  destroy: ReturnType<typeof vi.fn>;
+  removeAllListeners: ReturnType<typeof vi.fn>;
+  webContents: {
+    url: string;
+    setWindowOpenHandler: ReturnType<typeof vi.fn>;
+    on: ReturnType<typeof vi.fn>;
+  };
   options?: Record<string, unknown>;
 }
 
@@ -35,19 +41,32 @@ vi.mock('electron', () => {
 
   const BW = function MockBW(this: MockBrowserWindow, options?: Record<string, unknown>) {
     this.options = options;
-    this.loadURL = vi.fn();
+    this.loadURL = vi.fn().mockResolvedValue(undefined);
     this.show = vi.fn();
-    this.setAlwaysOnTop = vi.fn();
     this.setMenuBarVisibility = vi.fn();
     this.once = vi.fn();
+    this.on = vi.fn();
     this.focus = vi.fn();
-    this.restore = vi.fn();
-    this.isMinimized = vi.fn().mockReturnValue(false);
+    this.isVisible = vi.fn().mockReturnValue(false);
     this.isDestroyed = vi.fn().mockReturnValue(false);
-    this.webContents = { url: '' };
+    this.hide = vi.fn();
+    this.destroy = vi.fn();
+    this.removeAllListeners = vi.fn();
+    this.webContents = {
+      url: '',
+      setWindowOpenHandler: vi.fn(),
+      on: vi.fn(),
+    };
     instances.push(this);
   };
-  return { BrowserWindow: BW };
+  return {
+    BrowserWindow: BW,
+    app: {
+      getVersion: vi.fn().mockReturnValue('3.18.5'),
+      getAppPath: vi.fn().mockReturnValue('/mock/app'),
+      isPackaged: false,
+    },
+  };
 });
 
 vi.mock('os', () => ({
@@ -58,25 +77,43 @@ vi.mock('os', () => ({
   },
 }));
 
+vi.mock('fs', () => ({
+  default: {
+    existsSync: vi.fn().mockReturnValue(true),
+    readFileSync: vi.fn().mockReturnValue('<svg>icon</svg>'),
+  },
+}));
+
+vi.mock('electron-log', () => ({
+  default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
 vi.mock('../utils/platform/packageInfo.js', () => ({
   getPackageInfo: vi.fn().mockReturnValue({
     productName: 'GogChat',
     version: '1.0.0',
     author: 'Test Author',
+    description: 'Desktop wrapper for Google Chat',
+    repository: 'https://github.com/iWorkforces/GogChat',
+    homepage: 'https://github.com/iWorkforces/GogChat',
+    name: 'gogchat',
   }),
 }));
 
-vi.mock('../utils/platform/iconCache.js', () => ({
-  getIconCache: vi.fn().mockReturnValue({
-    getIcon: vi.fn().mockReturnValue({
-      isEmpty: vi.fn().mockReturnValue(false),
-      toDataURL: vi.fn().mockReturnValue('data:image/png;base64,FAKE_AURA'),
-    }),
-  }),
+vi.mock('../utils/security/shellWrapper.js', () => ({
+  openExternal: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../shared/urlValidators.js', () => ({
+  validateExternalURL: vi.fn((url: string) => url),
+}));
+
+vi.mock('./menuActionRegistry.js', () => ({
+  registerMenuAction: vi.fn(),
 }));
 
 async function loadAboutPanel() {
-  return (await import('./aboutPanel')).default;
+  return await import('./aboutPanel');
 }
 
 function getInstances(): MockBrowserWindow[] {
@@ -86,45 +123,38 @@ function getInstances(): MockBrowserWindow[] {
 // Cast helper: the mock satisfies the BrowserWindow shape used by aboutPanel
 const asBrowserWindow = (win: { id: number }): BrowserWindow => win as unknown as BrowserWindow;
 
+function decodeLoadedHtml(instance: MockBrowserWindow): string {
+  const rawUrl: string = instance.loadURL.mock.calls[0]![0] as string;
+  return decodeURIComponent(rawUrl.replace('data:text/html;charset=utf-8,', ''));
+}
+
 describe('aboutPanel', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
-    // Reload cached modules so aboutWindow starts fresh each test
     vi.resetModules();
-    // Clear mock instances in-place (preserves closure link from mock factory)
     const state = (globalThis as GlobalWithMock).__aboutPanelMock;
     if (state?.instances) state.instances.length = 0;
   });
 
-  it('creates a BrowserWindow and loads aura icon HTML', async () => {
-    const aboutPanel = await loadAboutPanel();
+  it('creates a BrowserWindow and loads aurora About HTML', async () => {
+    const { default: aboutPanel } = await loadAboutPanel();
     aboutPanel(asBrowserWindow({ id: 1 }));
 
     const instances = getInstances();
     expect(instances).toHaveLength(1);
 
-    // Decode the data URL (it's URL-encoded by encodeURIComponent)
-    const rawUrl: string = instances[0]!.loadURL.mock.calls[0][0];
-    const decoded = decodeURIComponent(rawUrl.replace('data:text/html;charset=utf-8,', ''));
+    const decoded = decodeLoadedHtml(instances[0]!);
     expect(decoded).toContain('GogChat');
     expect(decoded).toContain('Test Author');
     expect(decoded).toContain('Darwin');
     expect(decoded).toContain('arm64');
-    expect(decoded).toContain('FAKE_AURA');
+    expect(decoded).toContain('app-icon-aurora');
+    expect(decoded).toContain('app-icon-aurora--about');
+    expect(decoded).toContain('GitHub');
   });
 
-  it('sets always on top and hides menu bar', async () => {
-    const aboutPanel = await loadAboutPanel();
-    aboutPanel(asBrowserWindow({ id: 1 }));
-
-    const instances = getInstances();
-    const win = instances[instances.length - 1]!;
-    expect(win.setAlwaysOnTop).toHaveBeenCalledWith(true, 'floating');
-    expect(win.setMenuBarVisibility).toHaveBeenCalledWith(false);
-  });
-
-  it('uses sandboxed webPreferences aligned with account windows', async () => {
-    const aboutPanel = await loadAboutPanel();
+  it('uses sandboxed webPreferences and product canvas chrome', async () => {
+    const { default: aboutPanel } = await loadAboutPanel();
     aboutPanel(asBrowserWindow({ id: 1 }));
 
     const win = getInstances()[getInstances().length - 1]!;
@@ -134,6 +164,9 @@ describe('aboutPanel', () => {
       sandbox: true,
       nodeIntegration: false,
     });
+    expect(win.options?.['backgroundColor']).toBe('#0d1117');
+    expect(win.options?.['alwaysOnTop']).toBe(false);
+    expect(win.setMenuBarVisibility).toHaveBeenCalledWith(false);
   });
 
   it('HTML-escapes package fields in the about document', async () => {
@@ -144,64 +177,67 @@ describe('aboutPanel', () => {
       author: "O'Reilly & Co",
       name: 'gogchat',
       homepage: '',
-      repository: '',
-      description: '',
+      repository: 'https://github.com/iWorkforces/GogChat',
+      description: 'desc <b>x</b>',
     });
 
-    const aboutPanel = await loadAboutPanel();
+    const { default: aboutPanel } = await loadAboutPanel();
     aboutPanel(asBrowserWindow({ id: 1 }));
 
-    const rawUrl: string = getInstances()[0]!.loadURL.mock.calls[0][0];
-    const decoded = decodeURIComponent(rawUrl.replace('data:text/html;charset=utf-8,', ''));
+    const decoded = decodeLoadedHtml(getInstances()[0]!);
     expect(decoded).not.toContain('<script>');
     expect(decoded).toContain('Gog&lt;script&gt;Chat');
-    expect(decoded).toContain('1.0.0&quot;&gt;&lt;img');
     expect(decoded).toContain('O&#39;Reilly &amp; Co');
+    expect(decoded).toContain('desc &lt;b&gt;x&lt;/b&gt;');
   });
 
   it('shows window on ready-to-show event', async () => {
-    const aboutPanel = await loadAboutPanel();
+    const { default: aboutPanel } = await loadAboutPanel();
     aboutPanel(asBrowserWindow({ id: 1 }));
 
     const instances = getInstances();
     const win = instances[instances.length - 1]!;
     const readyCall = win.once.mock.calls.find((c: unknown[]) => c[0] === 'ready-to-show');
     expect(readyCall).toBeDefined();
-    readyCall[1]();
+    (readyCall as unknown as [string, () => void])[1]();
     expect(win.show).toHaveBeenCalled();
+    expect(win.focus).toHaveBeenCalled();
   });
 
   it('reuses existing window on second call', async () => {
-    const aboutPanel = await loadAboutPanel();
+    const { default: aboutPanel } = await loadAboutPanel();
     aboutPanel(asBrowserWindow({ id: 1 }));
 
     const count = getInstances().length;
-    // Second call should reuse
+    getInstances()[0]!.isVisible.mockReturnValue(true);
     aboutPanel(asBrowserWindow({ id: 1 }));
     expect(getInstances()).toHaveLength(count);
+    expect(getInstances()[0]!.focus).toHaveBeenCalled();
   });
 
   it('creates new window when previous one is destroyed', async () => {
-    const aboutPanel = await loadAboutPanel();
+    const { default: aboutPanel } = await loadAboutPanel();
     aboutPanel(asBrowserWindow({ id: 1 }));
 
     const count = getInstances().length;
-    // Simulate destroyed window
     getInstances()[getInstances().length - 1]!.isDestroyed.mockReturnValue(true);
     aboutPanel(asBrowserWindow({ id: 1 }));
     expect(getInstances()).toHaveLength(count + 1);
   });
 
-  it('restores minimized window when reusing', async () => {
-    const aboutPanel = await loadAboutPanel();
-    aboutPanel(asBrowserWindow({ id: 1 }));
+  it('exports isSafeAboutRepositoryUrl for https only', async () => {
+    const { isSafeAboutRepositoryUrl } = await loadAboutPanel();
+    expect(isSafeAboutRepositoryUrl('https://github.com/iWorkforces/GogChat')).toBe(true);
+    expect(isSafeAboutRepositoryUrl('http://github.com/iWorkforces/GogChat')).toBe(false);
+    expect(isSafeAboutRepositoryUrl('not a url')).toBe(false);
+  });
 
-    const instances = getInstances();
-    const win = instances[instances.length - 1]!;
-    win.isMinimized.mockReturnValue(true);
-
+  it('destroyAboutWindow destroys the cached window', async () => {
+    const { default: aboutPanel, destroyAboutWindow } = await loadAboutPanel();
     aboutPanel(asBrowserWindow({ id: 1 }));
-    expect(win.restore).toHaveBeenCalled();
-    expect(win.focus).toHaveBeenCalled();
+    const win = getInstances()[0]!;
+    destroyAboutWindow();
+    expect(win.removeAllListeners).toHaveBeenCalledWith('close');
+    expect(win.destroy).toHaveBeenCalled();
   });
 });

@@ -85,7 +85,7 @@ Used by:
 - `trayIcon.ts` - System tray icon
 - `badgeIcon.ts` - Badge overlay and tray updates
 - `inOnline.ts` - Offline notification icon
-- `aboutPanel.ts` - About dialog icon
+- (About/Update dialogs load `normal/scalable.svg` via fs data URI + CSS aurora; not iconCache)
 
 ---
 
@@ -159,7 +159,7 @@ pkg.version = '999';  // ❌ Error: Cannot assign to 'version' (frozen object)
 Used by:
 - `appMenu.ts` - Version display in menu
 - `reportExceptions.ts` - Error reporting with version info
-- `aboutPanel.ts` - About dialog details
+- `aboutPanel.ts` / `appUpdates.ts` - About and update dialog package/repo metadata
 
 ---
 
