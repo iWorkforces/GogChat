@@ -22,11 +22,15 @@ Features are self-contained startup/runtime units registered through initializer
 3. Declare dependencies explicitly with `dependencies`.
 4. Run a build to regenerate `src/main/generated/featurePlan.ts`.
 
-Known dependencies (from current specs) include `badgeIcons -> trayIcon`, `windowState -> singleInstance/deepLinkHandler/bootstrapPromotion`, `appMenu -> openAtLogin/externalLinks`, `externalLinks -> bootstrapPromotion`, `closeToTray -> trayIcon`, and **`cdpTelemetry -> appMenu`** (CDP after shell UI batch).
+Known dependencies (from current specs) include `trayIcon -> aboutPanel`, `badgeIcons -> trayIcon`, `windowState -> singleInstance/deepLinkHandler/bootstrapPromotion`, `appMenu -> openAtLogin/externalLinks/appUpdates/aboutPanel`, `externalLinks -> bootstrapPromotion`, `closeToTray -> trayIcon`, and **`cdpTelemetry -> appMenu`** (CDP after shell UI batch).
 
-Security phase features (no deps): `reportExceptions`, `mediaPermissions` (fire-and-forget TCC; does not block the phase). Critical: `userAgent`. UI: `singleInstance` (restore handler), `deepLinkHandler`. Deferred also includes `trayIcon`, `bootstrapPromotion`, `openAtLogin`, `appUpdates`, `firstLaunch`, `enforceMacOSAppLocation`, `passkeySupport`, `handleNotification`, `contextMenu`, `inOnline`, `cdpTelemetry` (optional).
+Security phase features (no deps): `reportExceptions`, `mediaPermissions` (fire-and-forget TCC; does not block the phase). Critical: `userAgent`. UI: `singleInstance` (restore handler), `deepLinkHandler`. Deferred also includes `aboutPanel`, `trayIcon`, `bootstrapPromotion`, `openAtLogin`, `appUpdates`, `firstLaunch`, `enforceMacOSAppLocation`, `passkeySupport`, `handleNotification`, `contextMenu`, `inOnline`, `cdpTelemetry` (optional).
 
-`aboutPanel` is **not** a phased `FeatureSpec`; it self-registers a menu action and is invoked from the app menu. About panel BrowserWindow is sandboxed with HTML-escaped fields.
+### About + Check for Updates (v3.19.0)
+
+- **`aboutPanel`**: deferred `FeatureSpec` whose init side-effect-imports the module (registers `aboutPanel` menu action). Platform-native BrowserWindow: sandboxed `data:` HTML, CSP `script-src 'none'`, solid canvas `#0d1117`, macOS `hiddenInset`, brand aurora (About-tier) behind `resources/icons/normal/scalable.svg`, hide-cached (Esc / traffic lights). Tray and Help open via registry — not `app.showAboutPanel()`.
+- **`appUpdates`**: background silent path still uses `electron-update-notifier`. Manual **Help → Check For Updates** registers `checkForUpdates` and runs `checkForUpdatesManual()` → `utils/platform/updateWindow.ts` (same aurora tier; checking → result phases; GitHub Releases API; Download opens validated release URL). Unpackaged installs get an explain-only dialog.
+- Force-destroy both dialogs from `initializers/singletonDestroyers.ts` on shutdown (`destroyAboutWindow` / `destroyUpdateWindow`).
 
 ## Multi-account feature attach
 
@@ -37,7 +41,7 @@ Security phase features (no deps): `reportExceptions`, `mediaPermissions` (fire-
 ## Menu actions
 
 - `menuActionRegistry.ts` is the allowed decoupling point between features and menus.
-- Features such as `aboutPanel`, `openAtLogin`, `externalLinks`, and `deepLinkHandler` self-register menu actions at module load time.
+- Features such as `aboutPanel`, `checkForUpdates` (`appUpdates`), `openAtLogin`, `externalLinks`, and `deepLinkHandler` self-register menu actions at module load time.
 - Consumers retrieve actions with `getMenuAction()` rather than importing feature modules directly.
 
 ## Notifications

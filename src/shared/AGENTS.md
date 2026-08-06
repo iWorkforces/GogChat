@@ -11,6 +11,8 @@
 - `urlValidators.ts` owns parse-once URL validation for navigation, external links, deep links, Google auth detection, Apple System Preferences notification deep links, and **notification icon** allowlist (`validateNotificationIconURL`: `data:image/*` or Google static HTTPS hosts).
 - `dataValidators.ts` owns non-URL payload validation (including notification payload shapes used by preload/main; icons go through `validateNotificationIconURL`).
 - `typeUtils.ts` owns `assertNever`, `asType<T>()`, and documented unsafe-cast helpers.
+- `escapeHtml.ts` owns pure HTML-escape for data: HTML dialogs (About / Update). Safe for main-process templates.
+- `appIconAurora.ts` owns brand-icon aurora CSS + HTML strings (`APP_ICON_AURORA_CSS`, `appIconWithAuroraHtml`); About-tier (`.app-icon-aurora--about`) fancy motion for About/Update; reduced-motion / reduced-transparency / contrast queries; no DOM/Electron.
 - `types/` owns contracts used across process boundaries; see `types/AGENTS.md` (`IAccountWindowManager`, `AccountWebContentsInfo`, bridge API, config, errors, IPC maps).
 
 ## IPC/channel workflow

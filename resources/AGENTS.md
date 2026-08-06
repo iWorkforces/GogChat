@@ -8,12 +8,14 @@
 
 ```
 resources/icons/
-  aura/      - About panel hero graphic, 16/32/48/64/256 px
+  aura/      - Legacy static glow variants (16/32/48/64/256); About/Update use CSS aurora + normal mark
   badge/     - Unread badge overlays, 16/32/48/64/256 px
   normal/    - App/dock icons, 16/32/48/64/256 px + mac.icns + win.ico + scalable.svg
   offline/   - Offline page graphic, 16/32/48/64/256 px
   tray/      - Menu bar Template icons, 22/44 px + unread variants
 ```
+
+About and Check for Updates dialogs render `normal/scalable.svg` (or `normal/256.png` fallback) inside the shared aurora stage (`src/shared/appIconAurora.ts`). Do not reintroduce pre-baked aura PNGs as the About hero without an explicit design change.
 
 ## Generation
 
