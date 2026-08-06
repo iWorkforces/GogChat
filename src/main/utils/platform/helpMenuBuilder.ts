@@ -1,6 +1,5 @@
 import type { BrowserWindow, MenuItemConstructorOptions } from 'electron';
 import { app, shell, dialog } from 'electron';
-import { checkForUpdates } from 'electron-update-notifier';
 import path from 'path';
 import log from 'electron-log';
 import store from '../../config.js';
@@ -47,9 +46,10 @@ export const buildHelpSubMenu = (window: BrowserWindow): MenuItemConstructorOpti
         label: 'Check For Updates',
         enabled: true,
         click: () => {
-          void checkForUpdates({
-            silent: false,
-          });
+          const checkUpdates = getMenuAction('checkForUpdates');
+          if (checkUpdates) {
+            checkUpdates.handler();
+          }
         },
       },
       {

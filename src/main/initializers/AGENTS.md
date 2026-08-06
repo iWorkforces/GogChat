@@ -9,7 +9,7 @@ This directory is the canonical home for app startup/shutdown sequencing and bui
 - `registerAppReady.ts` - owns `app.whenReady()` sequencing (phases, store, account-0, finalizer arming, deferred schedule).
 - `registerShutdown.ts` - async shutdown path before `app.exit()`.
 - `registerGlobalCleanups.ts` - lazy `require()` of cleanup owners (avoid startup import cycles).
-- `singletonDestroyers.ts` / `shutdownDiagnostics.ts` - ordered teardown helpers used by shutdown.
+- `singletonDestroyers.ts` / `shutdownDiagnostics.ts` - ordered teardown helpers used by shutdown. About/Update destroyers are **dynamic-imported** (keep aurora HTML out of main bundle); then perf/IPC/icon singletons.
 - `security.spec.ts`, `ui.spec.ts`, `deferred.spec.ts` - declarative startup plan input (`FeatureSpec` from `utils/lifecycle/featureConfigTypes.ts`).
 
 ## Feature plan contract
@@ -41,7 +41,7 @@ In `registerAppReady.ts`, after account-0 window construction:
 
 Before account-0 creation, optional session preconnect warms Google Chat/auth/CDN hosts unless `GOGCHAT_DISABLE_PRECONNECT=1`.
 
-Deferred phase (via `cacheWarmer.runDeferredPhase`) calls `notifyDeferredPhaseComplete()` after features load. Final metrics export is not owned by deferred-only paths. Icon warming (`warmInitialIcons` / `warmSoonDeferredIcons`) runs on the same `setImmediate` path as deferred — not on the critical path before first window. Deferred ordering: `cdpTelemetry` depends on `appMenu` (see `deferred.spec.ts`).
+Deferred phase (via `cacheWarmer.runDeferredPhase`) calls `notifyDeferredPhaseComplete()` after features load. Final metrics export is not owned by deferred-only paths. Icon warming (`warmInitialIcons` / `warmSoonDeferredIcons`) runs on the same `setImmediate` path as deferred — not on the critical path before first window. Deferred ordering (see `deferred.spec.ts` / generated `featurePlan.ts`): early batch includes `aboutPanel` + `appUpdates` (menu action registration); `trayIcon` depends on `aboutPanel`; `appMenu` depends on `openAtLogin` / `externalLinks` / `appUpdates` / `aboutPanel`; `cdpTelemetry` depends on `appMenu`.
 
 ## Shutdown
 

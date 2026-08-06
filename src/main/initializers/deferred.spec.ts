@@ -14,10 +14,20 @@ import type { FeatureSpec } from '../utils/lifecycle/featureConfigTypes.js';
 import { SUPPORTED_PLATFORM_NAMES } from '../utils/platform/platformDetection.js';
 
 export const DEFERRED_FEATURES = [
-  // System: tray icon — load first; other features depend on it
+  // Registers About menu action (native aurora window); tray + menu depend on it
+  {
+    name: 'aboutPanel',
+    phase: 'deferred',
+    description: 'Native About window menu action',
+    init: async () => {
+      await import('../features/aboutPanel.js');
+    },
+  },
+  // System: tray icon — other tray-dependent features depend on it
   {
     name: 'trayIcon',
     phase: 'deferred',
+    dependencies: ['aboutPanel'],
     description: 'System tray icon',
     init: async ({ mainWindow, callbacks }) => {
       if (!mainWindow) return;
@@ -102,7 +112,7 @@ export const DEFERRED_FEATURES = [
   {
     name: 'appMenu',
     phase: 'deferred',
-    dependencies: ['openAtLogin', 'externalLinks'],
+    dependencies: ['openAtLogin', 'externalLinks', 'appUpdates', 'aboutPanel'],
     description: 'Application menu',
     ipcChannels: {
       emit: [IPC_CHANNELS.SEARCH_SHORTCUT],

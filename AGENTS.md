@@ -1,10 +1,7 @@
 # GogChat Agent Guide
 
-**Generated:** 2026-08-01
-**Commit:** 32a2a4f
-**Branch:** develop
-**Version:** 3.18.4
-**Repository:** https://github.com/iWorkforces/GogChat
+**Generated:** 2026-08-06
+**Commit:** e8267e7
 
 ## Project shape
 
@@ -106,6 +103,10 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | Notification click focus       | `src/main/utils/platform/notificationFocus.ts`                                  | Route click → `IAccountWindowManager.focusAccount` (BW + WCV).                |
 | Notification permission        | `src/main/utils/security/notificationAccess.ts`                                 | First-run dialog + silent OS probe on `ready-to-show`; Settings helpers.      |
 | Account notification identity  | `src/main/utils/platform/accountNotificationIdentity.ts` + `accountLabelStore`  | Subtitle/groupId/tag namespace; Preferences → Account Labels.                  |
+| Native About window            | `src/main/features/aboutPanel.ts`                                               | Sandboxed data: HTML; brand aurora; hide-cache; Help + tray.                  |
+| Check for Updates window       | `src/main/utils/platform/updateWindow.ts` + `features/appUpdates.ts`            | Manual check (GitHub releases); aurora dialog; background still notifier.     |
+| Dialog chrome (About/Update)   | `src/main/utils/platform/dialogChrome.ts`                                       | Solid `#0d1117`; macOS `hiddenInset`.                                         |
+| App-icon aurora                | `src/shared/appIconAurora.ts`                                                   | Pure CSS+HTML; About-tier fancy motion; a11y media queries.                   |
 | URL validation                 | `src/shared/urlValidators.ts`                                                   | Navigation, external links, deep links, auth detection, notification icons.   |
 | Config                         | `src/shared/types/config.ts` + `src/main/utils/config/configSchema.ts` + `src/main/config.ts` | Update shared types, schema/defaults, and accessors together.          |
 | Secure flags                   | `src/main/utils/security/secureFlags.ts`                                        | SafeStorage-backed kill switches; not electron-store config.                  |
@@ -129,6 +130,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | macOS Intel x64 plan           | `docs/plans/macos-intel-x64-dmg.md`                                             | Dual-arch DMG production plan and acceptance criteria.                        |
 | Native notifications plan      | `docs/plans/native-os-notifications.md`                                         | Permission, bridge, multi-account banners, unread-delta fallback.             |
 | Deep enhancements plan         | `docs/plans/deep-enhancements.md`                                               | Dual-backend contract, truth/safety, measure handoff (closeout @ 3.18.2+).    |
+| About / Updates UX             | `aboutPanel.ts`, `updateWindow.ts`, `appIconAurora.ts`                          | Platform-native dialogs with animated brand aurora (v3.19.0).                 |
 | Tests                          | `tests/AGENTS.md`                                                               | Unit/integration/e2e/perf/packaging contract guidance.                        |
 | Packaging                      | `mac/AGENTS.md` + `scripts/AGENTS.md`                                           | DMG, signing, notarization, dual-arch, perf gates.                            |
 | Icons / resources              | `resources/AGENTS.md`                                                           | Icon variants, generation, extraResources.                                    |
@@ -150,7 +152,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
    - Create account-0 window, set shared feature context, mark `account-0-ready`.
    - Arm `performanceFinalizer`; on **account-0 WebContents** `did-finish-load` (via `getAccountWebContents(0)`, not WCV host-only) mark `account-0-content-loaded` and `notifyDocumentLoadComplete()`. Hard `did-fail-load` is logged only (non-terminal); capture timeout still invalidates incomplete runs.
    - **UI** phase (`singleInstance` restore + `deepLinkHandler`).
-   - `setImmediate`: warm icon tiers + deferred phase (tray/menu/badges/bootstrap/window state/passkeys/notifications/network/external links/close-to-tray/open-at-login/updates/context menu/first launch/app-location/CDP telemetry after `appMenu`). Deferred calls `notifyDeferredPhaseComplete()`; it does **not** own metrics export.
+   - `setImmediate`: warm icon tiers + deferred phase (`aboutPanel` + `appUpdates` early so tray/menu can resolve actions; tray/menu/badges/bootstrap/window state/passkeys/notifications/network/external links/close-to-tray/open-at-login/context menu/first launch/app-location; CDP telemetry after `appMenu`). Deferred calls `notifyDeferredPhaseComplete()`; it does **not** own metrics export.
 
 ### Feature lifecycle
 
@@ -280,3 +282,5 @@ Nested guides supplement this root and are intentionally more specific:
 - `resources/AGENTS.md`
 
 Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans under `docs/plans/`: performance remediation, macOS Intel x64 DMG, native OS notifications, and **deep enhancements** (`deep-enhancements.md` — mostly implemented; Wave 3 matrix/auth/signed smoke still residual).
+
+**v3.19.0 product notes for agents:** platform-native About + Check for Updates windows with shared brand aurora (`appIconAurora.ts`); manual update check via GitHub Releases + `updateWindow.ts`; background auto-check still `electron-update-notifier`.

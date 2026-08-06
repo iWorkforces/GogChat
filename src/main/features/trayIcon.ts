@@ -3,6 +3,7 @@ import { app, Menu } from 'electron';
 import log from 'electron-log';
 import { setTrayInstance } from '../utils/platform/trayIconState.js';
 import { getPlatformUtils } from '../utils/platform/platformUtils.js';
+import { getMenuAction } from './menuActionRegistry.js';
 
 // Store tray icon reference for cleanup
 let trayIconInstance: Tray | null = null;
@@ -20,7 +21,10 @@ export default (window: BrowserWindow) => {
   };
 
   const handleAboutClick = () => {
-    app.showAboutPanel();
+    const showAbout = getMenuAction('aboutPanel');
+    if (showAbout) {
+      showAbout.handler(window);
+    }
   };
 
   const handleQuitClick = () => {

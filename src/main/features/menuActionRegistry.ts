@@ -17,6 +17,7 @@ import { asType } from '../../shared/typeUtils.js';
  */
 export interface MenuActionMap {
   aboutPanel: (window: Electron.BrowserWindow) => void;
+  checkForUpdates: () => void;
   autoLaunch: () => { enable: () => Promise<void>; disable: () => Promise<void> };
   toggleExternalLinksGuard: (window: Electron.BrowserWindow) => void;
   processDeepLink: (url: string) => void;
