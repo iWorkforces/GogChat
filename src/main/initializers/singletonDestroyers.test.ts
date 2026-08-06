@@ -12,11 +12,15 @@ const {
   mockDestroyDeduplicator,
   mockDestroyRateLimiter,
   mockDestroyPerformanceMonitor,
+  mockDestroyUpdateWindow,
+  mockDestroyAboutWindow,
 } = vi.hoisted(() => ({
   mockDestroyIconCache: vi.fn(),
   mockDestroyDeduplicator: vi.fn(),
   mockDestroyRateLimiter: vi.fn(),
   mockDestroyPerformanceMonitor: vi.fn(),
+  mockDestroyUpdateWindow: vi.fn(),
+  mockDestroyAboutWindow: vi.fn(),
 }));
 
 vi.mock('../utils/platform/iconCache.js', () => ({
@@ -35,6 +39,14 @@ vi.mock('../utils/lifecycle/performanceMonitor.js', () => ({
   destroyPerformanceMonitor: mockDestroyPerformanceMonitor,
 }));
 
+vi.mock('../utils/platform/updateWindow.js', () => ({
+  destroyUpdateWindow: mockDestroyUpdateWindow,
+}));
+
+vi.mock('../features/aboutPanel.js', () => ({
+  destroyAboutWindow: mockDestroyAboutWindow,
+}));
+
 import { destroyAllSingletons } from './singletonDestroyers';
 
 describe('destroyAllSingletons', () => {
@@ -45,6 +57,8 @@ describe('destroyAllSingletons', () => {
   it('should call every destroyer exactly once', () => {
     destroyAllSingletons();
 
+    expect(mockDestroyAboutWindow).toHaveBeenCalledTimes(1);
+    expect(mockDestroyUpdateWindow).toHaveBeenCalledTimes(1);
     expect(mockDestroyPerformanceMonitor).toHaveBeenCalledTimes(1);
     expect(mockDestroyDeduplicator).toHaveBeenCalledTimes(1);
     expect(mockDestroyRateLimiter).toHaveBeenCalledTimes(1);
@@ -53,6 +67,8 @@ describe('destroyAllSingletons', () => {
 
   it('should call destroyers in the documented order', () => {
     const calls: string[] = [];
+    mockDestroyAboutWindow.mockImplementation(() => calls.push('about'));
+    mockDestroyUpdateWindow.mockImplementation(() => calls.push('update'));
     mockDestroyPerformanceMonitor.mockImplementation(() => calls.push('perf'));
     mockDestroyDeduplicator.mockImplementation(() => calls.push('dedup'));
     mockDestroyRateLimiter.mockImplementation(() => calls.push('rate'));
@@ -60,14 +76,14 @@ describe('destroyAllSingletons', () => {
 
     destroyAllSingletons();
 
-    expect(calls).toEqual(['perf', 'dedup', 'rate', 'icon']);
+    expect(calls).toEqual(['about', 'update', 'perf', 'dedup', 'rate', 'icon']);
   });
 
   it('should propagate errors so callers can wrap in try/catch', () => {
-    mockDestroyPerformanceMonitor.mockImplementation(() => {
-      throw new Error('perf boom');
+    mockDestroyAboutWindow.mockImplementation(() => {
+      throw new Error('about boom');
     });
 
-    expect(() => destroyAllSingletons()).toThrow('perf boom');
+    expect(() => destroyAllSingletons()).toThrow('about boom');
   });
 });
