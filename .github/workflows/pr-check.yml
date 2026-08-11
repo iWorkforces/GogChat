@@ -81,7 +81,17 @@ jobs:
           fi
 
       - name: 'Playwright: performance'
-        run: bunx playwright test --project=performance
+        run: |
+          set +e
+          set -o pipefail
+          bunx playwright test --project=performance 2>&1 | tee playwright-performance.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            excerpt="$(tail -n 15 playwright-performance.log | tr '\r\n' '  ' | cut -c1-1200)"
+            echo "::error file=tests/performance/performance-regression.test.ts::${excerpt}"
+            exit "$status"
+          fi
 
       - name: 'Playwright: preload-artifact'
         run: bunx playwright test --project=preload-artifact
@@ -122,5 +132,6 @@ jobs:
             coverage-output.txt
             playwright-e2e.log
             playwright-integration.log
+            playwright-performance.log
           if-no-files-found: ignore
           retention-days: 14

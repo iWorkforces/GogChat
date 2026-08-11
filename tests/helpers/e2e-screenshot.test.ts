@@ -155,6 +155,17 @@ describe('Electron fixture evaluate safety', () => {
     expect(source).not.toMatch(/BrowserWindow\.getAllWindows\(\)\[0\]\?\.show\(\)/);
   });
 
+  it('skips wall-clock Chat perf gates on CI', () => {
+    const source = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../performance/performance-regression.test.ts'),
+      'utf8'
+    );
+    expect(source).toContain('first-paint timing is not a CI gate');
+    expect(source).toContain('heapUsed vs 150MB/50MB-growth is not stable');
+    expect(source).toContain('PERFORMANCE_THRESHOLDS.IPC_AVERAGE');
+    expect(source).toContain('PERFORMANCE_THRESHOLDS.DOM_NODES');
+  });
+
   it('bounds sendIPCFromMain and manual-update teardown', () => {
     const helper = fs.readFileSync(path.resolve(import.meta.dirname, './electron-test.ts'), 'utf8');
     const ipc = fs.readFileSync(
