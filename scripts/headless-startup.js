@@ -279,27 +279,102 @@ export function median(values) {
 }
 
 /**
+ * Identity for unique renderer counting: (pid, creationTime) when
+ * creationTime is a number, otherwise PID. GPU/utility rows are ignored
+ * by callers that filter `type === 'renderer'`.
+ */
+export function rendererIdentityKey(snapshot) {
+  if (typeof snapshot?.creationTime === 'number') {
+    return `${snapshot.pid}:${snapshot.creationTime}`;
+  }
+  return `pid:${snapshot.pid}`;
+}
+
+/**
+ * Count unique renderer identities in a run's complete snapshot list.
+ * Does not synthesize fields; missing/non-renderer rows are skipped.
+ */
+export function countUniqueRendererIdentities(run) {
+  const snaps = Array.isArray(run?.rendererSnapshots) ? run.rendererSnapshots : [];
+  const ids = new Set();
+  for (const snap of snaps) {
+    if (snap?.type !== 'renderer' || typeof snap?.pid !== 'number') continue;
+    ids.add(rendererIdentityKey(snap));
+  }
+  return ids.size;
+}
+
+/**
+ * Incomplete artifacts (capture.complete/valid not true) never contribute
+ * representative snapshots. Legacy marker-only fixtures omit `capture` and
+ * stay eligible so numeric-median tests remain unchanged.
+ */
+function isEligibleRepresentativeRun(run) {
+  if (!run || typeof run !== 'object') return false;
+  const capture = run.capture;
+  if (capture == null) return true;
+  return capture.complete === true && capture.valid === true;
+}
+
+/**
+ * From complete valid runs in original order: stable-sort by unique renderer
+ * identity count then original index; pick floor(n / 2) (upper median when
+ * n is even); copy that run's complete rendererSnapshots.
+ */
+export function selectRepresentativeRendererSnapshots(runs) {
+  if (!Array.isArray(runs) || runs.length === 0) return [];
+  const ranked = runs.map((run, index) => ({
+    run,
+    index,
+    count: countUniqueRendererIdentities(run),
+  }));
+  ranked.sort((a, b) => {
+    if (a.count !== b.count) return a.count - b.count;
+    return a.index - b.index;
+  });
+  const pick = Math.floor(runs.length / 2);
+  const chosen = ranked[pick];
+  const snaps = chosen?.run?.rendererSnapshots;
+  return Array.isArray(snaps) ? snaps.slice() : [];
+}
+
+/**
  * Build a merged metrics object whose numeric markers + memorySnapshots fields
  * represent the per-key median across N complete+valid runs. Non-numeric fields
- * are taken from the last successful run.
+ * other than rendererSnapshots are taken from the last successful run.
+ * rendererSnapshots are the complete list from the upper-median identity-count
+ * run (never the last run, never an incomplete run, never synthesized).
  *
  * Refuses to assemble medians from incomplete data: every run in `runs` must
  * already have passed {@link validateRunArtifact}. The caller is responsible
  * for that gate; this function still stamps aggregate completeness metadata.
+ * An incomplete run that leaks into `runs` is excluded from snapshot selection
+ * and forces aggregation.complete=false.
  */
 export function mergeMedian(runs, options = {}) {
   const requestedRuns = options.requestedRuns ?? runs.length;
   const invalidRuns = options.invalidRuns ?? 0;
 
   if (runs.length === 0) return null;
+
+  const eligibleForSnapshots = runs.filter((run) => isEligibleRepresentativeRun(run));
+  const excludedIncomplete = eligibleForSnapshots.length !== runs.length;
+  const representativeSnapshots =
+    eligibleForSnapshots.length > 0
+      ? selectRepresentativeRendererSnapshots(eligibleForSnapshots)
+      : [];
+
   if (runs.length === 1) {
     const single = { ...runs[0] };
+    if (excludedIncomplete) {
+      single.rendererSnapshots = representativeSnapshots;
+    }
     single.aggregation = {
       strategy: 'single',
       runs: requestedRuns,
       successfulRuns: 1,
       invalidRuns,
-      complete: invalidRuns === 0 && requestedRuns === 1,
+      complete: invalidRuns === 0 && requestedRuns === 1 && !excludedIncomplete,
     };
     return single;
   }
@@ -355,12 +430,14 @@ export function mergeMedian(runs, options = {}) {
       Object.keys(syntheticFirst).length > 0 ? [syntheticFirst, synthetic] : [synthetic];
   }
 
-  const aggregateComplete = invalidRuns === 0 && runs.length === requestedRuns;
+  const aggregateComplete =
+    invalidRuns === 0 && runs.length === requestedRuns && !excludedIncomplete;
 
   return {
     ...last,
     markers: mergedMarkers,
     memorySnapshots: mergedMemorySnapshots,
+    rendererSnapshots: representativeSnapshots,
     aggregation: {
       strategy: 'median',
       runs: requestedRuns,

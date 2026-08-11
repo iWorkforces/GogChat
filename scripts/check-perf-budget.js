@@ -100,7 +100,8 @@ export const BUDGETS = [
     budget: 4,
     unit: 'count',
     gated: true,
-    describe: 'unique renderer PIDs after document-load sample',
+    describe:
+      'unique renderer identities after document-load sample ((pid, creationTime) or PID)',
     extract: (m) => uniqueRendererCount(m),
   },
   {
@@ -232,8 +233,14 @@ function ipcLatencyP50(metrics) {
 function uniqueRendererCount(metrics) {
   const snaps = metrics?.rendererSnapshots;
   if (!Array.isArray(snaps)) return 0;
-  const renderers = snaps.filter((s) => s?.type === 'renderer' && typeof s?.pid === 'number');
-  return new Set(renderers.map((s) => s.pid)).size;
+  const ids = new Set();
+  for (const snap of snaps) {
+    if (snap?.type !== 'renderer' || typeof snap?.pid !== 'number') continue;
+    ids.add(
+      typeof snap.creationTime === 'number' ? `${snap.pid}:${snap.creationTime}` : `pid:${snap.pid}`
+    );
+  }
+  return ids.size;
 }
 
 function fileSize(absPath) {
