@@ -107,6 +107,7 @@ export const test = base.extend<ElectronTestFixtures>({
       // event never fires. Force-show is best-effort: Playwright Electron
       // evaluate can throw "Resulting promise was garbage collected" after
       // many sequential launches. Do not fail the fixture for that.
+      wrapEvaluateWithGcRetry(app);
       await showMainWindowBestEffort(app);
 
       await use(app);
@@ -132,29 +133,90 @@ export function isEvaluateGarbageCollectedError(error: unknown): boolean {
   return /resulting promise was garbage collected/i.test(formatUnknownError(error));
 }
 
-async function closeElectronApp(app: {
+type ElectronChildProcess = {
+  exitCode: number | null;
+  killed: boolean;
+  once: (event: 'exit', listener: () => void) => void;
+};
+
+/** Playwright's `app.process()` throws `_object` after the child already quit. */
+export function peekElectronChildProcess(app: {
+  process?: () => ElectronChildProcess;
+}): ElectronChildProcess | undefined {
+  try {
+    if (typeof app.process !== 'function') {
+      return undefined;
+    }
+    const child = app.process();
+    if (!child) {
+      return undefined;
+    }
+    void child.exitCode;
+    void child.killed;
+    return child;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function callEvaluateWithGcRetry<T>(
+  evaluate: (...args: never[]) => Promise<T>,
+  ...args: never[]
+): Promise<T> {
+  try {
+    return await evaluate(...args);
+  } catch (error) {
+    if (!isEvaluateGarbageCollectedError(error)) {
+      throw error;
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50);
+    });
+    return evaluate(...args);
+  }
+}
+
+export function wrapEvaluateWithGcRetry<
+  T extends { evaluate: (...args: never[]) => Promise<unknown> },
+>(app: T): T {
+  const original = app.evaluate.bind(app);
+  app.evaluate = ((...args: never[]) =>
+    callEvaluateWithGcRetry(original, ...args)) as T['evaluate'];
+  return app;
+}
+
+export async function closeElectronApp(app: {
   close: () => Promise<unknown>;
-  process?: () => {
-    exitCode: number | null;
-    killed: boolean;
-    once: (event: 'exit', listener: () => void) => void;
-  };
+  process?: () => ElectronChildProcess;
 }): Promise<void> {
-  const child = typeof app.process === 'function' ? app.process() : undefined;
+  const child = peekElectronChildProcess(app);
   await app.close().catch(() => undefined);
-  if (!child || child.exitCode !== null || child.killed) {
+  if (!child) {
     return;
   }
-  await Promise.race([
-    new Promise<void>((resolve) => {
-      child.once('exit', () => {
-        resolve();
-      });
-    }),
-    new Promise<void>((resolve) => {
-      setTimeout(resolve, 1000);
-    }),
-  ]);
+  let alreadyGone = false;
+  try {
+    alreadyGone = child.exitCode !== null || child.killed;
+  } catch {
+    alreadyGone = true;
+  }
+  if (alreadyGone) {
+    return;
+  }
+  try {
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        child.once('exit', () => {
+          resolve();
+        });
+      }),
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 1000);
+      }),
+    ]);
+  } catch {
+    // Bounded-shutdown already exited; the Playwright handle can die mid-wait.
+  }
 }
 
 type ElectronEvaluateApi = {

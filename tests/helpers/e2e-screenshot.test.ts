@@ -5,11 +5,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   E2E_SCREENSHOT_TIMEOUT_MS,
+  closeElectronApp,
   isCiScreenshotDisabled,
   isEvaluateGarbageCollectedError,
   isMainWindowVisible,
+  peekElectronChildProcess,
   showMainWindowBestEffort,
   takeScreenshot,
+  wrapEvaluateWithGcRetry,
 } from './electron-test';
 
 const E2E_WORKFLOW = path.resolve(import.meta.dirname, '../e2e/user-workflows.test.ts');
@@ -136,7 +139,34 @@ describe('Electron fixture evaluate safety', () => {
     const source = fs.readFileSync(path.resolve(import.meta.dirname, './electron-test.ts'), 'utf8');
     expect(source).toContain('showMainWindowBestEffort');
     expect(source).toContain('closeElectronApp');
+    expect(source).toContain('wrapEvaluateWithGcRetry');
+    expect(source).toContain('peekElectronChildProcess');
     expect(source).not.toMatch(/BrowserWindow\.getAllWindows\(\)\[0\]\?\.show\(\)/);
+  });
+
+  it('ignores Playwright process() _object errors after the child already quit', async () => {
+    const app = {
+      process: vi.fn(() => {
+        throw new TypeError("Cannot read properties of undefined (reading '_object')");
+      }),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    expect(peekElectronChildProcess(app)).toBeUndefined();
+    await expect(closeElectronApp(app)).resolves.toBeUndefined();
+    expect(app.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries evaluate once after Playwright GC', async () => {
+    const evaluate = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error('electronApplication.evaluate: Resulting promise was garbage collected.')
+      )
+      .mockResolvedValueOnce({ ok: true });
+    const app = { evaluate };
+    wrapEvaluateWithGcRetry(app);
+    await expect(app.evaluate()).resolves.toEqual({ ok: true });
+    expect(evaluate).toHaveBeenCalledTimes(2);
   });
 });
 
