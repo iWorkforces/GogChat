@@ -10,6 +10,28 @@ import { IPC_CHANNELS } from '../shared/constants.js';
 import urls from '../urls.js';
 
 let unsubscribe: (() => void) | null = null;
+let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+let deadlineFailed = false;
+export const ONLINE_CHECK_DEADLINE_MS = 6_000;
+
+function clearOnlineDeadline(): void {
+  if (deadlineTimer !== null) {
+    clearTimeout(deadlineTimer);
+    deadlineTimer = null;
+  }
+}
+
+function armOnlineDeadline(): void {
+  clearOnlineDeadline();
+  deadlineFailed = false;
+  deadlineTimer = setTimeout(() => {
+    deadlineTimer = null;
+    if (!deadlineFailed) {
+      deadlineFailed = true;
+      window.dispatchEvent(new Event(ONLINE_CHECK_FAILED_EVENT));
+    }
+  }, ONLINE_CHECK_DEADLINE_MS);
+}
 
 /**
  * DOM-only signal that a connectivity check finished with a false reply.
@@ -24,6 +46,8 @@ export const ONLINE_CHECK_FAILED_EVENT = 'app:onlineCheckFailed';
  * Exported for unit tests.
  */
 export const handleOnlineStatus = (online: boolean): void => {
+  clearOnlineDeadline();
+  deadlineFailed = true;
   if (online) {
     // Back online - redirect to GogChat exactly once
     window.location.replace(urls.appUrl);
@@ -39,6 +63,7 @@ export const handleOnlineStatus = (online: boolean): void => {
  * Exported for unit tests.
  */
 export const handleCheckOnline = (): void => {
+  armOnlineDeadline();
   if (window.gogchat?.checkIfOnline) {
     window.gogchat.checkIfOnline();
     return;
@@ -65,6 +90,7 @@ export function installOffline(): void {
 
   window.addEventListener('beforeunload', () => {
     window.removeEventListener('app:checkIfOnline', handleCheckOnline);
+    clearOnlineDeadline();
 
     if (unsubscribe) {
       unsubscribe();

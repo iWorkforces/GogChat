@@ -29,19 +29,20 @@ export class IPCRateLimiter {
    * @param maxPerSecond - Maximum messages allowed per second (default from config)
    * @returns true if message is allowed, false if rate limited
    */
-  isAllowed(channel: string, maxPerSecond?: number): boolean {
+  isAllowed(channel: string, maxPerSecond?: number, senderId?: number): boolean {
     const limit = maxPerSecond ?? this.getDefaultLimit(channel);
     const now = Date.now();
     const windowMs = 1000;
-    // Get or create entry for this channel
-    let entry = this.counters.get(channel);
+    const key = senderId === undefined ? channel : `${channel}:sender:${senderId}`;
+    // Get or create entry for this sender+channel (or channel when sender unknown)
+    let entry = this.counters.get(key);
     if (!entry || now - entry.windowStart >= windowMs) {
       // Window expired or new channel — reset
       const prevBlocked = entry?.blocked ?? 0;
 
       // Handle zero/negative limits
       if (limit <= 0) {
-        this.counters.set(channel, {
+        this.counters.set(key, {
           count: 0,
           windowStart: now,
           blocked: prevBlocked + 1,
@@ -49,7 +50,7 @@ export class IPCRateLimiter {
         return false;
       }
 
-      this.counters.set(channel, {
+      this.counters.set(key, {
         count: 1,
         windowStart: now,
         blocked: prevBlocked,

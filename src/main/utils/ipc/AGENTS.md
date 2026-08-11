@@ -19,7 +19,7 @@ Prefer `defineIPC({ kind: 'on' | 'reply' | 'invoke' })` for new handlers. `creat
 ## Components
 
 - `defineIPC.ts` - current handler factory. `ipcHelper.ts` - legacy wrappers + shared option types.
-- `rateLimiter.ts` - per-channel token bucket with 1s windows and stale cleanup. Keys are currently channel-scoped (not sender-id-scoped).
+- `rateLimiter.ts` - per-channel token bucket with 1s windows and stale cleanup. Keys are `${channel}:sender:${id}` when `event.sender.id` is present so multi-account senders are isolated.
 - `ipcDeduplicator.ts` - short promise sharing, default 100ms.
 - `ipcDeduplicationPatterns.ts` - key functions for safe dedup cases.
 - `ipcFastPath.ts` - sync one-way hot `send` channels only; never for `invoke`.
@@ -47,6 +47,6 @@ Prefer `defineIPC({ kind: 'on' | 'reply' | 'invoke' })` for new handlers. `creat
 ## Anti-patterns
 
 - No raw `ipcMain` registrations without validation and catch handling.
-- No dedup for mutating or non-idempotent operations. `inOnline` currently sets `deduplicate: true` on `CHECK_IF_ONLINE` — that is existing behavior, not a template for new channels.
+- No dedup for mutating or non-idempotent operations. Online checks must not use `deduplicate: true` — two senders need isolated probes.
 - No raw `ipcRenderer` exposure from preload.
 - `defineIPC.ts` is coverage-excluded in `vitest.config.ts` today; do not treat exclusion as “no tests needed” when changing the factory.

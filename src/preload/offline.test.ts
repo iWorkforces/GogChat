@@ -16,7 +16,12 @@ vi.mock('../urls.js', () => ({
   default: { appUrl: 'https://mail.google.com/chat/u/0' },
 }));
 
-import { handleOnlineStatus, handleCheckOnline, ONLINE_CHECK_FAILED_EVENT } from './offline.js';
+import {
+  handleOnlineStatus,
+  handleCheckOnline,
+  ONLINE_CHECK_FAILED_EVENT,
+  ONLINE_CHECK_DEADLINE_MS,
+} from './offline.js';
 
 describe('preload offline recovery', () => {
   let locationReplace: ReturnType<typeof vi.fn>;
@@ -81,5 +86,27 @@ describe('preload offline recovery', () => {
     };
     handleCheckOnline();
     expect(checkIfOnline).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches one failure event when the 6s deadline elapses', () => {
+    vi.useFakeTimers();
+    handleCheckOnline();
+    expect(failedEventCount).toBe(0);
+    vi.advanceTimersByTime(ONLINE_CHECK_DEADLINE_MS);
+    expect(failedEventCount).toBe(1);
+    vi.advanceTimersByTime(ONLINE_CHECK_DEADLINE_MS);
+    expect(failedEventCount).toBe(1);
+    expect(locationReload).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('clears the deadline on a false response so timeout does not fire', () => {
+    vi.useFakeTimers();
+    handleCheckOnline();
+    handleOnlineStatus(false);
+    vi.advanceTimersByTime(ONLINE_CHECK_DEADLINE_MS);
+    expect(failedEventCount).toBe(1);
+    expect(locationReload).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });
