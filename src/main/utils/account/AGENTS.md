@@ -1,7 +1,6 @@
 # Account Utilities Guide
 
 **Parent:** `../AGENTS.md`
-**Version:** 3.20.0
 
 This directory owns multi-account window/view backends and per-account session partition behavior. Account partitions and hydration rules are arch-independent (same on arm64 and x64 packages).
 

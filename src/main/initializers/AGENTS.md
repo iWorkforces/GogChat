@@ -1,7 +1,6 @@
 # Main Initializers Guide
 
 **Parent:** `../AGENTS.md`
-**Version:** 3.20.0
 
 This directory is the canonical home for app startup/shutdown sequencing and build-time feature specs. Packaging arches do not change initializer contracts.
 

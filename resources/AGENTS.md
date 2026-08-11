@@ -1,7 +1,6 @@
 # Resources Guide
 
 **Parent:** `../AGENTS.md`
-**Version:** 3.20.0
 
 `resources/` contains all packaged static assets: icon variants, app icons, and offline fallback graphics. Runtime access is always via `process.resourcesPath` (packaged) or `app.getAppPath()` (dev), through `iconCache.ts` and `platform/` helpers. Assets are packaging-arch independent (same tree in arm64 and x64 DMGs). There is one icon tree — no arch-specific variants.
 

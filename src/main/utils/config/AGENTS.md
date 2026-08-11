@@ -1,7 +1,6 @@
 # Config Utilities Guide
 
 **Parent:** `../AGENTS.md`
-**Version:** 3.20.0
 
 This directory owns typed electron-store access and read-through caching for app config. Config schema is packaging-arch independent.
 

@@ -1,7 +1,6 @@
 # Scripts Guide
 
 **Parent:** `../AGENTS.md`
-**Version:** 3.20.0
 
 Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, notarization, icon assets, hooks, and performance gates.
 

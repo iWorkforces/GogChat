@@ -1,7 +1,6 @@
 # Lifecycle Utilities Guide
 
 **Parent:** `../AGENTS.md`
-**Version:** 3.20.0
 
 This directory owns runtime lifecycle mechanics: feature execution, shared feature context, cleanup tracking, errors, performance monitors, and global cleanup registration.
 

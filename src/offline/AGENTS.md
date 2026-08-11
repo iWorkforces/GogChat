@@ -1,7 +1,6 @@
 # Offline Page Guide
 
 **Parent:** `../AGENTS.md`
-**Version:** 3.20.0
 
 `src/offline` is a static fallback page for network loss. It is not a normal renderer app. Account backend choice does not affect this page.
 

@@ -1,7 +1,6 @@
 # Main Features Guide
 
 **Parent:** `../AGENTS.md`
-**Version:** 3.20.0
 
 Features are self-contained startup/runtime units registered through initializer specs. This directory holds the feature implementations; startup order lives outside this directory.
 

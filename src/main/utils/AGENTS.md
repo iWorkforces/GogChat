@@ -1,7 +1,6 @@
 # Main Utilities Guide
 
 **Parent:** `../AGENTS.md`
-**Version:** 3.20.0
 
 `src/main/utils` contains reusable main-process mechanics. Keep orchestration in initializers/features and keep reusable infrastructure here.
 
