@@ -30,6 +30,7 @@ function makeFakeWindow(url = '') {
   win._destroyed = false;
   win.isDestroyed = () => win._destroyed;
   win.show = vi.fn();
+  win.loadURL = vi.fn().mockResolvedValue(undefined);
   return win;
 }
 
@@ -85,6 +86,10 @@ vi.mock('../utils/ipc/defineIPC.js', () => ({
 // Mock path
 vi.mock('path', () => ({
   default: { join: vi.fn((...args: string[]) => args.join('/')) },
+}));
+
+vi.mock('fs', () => ({
+  default: { existsSync: vi.fn(() => true) },
 }));
 
 describe('inOnline feature', () => {
@@ -164,6 +169,30 @@ describe('inOnline feature', () => {
       expect(mod.checkForInternet).toBeDefined();
       expect(typeof mod.checkForInternet).toBe('function');
     });
+
+    it('does not load the offline page when fetch reports online', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true })
+      );
+      const win = makeFakeWindow('https://mail.google.com/chat/u/0');
+      const mod = await import('./inOnline.js');
+      await mod.checkForInternet(win as unknown as Electron.BrowserWindow);
+      expect(win.webContents.loadURL).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+
+    it('loads the offline page after a confirmed offline probe', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockRejectedValue(new Error('offline'))
+      );
+      const win = makeFakeWindow('https://mail.google.com/chat/u/0');
+      const mod = await import('./inOnline.js');
+      await mod.checkForInternet(win as unknown as Electron.BrowserWindow);
+      expect(win.loadURL).toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
   });
 
   // ── IPC handler configuration ─────────────────────────────────────────────
@@ -197,6 +226,7 @@ describe('inOnline feature', () => {
           rateLimit: expect.any(Number),
         })
       );
+      expect(mockDefineIPC.mock.calls[0]?.[0]).not.toHaveProperty('deduplicate', true);
     });
   });
 });

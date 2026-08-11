@@ -21,7 +21,7 @@ bun run check:doc-claims
 - Integration/e2e/performance: Playwright/Electron helpers under `tests/`. `*.spec.ts` under `initializers/` are **feature-plan input**, not tests.
 - Playwright config: `testDir: './tests'`, `workers: 1`, timeout 60000, retries 0, four isolated projects — `e2e`, `integration`, `performance`, `preload-artifact`. Contract: `scripts/playwright-config.test.js`. `preload-artifact` executes `tests/artifact/preload/preload-entry.test.ts` against built `lib/preload/index.js`.
 - Coverage thresholds in `vitest.config.ts`: statements 94, branches 92, functions 94, lines 94. Include is `src/**/*.ts` only.
-- Current coverage exclusions include all of `src/preload/**`, `registerAppReady.ts`, `inOnline.ts`, `appUpdates.ts`, `defineIPC.ts`, `cdpMetrics.ts`, `cdpTelemetry.ts`, and several Electron-heavy features. Exclusion ≠ “no tests”; colocated tests can still exist.
+- Coverage includes remediates seams: `src/preload/**` (except `overrideNotifications.ts`), `registerAppReady.ts`, `inOnline.ts`, `appUpdates.ts`, and `defineIPC.ts`. CDP product files and `src/main/generated/**` stay excluded. Thresholds remain 94/92/94/94.
 - Evidence classes (source-unit, built-CJS execution, packaged-presence, packaged-runtime, headless, workflow) are defined in root `AGENTS.md`. Do not substitute one for another.
 
 ## Electron test helpers

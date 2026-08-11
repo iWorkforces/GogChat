@@ -100,10 +100,13 @@ describe('playwright project topology', () => {
       e2e: path.join(testDir, 'e2e/user-workflows.test.ts'),
       integration: [
         path.join(testDir, 'integration/app-launch.test.ts'),
+        path.join(testDir, 'integration/bounded-shutdown.test.ts'),
         path.join(testDir, 'integration/ipc-communication.test.ts'),
+        path.join(testDir, 'integration/manual-update.test.ts'),
         path.join(testDir, 'integration/multi-account.test.ts'),
       ],
       performance: path.join(testDir, 'performance/performance-regression.test.ts'),
+      preloadArtifact: path.join(testDir, 'artifact/preload/preload-entry.test.ts'),
     };
 
     expect(ownership.get(path.normalize(expected.e2e))).toBe('e2e');
@@ -111,6 +114,6 @@ describe('playwright project topology', () => {
       expect(ownership.get(path.normalize(file))).toBe('integration');
     }
     expect(ownership.get(path.normalize(expected.performance))).toBe('performance');
-    expect([...ownership.values()].filter((name) => name === 'preload-artifact')).toEqual([]);
+    expect(ownership.get(path.normalize(expected.preloadArtifact))).toBe('preload-artifact');
   });
 });
