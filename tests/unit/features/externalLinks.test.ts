@@ -173,12 +173,15 @@ describe('routeAccountUrl — bootstrap guard', () => {
 
     navigate(sourceWindow, 'https://chat.google.com/u/1/some-room');
 
+    expect(mockFocusAccount).toHaveBeenCalledWith(1);
     expect(mockLoadAccountURL).toHaveBeenCalledWith(
       expect.anything(),
       1,
       'https://chat.google.com/u/1/some-room'
     );
-    expect(mockFocusAccount).toHaveBeenCalledWith(1);
+    expect(mockFocusAccount.mock.invocationCallOrder[0]).toBeLessThan(
+      mockLoadAccountURL.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
   });
 
   it('marks a newly created secondary account as bootstrap', () => {

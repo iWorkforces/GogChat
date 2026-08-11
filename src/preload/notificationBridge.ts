@@ -77,12 +77,14 @@ function forwardNotification(data: unknown): void {
   }
 }
 
-window.addEventListener(NOTIFICATION_SHOW_EVENT, (event) => {
-  if (event instanceof CustomEvent) {
-    forwardNotification(event.detail);
-  }
-});
+export function installNotificationBridge(): void {
+  window.addEventListener(NOTIFICATION_SHOW_EVENT, (event) => {
+    if (event instanceof CustomEvent) {
+      forwardNotification(event.detail);
+    }
+  });
 
-void webFrame.executeJavaScript(PAGE_WORLD_NOTIFICATION_BRIDGE).catch((error: unknown) => {
-  console.error('[notificationBridge] Failed to install page notification bridge:', error);
-});
+  void webFrame.executeJavaScript(PAGE_WORLD_NOTIFICATION_BRIDGE).catch((error: unknown) => {
+    console.error('[notificationBridge] Failed to install page notification bridge:', error);
+  });
+}

@@ -205,7 +205,7 @@ describe('closeToTray feature', () => {
 
     it('dehydrates sparse non-zero accounts (e.g. {0, 2}) without needing index 1', async () => {
       mockManager.listAccountIndices.mockReturnValue([0, 2]);
-      mockManager.isDehydrated.mockImplementation((i: number) => false);
+      mockManager.isDehydrated.mockImplementation((_i: number) => false);
 
       const feature = await import('./closeToTray.js');
       feature.default(win as unknown as Electron.BrowserWindow);

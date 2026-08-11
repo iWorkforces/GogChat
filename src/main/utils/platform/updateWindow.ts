@@ -13,6 +13,10 @@ import log from 'electron-log';
 import { APP_ICON_AURORA_CSS, appIconWithAuroraHtml } from '../../../shared/appIconAurora.js';
 import { escapeHtml } from '../../../shared/escapeHtml.js';
 import { DIALOG_BACKGROUND_COLOR, platformDialogChrome } from './dialogChrome.js';
+import { createTrackedTimeout } from '../lifecycle/resourceCleanup.js';
+
+/** Deadline for the checking-phase `loadURL` so a hung data: document cannot stall the poll. */
+export const UPDATE_CHECKING_LOAD_TIMEOUT_MS = 5_000;
 
 /** Compatible with electron dialog.showMessageBox options used by update checks. */
 export type UpdateDialogOptions = {
@@ -548,9 +552,27 @@ export async function presentUpdateDialog(
   const url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 
   if (phase === 'checking') {
-    await win.loadURL(url).catch((err: unknown) => {
+    let loadTimeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        win.loadURL(url),
+        new Promise<never>((_, reject) => {
+          loadTimeout = createTrackedTimeout(
+            () => {
+              reject(new Error('checking dialog load timed out'));
+            },
+            UPDATE_CHECKING_LOAD_TIMEOUT_MS,
+            'update-checking-load'
+          );
+        }),
+      ]);
+    } catch (err: unknown) {
       log.error('[Update] Failed to load update dialog:', err);
-    });
+    } finally {
+      if (loadTimeout !== undefined) {
+        clearTimeout(loadTimeout);
+      }
+    }
     if (!win.isDestroyed() && gen === dialogGeneration) {
       wireActionHandlers(win, 0, 0);
       presentWindow(win);

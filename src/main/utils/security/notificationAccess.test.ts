@@ -123,9 +123,7 @@ describe('notificationAccess', () => {
       mockPlatformState.isMac = false;
       expect(ensureNotificationPermission()).toBe('unsupported');
       expect(NotificationCtor).not.toHaveBeenCalled();
-      expect(mockLogDebug).toHaveBeenCalledWith(
-        expect.stringContaining('ensure → unsupported')
-      );
+      expect(mockLogDebug).toHaveBeenCalledWith(expect.stringContaining('ensure → unsupported'));
     });
 
     it('returns unsupported when Notification.isSupported is false', () => {
@@ -225,8 +223,7 @@ describe('notificationAccess', () => {
         on: ReturnType<typeof vi.fn>;
       };
       const failedHandler = instance.on.mock.calls.find((call) => call[0] === 'failed')?.[1] as
-        | (() => void)
-        | undefined;
+        (() => void) | undefined;
       failedHandler?.();
 
       // Flag was already set on Enable; failed must not require re-prompt
@@ -242,10 +239,7 @@ describe('notificationAccess', () => {
       await flushImmediates();
 
       expect(NotificationCtor).not.toHaveBeenCalled();
-      expect(mockConfigSet).not.toHaveBeenCalledWith(
-        'app.notificationPermissionRequested',
-        true
-      );
+      expect(mockConfigSet).not.toHaveBeenCalledWith('app.notificationPermissionRequested', true);
 
       expect(ensureNotificationPermission({ parentWindow: window })).toBe('prompt-declined');
       expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
@@ -292,8 +286,7 @@ describe('notificationAccess', () => {
       expect(mockConfigSet).not.toHaveBeenCalled();
 
       const showHandler = instance.on.mock.calls.find((call) => call[0] === 'show')?.[1] as
-        | (() => void)
-        | undefined;
+        (() => void) | undefined;
       expect(showHandler).toBeDefined();
       showHandler?.();
 
@@ -309,8 +302,7 @@ describe('notificationAccess', () => {
         on: ReturnType<typeof vi.fn>;
       };
       const failedHandler = instance.on.mock.calls.find((call) => call[0] === 'failed')?.[1] as
-        | (() => void)
-        | undefined;
+        (() => void) | undefined;
       failedHandler?.();
 
       expect(mockConfigSet).not.toHaveBeenCalledWith('app.notificationPermissionRequested', true);

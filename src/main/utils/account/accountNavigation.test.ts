@@ -16,12 +16,14 @@ vi.mock('../../../shared/urlValidators.js', () => ({
 
 import { isGoogleAuthUrl } from '../../../shared/urlValidators.js';
 
-function makeManager(wc: {
-  isDestroyed: () => boolean;
-  getURL: () => string;
-  loadURL: ReturnType<typeof vi.fn>;
-  send: ReturnType<typeof vi.fn>;
-} | null): IAccountWindowManager {
+function makeManager(
+  wc: {
+    isDestroyed: () => boolean;
+    getURL: () => string;
+    loadURL: ReturnType<typeof vi.fn>;
+    send: ReturnType<typeof vi.fn>;
+  } | null
+): IAccountWindowManager {
   return {
     getAccountWebContents: vi.fn().mockReturnValue(wc),
   } as unknown as IAccountWindowManager;
@@ -43,9 +45,9 @@ describe('accountNavigation', () => {
         send: vi.fn(),
       });
 
-      expect(loadAccountURL(manager, asAccountIndex(0), 'https://mail.google.com/chat/u/0/r/1')).toBe(
-        true
-      );
+      expect(
+        loadAccountURL(manager, asAccountIndex(0), 'https://mail.google.com/chat/u/0/r/1')
+      ).toBe(true);
       expect(loadURL).toHaveBeenCalledWith('https://mail.google.com/chat/u/0/r/1');
     });
 

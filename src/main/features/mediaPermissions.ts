@@ -33,6 +33,7 @@ async function runMediaPermissionChecks(): Promise<void> {
  * Security-phase init: schedule TCC work and return immediately (do not await).
  */
 export default async (_context: FeatureContext): Promise<void> => {
+  await Promise.resolve();
   if (process.platform !== 'darwin') {
     log.debug('[MediaPermissions] Skipping permission checks on non-darwin platform');
     return;

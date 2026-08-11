@@ -84,6 +84,14 @@ describe('IPCRateLimiter', () => {
       expect(limiter.isAllowed(unreadChannel)).toBe(false);
     });
 
+    it('isolates the same channel across sender ids', () => {
+      const channel = 'checkIfOnline';
+      expect(limiter.isAllowed(channel, 1, 10)).toBe(true);
+      expect(limiter.isAllowed(channel, 1, 10)).toBe(false);
+      expect(limiter.isAllowed(channel, 1, 11)).toBe(true);
+      expect(limiter.isAllowed(channel, 1, 11)).toBe(false);
+    });
+
     it('should isolate rate limits between channels', () => {
       const channel1 = 'channel-1';
       const channel2 = 'channel-2';

@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import store from '../../config.js';
 import {
   profileConfigStoreReads,
   profileSingleKeyRead,
@@ -23,14 +24,6 @@ vi.mock('electron-log', () => ({
 vi.mock('../../config.js', () => ({
   default: {
     get: vi.fn((key: string) => {
-      // Simulate some delay
-      const delay = Math.random() * 0.1;
-      const start = Date.now();
-      while (Date.now() - start < delay) {
-        // Busy wait
-      }
-
-      // Return dummy data based on key
       if (key.includes('autoCheckForUpdates')) return true;
       if (key.includes('autoLaunchAtLogin')) return false;
       if (key.includes('startHidden')) return false;
@@ -44,12 +37,19 @@ vi.mock('../../config.js', () => ({
 }));
 
 describe('ConfigProfiler', () => {
+  let nowMs = 1_000;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    nowMs = 1_000;
+    vi.spyOn(performance, 'now').mockImplementation(() => {
+      nowMs += 1;
+      return nowMs;
+    });
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.mocked(performance.now).mockRestore();
   });
 
   describe('profileConfigStoreReads', () => {
@@ -265,12 +265,27 @@ describe('ConfigProfiler', () => {
       expect(Number.isNaN(avgTime) || !Number.isFinite(avgTime) || avgTime === 0).toBe(true);
     });
 
-    it('should handle very large iteration counts', { timeout: 30000 }, () => {
-      // This might take a while, but should complete
-      const avgTime = profileConfigStoreReads(1000); // Reduced from 5000
+    it('profiles 100000 iterations with exact call counts and mocked elapsed', () => {
+      const iterations = 100_000;
+      const keysPerIteration = 7;
+      vi.mocked(store.get).mockClear();
+      vi.mocked(performance.now).mockReset();
+      vi.mocked(performance.now).mockReturnValueOnce(1_000).mockReturnValueOnce(3_000);
 
-      expect(avgTime).toBeGreaterThanOrEqual(0);
-      expect(Number.isFinite(avgTime)).toBe(true);
+      const avgTime = profileConfigStoreReads(iterations);
+
+      expect(vi.mocked(store.get)).toHaveBeenCalledTimes(iterations * keysPerIteration);
+      expect(avgTime).toBe(0.02);
+    });
+
+    it('detects a negative or incorrect mocked elapsed sequence', () => {
+      vi.mocked(performance.now).mockReset();
+      vi.mocked(performance.now).mockReturnValueOnce(5_000).mockReturnValueOnce(1_000);
+
+      const avgTime = profileConfigStoreReads(100_000);
+
+      expect(avgTime).toBe(-0.04);
+      expect(avgTime).not.toBe(0.02);
     });
 
     it('should handle empty string key', () => {

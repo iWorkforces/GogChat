@@ -152,9 +152,7 @@ function createMockManager(
   getAccountWebContents: Mock;
   promoteBootstrap: Mock;
 } {
-  const getAccountWindow = vi
-    .fn()
-    .mockImplementation(overrides.getAccountWindow ?? (() => null));
+  const getAccountWindow = vi.fn().mockImplementation(overrides.getAccountWindow ?? (() => null));
   return {
     isBootstrap: vi.fn().mockImplementation(overrides.isBootstrap ?? (() => true)),
     getAccountWindow,

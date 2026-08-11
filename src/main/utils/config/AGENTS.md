@@ -14,12 +14,17 @@ This directory owns typed electron-store access and read-through caching for app
 
 ## Notable keys (`app.*`)
 
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `notificationPermissionRequested` | `false` | First-run request completed (Enable / System Settings, and/or probe `show`); not live OS grant status |
-| `unreadDeltaNotifications` | `false` | Opt-in badge-increase OS banners (Preferences); stays false until Phase-2 smoke + explicit decision |
-| `accountLabels` | `{}` | Optional per-account subtitle strings for multi-account banners |
-| `useWebContentsView` | `false` | Opt-in WebContentsView account backend (BrowserWindow remains default; no flip without matrix evidence) |
+| Key                                                                             | Default                 | Meaning                                                                                                 |
+| ------------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------- |
+| `notificationPermissionRequested`                                               | `false`                 | First-run request completed (Enable / System Settings, and/or probe `show`); not live OS grant status   |
+| `unreadDeltaNotifications`                                                      | `false`                 | Opt-in badge-increase OS banners (Preferences toggle is shipped; default remains false)                 |
+| `accountLabels`                                                                 | `{}`                    | Optional per-account subtitle strings for multi-account banners                                         |
+| `useWebContentsView`                                                            | `false`                 | Opt-in WebContentsView account backend (BrowserWindow remains default; no flip without matrix evidence) |
+| `autoCheckForUpdates` / `autoLaunchAtLogin`                                     | `true`                  | Background update check; open-at-login                                                                  |
+| `startHidden` / `hideMenuBar` / `disableSpellChecker` / `suppressPasskeyDialog` | `false`                 | UX flags                                                                                                |
+| `memory.dehydrationThresholdMs`                                                 | schema-clamped 60s–600s | BrowserWindow idle dehydrate threshold                                                                  |
+| `memory.v8HeapCapMB`                                                            | schema only             | **Not** read at startup. Heap cap is `GOGCHAT_V8_HEAP_CAP_MB` / default 512 before `app.ready`          |
+| `memory.diskCacheMaxMB`                                                         | schema only             | Documented, not yet enforced                                                                            |
 
 ## Cache behavior
 

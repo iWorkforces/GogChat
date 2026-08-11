@@ -41,6 +41,12 @@ function makeMockFactory() {
   };
 }
 
+function registerOn(registry: AccountWindowRegistry) {
+  return (window: BrowserWindow, accountIndex: number) => {
+    registry.registerWindow(window, accountIndex);
+  };
+}
+
 // ---------------------------------------------------------------------------
 // routeAccountWindow — new window creation
 // ---------------------------------------------------------------------------
@@ -59,7 +65,14 @@ describe('routeAccountWindow — new window path', () => {
     const newWin = makeTypedWindow();
     mockFactory.createWindow.mockReturnValue(newWin);
 
-    const result = routeAccountWindow(registry, mockFactory, 'https://chat.google.com', 0);
+    const result = routeAccountWindow(
+      registry,
+      mockFactory,
+      'https://chat.google.com',
+      0,
+      undefined,
+      registerOn(registry)
+    );
 
     expect(mockFactory.createWindow).toHaveBeenCalledWith(
       'https://chat.google.com',
@@ -74,7 +87,14 @@ describe('routeAccountWindow — new window path', () => {
     const newWin = makeTypedWindow();
     mockFactory.createWindow.mockReturnValue(newWin);
 
-    routeAccountWindow(registry, mockFactory, 'https://chat.google.com', 3);
+    routeAccountWindow(
+      registry,
+      mockFactory,
+      'https://chat.google.com',
+      3,
+      undefined,
+      registerOn(registry)
+    );
 
     expect(mockFactory.createWindow).toHaveBeenCalledWith(
       'https://chat.google.com',
@@ -96,7 +116,14 @@ describe('routeAccountWindow — new window path', () => {
     const newWin = makeTypedWindow();
     mockFactory.createWindow.mockReturnValue(newWin);
 
-    const result = routeAccountWindow(registry, mockFactory, 'https://chat.google.com', 0);
+    const result = routeAccountWindow(
+      registry,
+      mockFactory,
+      'https://chat.google.com',
+      0,
+      undefined,
+      registerOn(registry)
+    );
 
     expect(mockFactory.createWindow).toHaveBeenCalledWith(
       'https://chat.google.com',
@@ -271,6 +298,41 @@ describe('routeAccountWindow — auto-hydrate dehydrated accounts', () => {
     expect(mockFactory.createWindow).not.toHaveBeenCalled();
   });
 
+  it('applies the requested URL after hydrate when it differs from the restored snapshot', () => {
+    const hydrated = makeTypedWindow();
+    (hydrated as unknown as MockBrowserWindow).webContents.url = 'https://chat.google.com/u/1/';
+    const loadURLSpy = vi.spyOn(hydrated, 'loadURL');
+
+    routeAccountWindow(registry, mockFactory, 'https://chat.google.com/u/1/room/abc', 0, {
+      isDehydrated: () => true,
+      hydrate: () => {
+        registry.registerWindow(hydrated, 0);
+        return hydrated;
+      },
+    });
+
+    expect(loadURLSpy).toHaveBeenCalledWith('https://chat.google.com/u/1/room/abc');
+    expect(mockFactory.createWindow).not.toHaveBeenCalled();
+  });
+
+  it('does not interrupt a hydrated bootstrap window mid Google auth', () => {
+    const hydrated = makeTypedWindow();
+    (hydrated as unknown as MockBrowserWindow).webContents.url =
+      'https://accounts.google.com/signin/v2/identifier';
+    markAsBootstrap(0);
+    const loadURLSpy = vi.spyOn(hydrated, 'loadURL');
+
+    routeAccountWindow(registry, mockFactory, 'https://chat.google.com/u/0/', 0, {
+      isDehydrated: () => true,
+      hydrate: () => {
+        registry.registerWindow(hydrated, 0);
+        return hydrated;
+      },
+    });
+
+    expect(loadURLSpy).not.toHaveBeenCalled();
+  });
+
   it('does not call the hydration hook when the account is not dehydrated', () => {
     const win = makeTypedWindow();
     registry.registerWindow(win, 0);
@@ -292,12 +354,88 @@ describe('routeAccountWindow — auto-hydrate dehydrated accounts', () => {
     const hydrate = vi.fn();
     const isDehydrated = vi.fn().mockReturnValue(false);
 
-    const result = routeAccountWindow(registry, mockFactory, 'https://chat.google.com', 0, {
-      isDehydrated,
-      hydrate,
-    });
+    const result = routeAccountWindow(
+      registry,
+      mockFactory,
+      'https://chat.google.com',
+      0,
+      {
+        isDehydrated,
+        hydrate,
+      },
+      registerOn(registry)
+    );
 
     expect(result).toBe(newWin);
     expect(hydrate).not.toHaveBeenCalled();
+  });
+});
+
+describe('routeAccountWindow — new-window registration callback', () => {
+  let registry: AccountWindowRegistry;
+  let mockFactory: ReturnType<typeof makeMockFactory>;
+
+  beforeEach(() => {
+    nextWebContentsId = 9800;
+    clearAllBootstrap();
+    registry = new AccountWindowRegistry();
+    mockFactory = makeMockFactory();
+  });
+
+  it('requires a registration callback on the factory-created branch', () => {
+    const newWin = makeTypedWindow();
+    mockFactory.createWindow.mockReturnValue(newWin);
+
+    expect(() => routeAccountWindow(registry, mockFactory, 'https://chat.google.com', 1)).toThrow(
+      /registration callback/
+    );
+    expect(registry.hasAccount(1)).toBe(false);
+  });
+
+  it('invokes the callback only for factory-created windows', () => {
+    const existing = makeTypedWindow();
+    registry.registerWindow(existing, 0);
+    const onNewWindow = vi.fn();
+
+    routeAccountWindow(registry, mockFactory, 'https://chat.google.com', 0, undefined, onNewWindow);
+
+    expect(onNewWindow).not.toHaveBeenCalled();
+    expect(mockFactory.createWindow).not.toHaveBeenCalled();
+  });
+
+  it('does not invoke the callback when the hydration hook produces a window', () => {
+    const hydrated = makeTypedWindow();
+    const onNewWindow = vi.fn();
+    routeAccountWindow(
+      registry,
+      mockFactory,
+      'https://chat.google.com',
+      0,
+      {
+        isDehydrated: () => true,
+        hydrate: () => {
+          registry.registerWindow(hydrated, 0);
+          return hydrated;
+        },
+      },
+      onNewWindow
+    );
+    expect(onNewWindow).not.toHaveBeenCalled();
+  });
+
+  it('destroys the factory window and leaves no registry entry when the callback throws', () => {
+    const newWin = makeTypedWindow();
+    mockFactory.createWindow.mockReturnValue(newWin);
+    const destroySpy = vi.spyOn(newWin, 'destroy');
+
+    expect(() =>
+      routeAccountWindow(registry, mockFactory, 'https://chat.google.com', 1, undefined, () => {
+        throw new Error('register failed');
+      })
+    ).toThrow('register failed');
+
+    expect(destroySpy).toHaveBeenCalled();
+    expect(registry.hasAccount(1)).toBe(false);
+    expect(newWin.isDestroyed()).toBe(true);
   });
 });

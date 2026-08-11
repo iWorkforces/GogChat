@@ -14,12 +14,12 @@ Every handler should follow:
 4. Handle.
 5. Catch/log typed failures.
 
-Prefer the current factory helpers in this directory over ad-hoc `ipcMain.handle` or `ipcMain.on` calls.
+Prefer `defineIPC({ kind: 'on' | 'reply' | 'invoke' })` for new handlers. `createSecure*Handler` in `ipcHelper.ts` is `@deprecated` and remains for older tests. Live features (`handleNotification`, `inOnline`, `passkeySupport`) already use `defineIPC`. Do not add ad-hoc `ipcMain.handle` / `ipcMain.on` calls.
 
 ## Components
 
-- `defineIPC.ts` / `ipcHelper.ts` - canonical handler wrappers.
-- `rateLimiter.ts` - per-channel token bucket with 1s windows and stale cleanup.
+- `defineIPC.ts` - current handler factory. `ipcHelper.ts` - legacy wrappers + shared option types.
+- `rateLimiter.ts` - per-channel token bucket with 1s windows and stale cleanup. Keys are `${channel}:sender:${id}` when `event.sender.id` is present so multi-account senders are isolated.
 - `ipcDeduplicator.ts` - short promise sharing, default 100ms.
 - `ipcDeduplicationPatterns.ts` - key functions for safe dedup cases.
 - `ipcFastPath.ts` - sync one-way hot `send` channels only; never for `invoke`.
@@ -47,5 +47,6 @@ Prefer the current factory helpers in this directory over ad-hoc `ipcMain.handle
 ## Anti-patterns
 
 - No raw `ipcMain` registrations without validation and catch handling.
-- No dedup for mutating or non-idempotent operations.
+- No dedup for mutating or non-idempotent operations. Online checks must not use `deduplicate: true` — two senders need isolated probes.
 - No raw `ipcRenderer` exposure from preload.
+- `defineIPC.ts` is included in Vitest coverage. `defineIPC.test.ts` covers on/reply/invoke, sender-scoped rate limits, silent drops, channel and payload dedup, and IPCError rethrow from invoke.

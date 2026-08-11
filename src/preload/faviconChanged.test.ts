@@ -7,6 +7,10 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+vi.mock('electron', () => ({
+  ipcRenderer: { send: vi.fn(), on: vi.fn(), removeListener: vi.fn() },
+}));
+
 // Capture event listeners registered on window
 type EventListenerEntry = { type: string; handler: EventListener };
 let windowListeners: EventListenerEntry[] = [];
@@ -80,7 +84,8 @@ describe('faviconChanged', () => {
   });
 
   it('registers DOMContentLoaded and beforeunload listeners', async () => {
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const types = windowListeners.map((l) => l.type);
     expect(types).toContain('DOMContentLoaded');
@@ -88,7 +93,8 @@ describe('faviconChanged', () => {
   });
 
   it('initializes MutationObserver on document.head at DOMContentLoaded', async () => {
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -108,7 +114,8 @@ describe('faviconChanged', () => {
       return null;
     });
 
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -126,7 +133,8 @@ describe('faviconChanged', () => {
       return null;
     });
 
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -142,7 +150,8 @@ describe('faviconChanged', () => {
       return null;
     });
 
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -151,7 +160,8 @@ describe('faviconChanged', () => {
   });
 
   it('does not emit when no favicon found in DOM', async () => {
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -166,7 +176,8 @@ describe('faviconChanged', () => {
       return null;
     });
 
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -192,7 +203,8 @@ describe('faviconChanged', () => {
       return null;
     });
 
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -219,7 +231,8 @@ describe('faviconChanged', () => {
     // Start with no favicon
     const querySpy = vi.spyOn(document, 'querySelector').mockReturnValue(null);
 
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -246,7 +259,8 @@ describe('faviconChanged', () => {
   });
 
   it('disconnects observer on beforeunload', async () => {
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     // Init observer
     const dcHandler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
@@ -260,7 +274,8 @@ describe('faviconChanged', () => {
   });
 
   it('disconnects previous observer when initObserver is called again', async () => {
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
 
@@ -287,7 +302,8 @@ describe('faviconChanged', () => {
       return null;
     });
 
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -302,7 +318,8 @@ describe('faviconChanged', () => {
       return null;
     });
 
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -333,7 +350,8 @@ describe('faviconChanged', () => {
       return null;
     });
 
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -365,7 +383,8 @@ describe('faviconChanged', () => {
       return null;
     });
 
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -400,7 +419,8 @@ describe('faviconChanged', () => {
       return null;
     });
 
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
     mockSendFaviconChanged.mockClear();
@@ -426,7 +446,8 @@ describe('faviconChanged', () => {
       return null;
     });
 
-    await import('./faviconChanged');
+    const { installFaviconChanged } = await import('./faviconChanged');
+    installFaviconChanged();
     const dcHandler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     dcHandler!.handler(new Event('DOMContentLoaded'));
     mockSendFaviconChanged.mockClear();

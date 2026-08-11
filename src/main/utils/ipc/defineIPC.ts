@@ -128,7 +128,8 @@ async function runPipeline<T, R>(
   const log = logger.ipc;
 
   try {
-    if (rateLimit !== undefined && !getRateLimiter().isAllowed(channel, rateLimit)) {
+    const senderId = event.sender?.id;
+    if (rateLimit !== undefined && !getRateLimiter().isAllowed(channel, rateLimit, senderId)) {
       if (!silent) {
         log.warn(`Rate limited: ${channel}`);
       }

@@ -89,6 +89,7 @@ const h = vi.hoisted(() => {
     public isDestroyed: ReturnType<typeof vi.fn>;
     public loadURL: ReturnType<typeof vi.fn>;
     public destroy: ReturnType<typeof vi.fn>;
+    public isVisible: ReturnType<typeof vi.fn>;
     public removeListener: (event: string, listener: (...a: unknown[]) => void) => MockBW;
 
     constructor(options?: unknown) {
@@ -120,6 +121,7 @@ const h = vi.hoisted(() => {
       this.isMaximized = vi.fn((): boolean => this.maximized);
       this.isMinimized = vi.fn((): boolean => this.minimized);
       this.isDestroyed = vi.fn((): boolean => this.destroyed);
+      this.isVisible = vi.fn((): boolean => !this.destroyed);
       this.loadURL = vi.fn((url: string): Promise<void> => {
         this.webContents.url = url;
         return Promise.resolve();
@@ -157,6 +159,7 @@ const h = vi.hoisted(() => {
     mockStore,
     bootstrapSet,
     trackedTimers,
+    recordActivity: vi.fn(),
   };
 });
 
@@ -229,7 +232,7 @@ vi.mock('./accountSessionMaintenance.js', () => ({
   startSessionMaintenance: vi.fn(),
   stopSessionMaintenance: vi.fn(),
   getAccountActivityTracker: vi.fn(() => ({
-    recordActivity: vi.fn(),
+    recordActivity: h.recordActivity,
     isIdle: vi.fn(() => false),
     forget: vi.fn(),
     reset: vi.fn(),
@@ -281,6 +284,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   AccountWindowManager,
   getAccountWindowManager,
+  peekAccountWindowManager,
   destroyAccountWindowManager,
   flushAccountWindowsWrites,
   getMostRecentWindow as moduleGetMostRecentWindow,
@@ -292,10 +296,7 @@ import {
 import { asAccountIndex, asWebContentsId, toPartition } from '../../../shared/types/branded';
 import type { WindowFactory } from '../../../shared/types/window';
 import { startSessionMaintenance, stopSessionMaintenance } from './accountSessionMaintenance.js';
-import {
-  getAccountViewManager,
-  resetAccountViewManagerSingleton,
-} from './accountViewManager.js';
+import { getAccountViewManager, resetAccountViewManagerSingleton } from './accountViewManager.js';
 import {
   clearAllBootstrap,
   markAsBootstrap as trackerMark,
@@ -645,8 +646,134 @@ describe('AccountWindowManager — createAccountWindow', () => {
     const w2 = m.createAccountWindow('https://second/', asAccountIndex(1));
     // Factory was called again — by hydrate, not by router fall-through
     expect(factory.createWindow.mock.calls.length).toBe(callsBeforeDehydrate + 1);
+    expect(factory.createWindow).toHaveBeenLastCalledWith(
+      'https://first/',
+      toPartition(asAccountIndex(1))
+    );
     expect(w2).not.toBe(w1);
     expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+    // Router applies the requested URL after snapshot restore.
+    expect((w2 as unknown as MockBWInstance).loadURL).toHaveBeenCalledWith('https://second/');
+  });
+
+  it('starts account 1 throttled and wires activity, dehydrate, and throttle listeners once', async () => {
+    const hooks = await import('./accountWebContentsHooks.js');
+    hooks.clearAccountWebContentsHooksForTests();
+    const created = vi.fn();
+    hooks.onAccountWebContentsCreated(created);
+
+    const factory = makeFactory();
+    const m = new AccountWindowManager(factory);
+    h.recordActivity.mockClear();
+    const w = m.createAccountWindow('https://chat/', asAccountIndex(1));
+    const wMock = w as unknown as MockBWInstance;
+    const wc = wMock.webContents;
+
+    expect(wc.setBackgroundThrottling).toHaveBeenLastCalledWith(true);
+    expect(created).toHaveBeenCalledTimes(1);
+    expect(h.recordActivity).toHaveBeenCalled();
+
+    const activityCallsAfterCreate = h.recordActivity.mock.calls.length;
+    const focusCount = wMock.listenerCount('focus');
+    const blurCount = wMock.listenerCount('blur');
+
+    wMock.emit('focus');
+    expect(wc.setBackgroundThrottling).toHaveBeenLastCalledWith(false);
+    expect(h.recordActivity.mock.calls.length).toBe(activityCallsAfterCreate + 1);
+
+    h.trackedTimers.length = 0;
+    wMock.emit('blur');
+    expect(wc.setBackgroundThrottling).toHaveBeenLastCalledWith(true);
+    expect(h.recordActivity.mock.calls.length).toBe(activityCallsAfterCreate + 2);
+    expect(h.trackedTimers.filter((t) => t.name === 'dehydrate-account-1')).toHaveLength(1);
+
+    wMock.emit('focus');
+    wMock.emit('blur');
+    expect(h.trackedTimers.filter((t) => t.name === 'dehydrate-account-1')).toHaveLength(2);
+
+    wMock.emit('show');
+    expect(h.recordActivity.mock.calls.length).toBe(activityCallsAfterCreate + 5);
+
+    const reused = m.createAccountWindow('https://chat/again', asAccountIndex(1));
+    expect(reused).toBe(w);
+    expect(created).toHaveBeenCalledTimes(1);
+    expect(wMock.listenerCount('focus')).toBe(focusCount);
+    expect(wMock.listenerCount('blur')).toBe(blurCount);
+
+    hooks.clearAccountWebContentsHooksForTests();
+  });
+
+  it('does not increment hook or listener counts when hydrating through createAccountWindow', async () => {
+    const hooks = await import('./accountWebContentsHooks.js');
+    hooks.clearAccountWebContentsHooksForTests();
+    const created = vi.fn();
+    hooks.onAccountWebContentsCreated(created);
+
+    const factory = makeFactory();
+    const m = new AccountWindowManager(factory);
+    const first = m.createAccountWindow('https://first/', asAccountIndex(1));
+    expect(created).toHaveBeenCalledTimes(1);
+    m.dehydrateAccount(asAccountIndex(1));
+
+    const restored = m.createAccountWindow('https://second/', asAccountIndex(1));
+    expect(restored).not.toBe(first);
+    expect(created).toHaveBeenCalledTimes(2);
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+
+    hooks.clearAccountWebContentsHooksForTests();
+  });
+
+  it('rolls back a failed new-window callback: no live window, registry, hook, listener, or timer', async () => {
+    const hooks = await import('./accountWebContentsHooks.js');
+    hooks.clearAccountWebContentsHooksForTests();
+    const created = vi.fn();
+    hooks.onAccountWebContentsCreated(created);
+
+    const factory = makeFactory();
+    factory.createWindow.mockImplementation((url: string) => {
+      const w = new h.MockBW({ url });
+      w.webContents.setBackgroundThrottling.mockImplementation(() => {
+        throw new Error('throttle failed');
+      });
+      void w.loadURL(url);
+      return w as unknown as Electron.BrowserWindow;
+    });
+    const m = new AccountWindowManager(factory);
+
+    expect(() => m.createAccountWindow('https://boom/', asAccountIndex(1))).toThrow(
+      'throttle failed'
+    );
+
+    expect(m.getAccountWindow(asAccountIndex(1))).toBeNull();
+    expect(m.hasAccount(asAccountIndex(1))).toBe(false);
+    expect(created).not.toHaveBeenCalled();
+    expect(h.trackedTimers.filter((t) => t.name?.startsWith('dehydrate-account-'))).toHaveLength(0);
+    expect(h.createdWindows.every((w) => w.destroyed)).toBe(true);
+
+    hooks.clearAccountWebContentsHooksForTests();
+  });
+
+  it('focusAccount shows the window and isAccountVisible tracks live vs dehydrated', () => {
+    const factory = makeFactory();
+    const m = new AccountWindowManager(factory);
+    const w = m.createAccountWindow('https://chat/', asAccountIndex(1));
+    const wMock = w as unknown as MockBWInstance;
+    wMock.show.mockClear();
+    wMock.focus.mockClear();
+
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+    m.focusAccount(asAccountIndex(1));
+    expect(wMock.show).toHaveBeenCalled();
+    expect(wMock.focus).toHaveBeenCalled();
+
+    m.dehydrateAccount(asAccountIndex(1));
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(false);
+    m.focusAccount(asAccountIndex(1));
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+
+    m.focusAccount(asAccountIndex(99));
+    expect(m.hasAccount(asAccountIndex(99))).toBe(false);
   });
 });
 
@@ -784,6 +911,41 @@ describe('AccountWindowManager — dehydrate / hydrate', () => {
     expect(listener.mock.calls.length).toBeGreaterThan(createsAfterCreate);
 
     hooks.clearAccountWebContentsHooksForTests();
+  });
+
+  it('rolls back hydrate when post-create restore fails and keeps the snapshot', () => {
+    const factory = makeFactory();
+    const m = new AccountWindowManager(factory);
+    m.createAccountWindow('https://hello/', asAccountIndex(1));
+    m.dehydrateAccount(asAccountIndex(1));
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(true);
+
+    factory.createWindow.mockImplementation((url: string, partition: string) => {
+      const w = new h.MockBW({ webPreferences: { partition }, url });
+      void w.loadURL(url);
+      w.setBounds.mockImplementation(() => {
+        throw new Error('setBounds failed');
+      });
+      return w as unknown as Electron.BrowserWindow;
+    });
+
+    expect(() => m.hydrateAccount(asAccountIndex(1))).toThrow('setBounds failed');
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(true);
+    expect(m.getAccountWindow(asAccountIndex(1))).toBeNull();
+    expect(m.hasAccount(asAccountIndex(1))).toBe(true);
+
+    factory.createWindow.mockImplementation((url: string, partition: string) => {
+      const w = new h.MockBW({ webPreferences: { partition }, url });
+      void w.loadURL(url);
+      return w as unknown as Electron.BrowserWindow;
+    });
+    const recovered = m.hydrateAccount(asAccountIndex(1));
+    expect(recovered).not.toBeNull();
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+    expect(factory.createWindow).toHaveBeenLastCalledWith(
+      'https://hello/',
+      toPartition(asAccountIndex(1))
+    );
   });
 
   it('hydrateAccount dispatches exactly one loadURL via the factory (no manager re-nav)', () => {
@@ -1037,6 +1199,14 @@ describe('AccountWindowManager — singleton', () => {
     const m1 = getAccountWindowManager();
     const m2 = getAccountWindowManager();
     expect(m1).toBe(m2);
+  });
+
+  it('peekAccountWindowManager does not construct a manager', () => {
+    expect(peekAccountWindowManager()).toBeNull();
+    const created = getAccountWindowManager();
+    expect(peekAccountWindowManager()).toBe(created);
+    destroyAccountWindowManager();
+    expect(peekAccountWindowManager()).toBeNull();
   });
 
   it('routes to AccountWindowManager when app.useWebContentsView is false/absent', () => {

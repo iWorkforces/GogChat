@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-`src` contains the Electron main process, sandboxed preload bridge, shared contracts, and static offline fallback assets. Packaging and dual-arch DMG work live outside `src/` (`mac/AGENTS.md`, `scripts/AGENTS.md`). Product version, dual-backend multi-account rules, and security invariants live in root `AGENTS.md` (v3.19.0).
+`src` contains the Electron main process, sandboxed preload bridge, shared contracts, and static offline fallback assets. There is **no** `src/renderer` — the UI is remote Google Chat plus `offline/` and sandboxed About/Update dialogs. Packaging and dual-arch DMG work live outside `src/` (`mac/AGENTS.md`, `scripts/AGENTS.md`). Product version, dual-backend multi-account rules, and security invariants live in root `AGENTS.md` (v3.20.0).
 
 ## Route source work
 
@@ -23,7 +23,7 @@
 
 ## Root modules
 
-- `environment.ts` is main-process only because it imports Electron. Do not load it in a renderer.
+- `environment.ts` is main-process only because it imports Electron. Do not load it in a renderer. `resolveAppUrl` may substitute `GOGCHAT_TEST_APP_URL` only when `TESTING=true` and only for `file:` / loopback `http:`.
 - `urls.ts` is the shared frozen definition object for application and logout URLs.
 
 ## Import rules

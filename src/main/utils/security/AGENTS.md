@@ -16,7 +16,7 @@ This directory contains main-process security wrappers and SafeStorage-backed ki
 ## CSP and webview constraints
 
 - `cspHeaderHandler.ts` performs targeted COEP/COOP stripping for Google domains.
-- It strips `frame-ancestors`/XFO only for benign hosts such as `accounts.google.com` and `ogs.google.com`.
+- It strips `frame-ancestors`/XFO only for benign hosts such as `accounts.google.com` and `ogs.google.com` (`BENIGN_CSP_BLOCKED_HOSTS`). `windowWrapper` also uses that list to suppress expected console/subframe noise.
 - Do not wholesale replace Google CSP.
 - Current `windowWrapper` uses `webSecurity: true`. Historical rationale for older webview exceptions lives in `docs/windowWrapper-history.md` — read it before changing webview/network rules.
 

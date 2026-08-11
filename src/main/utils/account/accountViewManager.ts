@@ -314,18 +314,8 @@ export class AccountViewManager implements IAccountWindowManager {
     this.views.set(accountIndex, entry);
     this.webContentsToAccountIndex.set(asWebContentsId(view.webContents.id), accountIndex);
 
-    // Activate this account: demote previous frontmost to hidden-live (not parked).
-    // dehydrated-parked others stay parked until hydrate.
-    for (const other of this.views.values()) {
-      if (other.accountIndex === accountIndex) continue;
-      if (other.resourceState === 'visible') {
-        other.resourceState = 'hidden-live';
-      }
-    }
-    entry.resourceState = 'visible';
-    this.mostRecentAccountIndex = accountIndex;
+    this.applyResourceTransition({ visible: accountIndex });
     getAccountActivityTracker().recordActivity(accountIndex);
-    this.layoutVisibleView();
 
     try {
       void view.webContents.loadURL(url);
@@ -347,6 +337,52 @@ export class AccountViewManager implements IAccountWindowManager {
   }
 
   /**
+   * Single WCV resource-state transition.
+   *
+   * Updates visibility/`resourceState` then reapplies throttle on every child
+   * view (never the host WebContents):
+   * - account 0: always unthrottled
+   * - visible secondary: unthrottled
+   * - hidden-live and dehydrated-parked secondary: throttled
+   *
+   * Parked accounts stay parked unless they are the new visible target (hydrate).
+   */
+  private applyResourceTransition(options: {
+    visible: AccountIndex | null;
+    park?: AccountIndex;
+  }): void {
+    if (options.park !== undefined) {
+      const parked = this.views.get(options.park);
+      if (parked && parked.accountIndex !== options.visible) {
+        parked.resourceState = 'dehydrated-parked';
+      }
+    }
+
+    if (options.visible !== null) {
+      for (const entry of this.views.values()) {
+        if (entry.accountIndex === options.visible) {
+          entry.resourceState = 'visible';
+        } else if (entry.resourceState !== 'dehydrated-parked') {
+          entry.resourceState = 'hidden-live';
+        }
+      }
+      this.mostRecentAccountIndex = options.visible;
+    } else {
+      this.mostRecentAccountIndex = null;
+    }
+
+    for (const entry of this.views.values()) {
+      const throttle = entry.accountIndex !== 0 && entry.resourceState !== 'visible';
+      try {
+        entry.view.webContents.setBackgroundThrottling(throttle);
+      } catch {
+        // webContents may be destroyed mid-transition
+      }
+    }
+    this.layoutVisibleView();
+  }
+
+  /**
    * Show `accountIndex`'s view and hide every other view. O(N views) — N is
    * tiny in practice (one per signed-in account) so the linear scan is
    * preferred over keeping a sorted z-order list.
@@ -354,27 +390,8 @@ export class AccountViewManager implements IAccountWindowManager {
   private switchToAccount(accountIndex: AccountIndex): void {
     const target = this.views.get(accountIndex);
     if (!target) return;
-    for (const entry of this.views.values()) {
-      if (entry.accountIndex === accountIndex) {
-        entry.resourceState = 'visible';
-        continue;
-      }
-      // Do not un-park dehydrated-parked accounts merely by switching away.
-      if (entry.resourceState === 'dehydrated-parked') {
-        continue;
-      }
-      entry.resourceState = 'hidden-live';
-    }
-    // Visible ⇒ unthrottled (plan KD2). Accounts 1+ start throttled; focus/hydrate
-    // must clear throttling — not only hydrateAccount.
-    try {
-      target.view.webContents.setBackgroundThrottling(false);
-    } catch {
-      // webContents may be destroyed mid-switch
-    }
-    this.mostRecentAccountIndex = accountIndex;
+    this.applyResourceTransition({ visible: accountIndex });
     getAccountActivityTracker().recordActivity(accountIndex);
-    this.layoutVisibleView();
     if (this.hostWindow && !this.hostWindow.isDestroyed()) {
       if (this.hostWindow.isMinimized()) this.hostWindow.restore();
       if (!this.hostWindow.isVisible()) this.hostWindow.show();
@@ -487,6 +504,8 @@ export class AccountViewManager implements IAccountWindowManager {
   unregisterAccount(accountIndex: AccountIndex): void {
     const entry = this.views.get(accountIndex);
     if (!entry) return;
+    const wasVisible = entry.resourceState === 'visible';
+    const wasRecent = this.mostRecentAccountIndex === accountIndex;
     notifyAccountWebContentsDestroyed(accountIndex);
     try {
       this.webContentsToAccountIndex.delete(asWebContentsId(entry.view.webContents.id));
@@ -515,10 +534,23 @@ export class AccountViewManager implements IAccountWindowManager {
         error
       );
     }
-    if (this.mostRecentAccountIndex === accountIndex) {
-      this.mostRecentAccountIndex = this.views.keys().next().value ?? null;
+    if (this.views.size === 0) {
+      this.mostRecentAccountIndex = null;
+      this.layoutVisibleView();
+      log.info(`[AccountViewManager] Unregistered account ${accountIndex}`);
+      return;
     }
-    this.layoutVisibleView();
+    if (wasVisible || wasRecent) {
+      const fallback = this.pickVisibleFallback(accountIndex);
+      if (fallback !== null) {
+        this.applyResourceTransition({ visible: fallback });
+      } else {
+        this.mostRecentAccountIndex = null;
+        this.layoutVisibleView();
+      }
+    } else {
+      this.applyResourceTransition({ visible: this.mostRecentAccountIndex });
+    }
     log.info(`[AccountViewManager] Unregistered account ${accountIndex}`);
   }
 
@@ -610,26 +642,24 @@ export class AccountViewManager implements IAccountWindowManager {
     if (entry.resourceState === 'dehydrated-parked') return;
 
     const wasVisible = entry.resourceState === 'visible';
-    entry.resourceState = 'dehydrated-parked';
-    try {
-      entry.view.webContents.setBackgroundThrottling(true);
-    } catch {
-      // ignore — webContents may be mid-destruction
-    }
-
-    // Never leave the host with zero visible accounts when parking the frontmost.
     if (wasVisible) {
       const fallback = this.pickVisibleFallback(accountIndex);
-      if (fallback !== null) {
-        this.switchToAccount(fallback);
-        log.info(
-          `[AccountViewManager] Dehydrated (parked) account ${accountIndex}; promoted ${fallback}`
-        );
+      // Never leave the host with zero visible accounts when parking the frontmost.
+      if (fallback === null) {
         return;
       }
+      this.applyResourceTransition({ park: accountIndex, visible: fallback });
+      this.switchToAccount(fallback);
+      log.info(
+        `[AccountViewManager] Dehydrated (parked) account ${accountIndex}; promoted ${fallback}`
+      );
+      return;
     }
 
-    this.layoutVisibleView();
+    this.applyResourceTransition({
+      park: accountIndex,
+      visible: this.mostRecentAccountIndex,
+    });
     log.info(`[AccountViewManager] Dehydrated (parked) account ${accountIndex}`);
   }
 

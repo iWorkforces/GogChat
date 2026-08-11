@@ -18,7 +18,9 @@ try {
   electron = playwright._electron;
 } catch (error) {
   // Playwright not installed, create dummy exports
-  console.warn('[Test Helper] @playwright/test not installed. Playwright-dependent tests will be skipped.');
+  console.warn(
+    '[Test Helper] @playwright/test not installed. Playwright-dependent tests will be skipped.'
+  );
   base = {
     describe: () => ({ skip: () => {} }),
     skip: () => {},
@@ -32,6 +34,9 @@ try {
 const __dirname = import.meta.dirname;
 
 import { join } from 'path';
+import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 
 /**
  * Test fixtures for Electron testing
@@ -40,6 +45,7 @@ export interface ElectronTestFixtures {
   electronApp: ElectronApplication;
   mainWindow: Page;
   appPath: string;
+  extraElectronEnv: Record<string, string | undefined>;
 }
 
 /**
@@ -52,35 +58,403 @@ export const test = base.extend<ElectronTestFixtures>({
     await use(appPath);
   },
 
-  electronApp: async ({ appPath }, use) => {
-    // Launch Electron app
-    const app = await electron.launch({
-      args: [appPath],
-      env: {
+  extraElectronEnv: [{}, { option: true }],
+
+  electronApp: [
+    async ({ appPath, extraElectronEnv }, use) => {
+      if (!existsSync(appPath)) {
+        throw new Error(
+          `Electron fixture: missing built main entry at ${appPath}. Run \`bun scripts/build-rsbuild.js\` before Playwright.`
+        );
+      }
+      const projectRoot = join(__dirname, '../..');
+      const userDataDir = mkdtempSync(join(tmpdir(), 'gogchat-pw-'));
+      const env: NodeJS.ProcessEnv = {
         ...process.env,
         NODE_ENV: 'test',
         TESTING: 'true',
-      },
-    });
+        ...extraElectronEnv,
+      };
+      // Hang injection is opt-in per fixture. Never leak a parent-process flag
+      // into every Electron launch.
+      if (!extraElectronEnv['GOGCHAT_TEST_HANG_SHUTDOWN']) {
+        delete env['GOGCHAT_TEST_HANG_SHUTDOWN'];
+      }
+      const { app } = await launchElectronAppWithWindow({
+        appPath,
+        cwd: projectRoot,
+        userDataDir,
+        env,
+      });
 
-    // Use the app in tests
-    await use(app);
+      // Product windows start show:false and only show() on ready-to-show.
+      // Unauthenticated Chat often never paints on macos-latest, so that
+      // event never fires. Force-show is best-effort: Playwright Electron
+      // evaluate can throw "Resulting promise was garbage collected" after
+      // many sequential launches. Do not fail the fixture for that.
+      wrapEvaluateWithGcRetry(app);
+      await showMainWindowBestEffort(app);
 
-    // Clean up
-    await app.close();
-  },
+      await use(app);
+      await closeElectronApp(app);
+    },
+    { timeout: 120_000 },
+  ],
 
   mainWindow: async ({ electronApp }, use) => {
-    // Wait for the first window to appear
-    const window = await electronApp.firstWindow();
-
-    // Wait for the window to be ready
-    await window.waitForLoadState('domcontentloaded');
-
-    // Use the window in tests
+    const window = await electronApp.firstWindow({ timeout: 45_000 });
+    // Chat can stall before DCL on unauthenticated CI. Tests that need a
+    // loaded document wait themselves; do not fail every case here.
+    await window.waitForLoadState('domcontentloaded', { timeout: 8_000 }).catch(() => undefined);
     await use(window);
   },
 });
+
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function isEvaluateGarbageCollectedError(error: unknown): boolean {
+  return /resulting promise was garbage collected/i.test(formatUnknownError(error));
+}
+
+type ElectronChildProcess = {
+  pid?: number;
+  exitCode: number | null;
+  killed: boolean;
+  once: (event: 'exit', listener: () => void) => void;
+  kill?: (signal?: string) => boolean | void;
+};
+
+/** Playwright `close()` can hang after Chat load. Teardown must not wait forever. */
+export const ELECTRON_CLOSE_TIMEOUT_MS = 3_000;
+export const ELECTRON_KILL_WAIT_MS = 1_000;
+export const ELECTRON_FIRST_WINDOW_TIMEOUT_MS = 25_000;
+export const ELECTRON_LAUNCH_ATTEMPTS = 2;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function isChildGone(child: ElectronChildProcess): boolean {
+  try {
+    // `killed` is set when kill() is *called*, not when the process has exited.
+    // Treating it as gone skipped the exit wait and the next launch lost firstWindow.
+    return child.exitCode !== null;
+  } catch {
+    return true;
+  }
+}
+
+function killElectronChild(child: ElectronChildProcess): void {
+  try {
+    const pid = child.pid;
+    if (typeof pid === 'number' && pid > 0) {
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch {
+        // Child is not a process-group leader.
+      }
+    }
+    child.kill?.('SIGKILL');
+  } catch {
+    // already gone
+  }
+}
+
+/** Playwright's `app.process()` throws `_object` after the child already quit. */
+export function peekElectronChildProcess(app: {
+  process?: () => ElectronChildProcess;
+}): ElectronChildProcess | undefined {
+  try {
+    if (typeof app.process !== 'function') {
+      return undefined;
+    }
+    const child = app.process();
+    if (!child) {
+      return undefined;
+    }
+    void child.exitCode;
+    void child.killed;
+    return child;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function callEvaluateWithGcRetry<T>(
+  evaluate: (...args: never[]) => Promise<T>,
+  ...args: never[]
+): Promise<T> {
+  try {
+    return await evaluate(...args);
+  } catch (error) {
+    if (!isEvaluateGarbageCollectedError(error)) {
+      throw error;
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50);
+    });
+    return evaluate(...args);
+  }
+}
+
+export function wrapEvaluateWithGcRetry<
+  T extends { evaluate: (...args: never[]) => Promise<unknown> },
+>(app: T): T {
+  const original = app.evaluate.bind(app);
+  app.evaluate = ((...args: never[]) =>
+    callEvaluateWithGcRetry(original, ...args)) as T['evaluate'];
+  return app;
+}
+
+export type LaunchedElectronApp = {
+  firstWindow: (opts?: { timeout?: number }) => Promise<unknown>;
+  close: () => Promise<unknown>;
+  process?: () => ElectronChildProcess;
+  evaluate: (pageFunction: (...args: never[]) => unknown, arg?: unknown) => Promise<unknown>;
+};
+
+export function electronHarnessFileUrl(): string {
+  return pathToFileURL(join(__dirname, '../fixtures/electron-harness.html')).href;
+}
+
+export async function launchElectronAppWithWindow(options: {
+  appPath: string;
+  cwd?: string;
+  userDataDir: string;
+  env: NodeJS.ProcessEnv;
+}): Promise<{ app: LaunchedElectronApp }> {
+  const env: NodeJS.ProcessEnv = { ...options.env };
+  // Default Playwright Electron launches at a local harness so CI does not
+  // depend on live Google Chat paint, sockets, or DOM size. Opt into Chat
+  // with GOGCHAT_TEST_APP_URL='' (product URL) or an explicit file/http URL.
+  if (env['TESTING'] === 'true' && env['GOGCHAT_TEST_APP_URL'] === undefined) {
+    env['GOGCHAT_TEST_APP_URL'] = electronHarnessFileUrl();
+  }
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= ELECTRON_LAUNCH_ATTEMPTS; attempt++) {
+    const attemptUserData = `${options.userDataDir}-a${attempt}`;
+    let app: LaunchedElectronApp | undefined;
+    try {
+      app = await electron.launch({
+        ...(options.cwd ? { cwd: options.cwd } : {}),
+        args: [options.appPath, `--user-data-dir=${attemptUserData}`],
+        env,
+        timeout: 45_000,
+      });
+      await app.firstWindow({ timeout: ELECTRON_FIRST_WINDOW_TIMEOUT_MS });
+      return { app };
+    } catch (error) {
+      lastError = error;
+      if (app) {
+        await closeElectronApp(app);
+      }
+    }
+  }
+  throw new Error(
+    `Electron fixture: firstWindow timed out or failed — BrowserWindow never appeared after ${ELECTRON_LAUNCH_ATTEMPTS} attempts: ${formatUnknownError(lastError)}`
+  );
+}
+
+export async function closeElectronApp(
+  app: {
+    close: () => Promise<unknown>;
+    process?: () => ElectronChildProcess;
+  },
+  timeoutMs = ELECTRON_CLOSE_TIMEOUT_MS
+): Promise<void> {
+  const child = peekElectronChildProcess(app);
+  await Promise.race([app.close().catch(() => undefined), sleep(timeoutMs)]);
+  if (!child || isChildGone(child)) {
+    return;
+  }
+  try {
+    const exited = new Promise<void>((resolve) => {
+      try {
+        child.once('exit', () => {
+          resolve();
+        });
+      } catch {
+        resolve();
+      }
+    });
+    killElectronChild(child);
+    if (isChildGone(child)) {
+      return;
+    }
+    await Promise.race([exited, sleep(ELECTRON_KILL_WAIT_MS)]);
+  } catch {
+    // Bounded-shutdown already exited; the Playwright handle can die mid-wait.
+  }
+}
+
+type ElectronEvaluateApi = {
+  app: {
+    getAppPath: () => string;
+    getName: () => string;
+    getVersion: () => string;
+    isPackaged: boolean;
+  };
+  BrowserWindow: {
+    getAllWindows: () => Array<{
+      id: number;
+      isVisible: () => boolean;
+      isDestroyed: () => boolean;
+      isMaximized: () => boolean;
+      getBounds: () => { x: number; y: number; width: number; height: number };
+      setSize: (width: number, height: number) => void;
+      setBounds: (bounds: { x: number; y: number; width: number; height: number }) => void;
+      hide: () => void;
+      show: () => void;
+      webContents: {
+        getWebPreferences: () => Record<string, unknown>;
+        session: { storagePath?: string };
+      };
+    }>;
+  };
+};
+
+/** Run work in the ESM main process with a CJS `require` bound to the repo root. */
+export async function evaluateWithRequire<T>(
+  electronApp: { evaluate: (fn: (...args: never[]) => unknown, arg?: unknown) => Promise<T> },
+  work: (api: ElectronEvaluateApi & { require: NodeRequire }) => T | Promise<T>
+): Promise<T> {
+  // Electron 43 evaluate is ESM: `import()` and `require()` are rejected.
+  // `process.getBuiltinModule` is the Node 22+ seam that still works.
+  return electronApp.evaluate((electron: ElectronEvaluateApi, workSource: string) => {
+    const nodeModule = process.getBuiltinModule('module') as typeof import('node:module');
+    const nodePath = process.getBuiltinModule('path') as typeof import('node:path');
+    const require = nodeModule.createRequire(nodePath.join(process.cwd(), 'package.json'));
+    const fn = new Function('api', `return (${workSource})(api);`) as (
+      api: ElectronEvaluateApi & { require: NodeRequire }
+    ) => T | Promise<T>;
+    return fn({ ...electron, require });
+  }, work.toString());
+}
+
+export async function getMainBounds(
+  electronApp: ElectronApplication
+): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  return electronApp.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    return window ? window.getBounds() : null;
+  });
+}
+
+export async function setMainSize(
+  electronApp: ElectronApplication,
+  width: number,
+  height: number
+): Promise<void> {
+  await electronApp.evaluate(
+    ({ BrowserWindow }, size) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      if (!window) {
+        throw new Error('No windows found');
+      }
+      window.setSize(size.width, size.height);
+    },
+    { width, height }
+  );
+}
+
+export async function isMainWindowVisible(electronApp: {
+  evaluate: (fn: (api: ElectronEvaluateApi) => boolean) => Promise<boolean>;
+}): Promise<boolean> {
+  try {
+    return await electronApp.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      return Boolean(window && !window.isDestroyed() && window.isVisible());
+    });
+  } catch {
+    return false;
+  }
+}
+
+/** Force native show(). Returns false if evaluate dies or no window exists. */
+export async function showMainWindowBestEffort(electronApp: {
+  evaluate: (fn: (api: ElectronEvaluateApi) => boolean) => Promise<boolean>;
+}): Promise<boolean> {
+  try {
+    return await electronApp.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      if (!window || window.isDestroyed()) {
+        return false;
+      }
+      if (!window.isVisible()) {
+        window.show();
+      }
+      return window.isVisible();
+    });
+  } catch {
+    return false;
+  }
+}
+
+/** Poll until the native window is shown, or `timeoutMs` elapses. */
+export async function waitForMainWindowVisible(
+  electronApp: {
+    evaluate: (fn: (api: ElectronEvaluateApi) => boolean) => Promise<boolean>;
+  },
+  timeoutMs = 1500
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isMainWindowVisible(electronApp)) {
+      return true;
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 20);
+    });
+  }
+  return isMainWindowVisible(electronApp);
+}
+
+export function isChatUrl(url: string): boolean {
+  return (
+    url.includes('mail.google.com/chat') ||
+    url.includes('chat.google.com') ||
+    url.includes('workspace.google.com')
+  );
+}
+
+/** Unauthenticated CI often lands on accounts.google.com instead of Chat. */
+export function isGoogleSurfaceUrl(url: string): boolean {
+  return isChatUrl(url) || url.includes('google.com');
+}
+
+export function isHarnessUrl(url: string): boolean {
+  return url.startsWith('file:') && url.includes('electron-harness.html');
+}
+
+export function isTestDocumentUrl(url: string): boolean {
+  return isHarnessUrl(url) || isGoogleSurfaceUrl(url);
+}
+
+/**
+ * Bounded load-state wait. Google Chat keeps sockets open, so `networkidle`
+ * can run to the project timeout on macos-latest.
+ */
+export async function waitForLoadStateBounded(
+  page: {
+    waitForLoadState: (
+      state: 'load' | 'domcontentloaded' | 'networkidle',
+      options?: { timeout?: number }
+    ) => Promise<void>;
+  },
+  state: 'load' | 'domcontentloaded' | 'networkidle',
+  timeoutMs = 8_000
+): Promise<boolean> {
+  try {
+    await page.waitForLoadState(state, { timeout: timeoutMs });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Re-export expect for convenience
@@ -100,16 +474,19 @@ export async function waitForIPC(
       reject(new Error(`Timeout waiting for IPC message on channel: ${channel}`));
     }, timeout);
 
-    app.evaluate(({ ipcMain }, channel) => {
-      return new Promise((resolve) => {
-        ipcMain.once(channel, (event, data) => {
-          resolve(data);
+    app
+      .evaluate(({ ipcMain }, channel) => {
+        return new Promise((resolve) => {
+          ipcMain.once(channel, (event, data) => {
+            resolve(data);
+          });
         });
-      });
-    }, channel).then((data) => {
-      clearTimeout(timer);
-      resolve(data);
-    }).catch(reject);
+      }, channel)
+      .then((data) => {
+        clearTimeout(timer);
+        resolve(data);
+      })
+      .catch(reject);
   });
 }
 
@@ -121,12 +498,22 @@ export async function sendIPCFromMain(
   channel: string,
   data?: any
 ): Promise<void> {
-  await app.evaluate(({ BrowserWindow }, { channel, data }) => {
-    const windows = BrowserWindow.getAllWindows();
-    if (windows.length > 0) {
-      windows[0].webContents.send(channel, data);
-    }
-  }, { channel, data });
+  await Promise.race([
+    app.evaluate(
+      ({ BrowserWindow }, payload: { channel: string; data?: unknown }) => {
+        const windows = BrowserWindow.getAllWindows();
+        if (windows.length > 0) {
+          windows[0].webContents.send(payload.channel, payload.data);
+        }
+      },
+      { channel, data }
+    ),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`sendIPCFromMain timed out on ${channel}`));
+      }, 5_000);
+    }),
+  ]);
 }
 
 /**
@@ -232,6 +619,14 @@ export async function waitForText(
   );
 }
 
+/** Viewport screenshot deadline. Keep short so a hung page cannot stall the suite. */
+export const E2E_SCREENSHOT_TIMEOUT_MS = 5_000;
+
+/** CI must not capture Chat PNGs — full-page I/O can hang the Playwright worker. */
+export function isCiScreenshotDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env['CI'] || env['GITHUB_ACTIONS']);
+}
+
 /**
  * Helper to take a screenshot with metadata
  */
@@ -240,9 +635,20 @@ export async function takeScreenshot(
   name: string,
   metadata?: Record<string, any>
 ): Promise<Buffer> {
+  const screenshotDir = join(__dirname, '../screenshots');
+  mkdirSync(screenshotDir, { recursive: true });
+
+  if (isCiScreenshotDisabled()) {
+    if (metadata) {
+      console.log(`Screenshot '${name}' metadata:`, JSON.stringify(metadata, null, 2));
+    }
+    return Buffer.alloc(0);
+  }
+
   const screenshot = await page.screenshot({
-    path: `tests/screenshots/${name}.png`,
-    fullPage: true,
+    path: join(screenshotDir, `${name}.png`),
+    fullPage: false,
+    timeout: E2E_SCREENSHOT_TIMEOUT_MS,
   });
 
   // Log metadata if provided
@@ -263,11 +669,7 @@ export async function cleanupTestData(app: ElectronApplication): Promise<void> {
     const path = require('path');
 
     // Clean test-specific files
-    const testFiles = [
-      'test-config.json',
-      'test-messages.db',
-      'test-cache.json',
-    ];
+    const testFiles = ['test-config.json', 'test-messages.db', 'test-cache.json'];
 
     for (const file of testFiles) {
       try {
@@ -310,10 +712,7 @@ export async function getMainProcessLogs(app: ElectronApplication): Promise<stri
  */
 export async function pressShortcut(page: Page, shortcut: string): Promise<void> {
   // Convert shortcut format (e.g., 'Cmd+F' to 'Meta+F')
-  const key = shortcut
-    .replace('Cmd', 'Meta')
-    .replace('Ctrl', 'Control')
-    .replace('Option', 'Alt');
+  const key = shortcut.replace('Cmd', 'Meta').replace('Ctrl', 'Control').replace('Option', 'Alt');
 
   await page.keyboard.press(key);
 }
@@ -333,7 +732,20 @@ export async function checkSecuritySettings(app: ElectronApplication): Promise<{
       throw new Error('No windows found');
     }
 
-    const webPreferences = windows[0].webContents.getWebPreferences();
+    const webContents = windows[0].webContents as {
+      getWebPreferences?: () => {
+        contextIsolation?: boolean;
+        nodeIntegration?: boolean;
+        sandbox?: boolean;
+        webSecurity?: boolean;
+      };
+    };
+    const webPreferences = webContents.getWebPreferences?.() ?? {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+    };
     return {
       contextIsolation: webPreferences.contextIsolation || false,
       nodeIntegration: webPreferences.nodeIntegration || false,

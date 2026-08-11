@@ -394,21 +394,23 @@ describe('PerformanceMonitor', () => {
     });
 
     it('should reset start time', () => {
+      const now = vi.spyOn(Date, 'now');
+      now
+        .mockReturnValueOnce(1_000)
+        .mockReturnValueOnce(1_000)
+        .mockReturnValueOnce(1_015)
+        .mockReturnValueOnce(2_000)
+        .mockReturnValueOnce(2_000)
+        .mockReturnValueOnce(2_000);
+
       const monitor = getPerformanceMonitor();
-
-      // Wait a bit
-      const start = Date.now();
-      while (Date.now() - start < 10) {
-        // Busy wait 10ms
-      }
-
       const elapsedBefore = monitor.getTotalElapsed();
       monitor.reset();
       const elapsedAfter = monitor.getTotalElapsed();
 
-      // After reset, elapsed should be close to 0
-      expect(elapsedAfter).toBeLessThan(elapsedBefore);
-      expect(elapsedAfter).toBeLessThan(10);
+      expect(elapsedBefore).toBe(15);
+      expect(elapsedAfter).toBe(0);
+      now.mockRestore();
     });
 
     it('should allow marking after reset', () => {

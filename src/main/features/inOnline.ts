@@ -103,7 +103,6 @@ export default (_window: BrowserWindow) => {
     channel: IPC_CHANNELS.CHECK_IF_ONLINE,
     validator: () => undefined,
     rateLimit: 1,
-    deduplicate: true,
     description: 'Connectivity check',
     handler: (_data, event) => {
       if (!('reply' in event)) {

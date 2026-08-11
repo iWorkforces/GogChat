@@ -14,10 +14,14 @@ import { getStore } from '../config.js';
 import type { CachedStore } from '../utils/config/configCache.js';
 import { getRateLimiter } from '../utils/ipc/rateLimiter.js';
 import { getDeduplicator } from '../utils/ipc/ipcDeduplicator.js';
-import { getAccountWindowManager } from '../utils/account/accountWindowManager.js';
-import { toPartition } from '../../shared/types/branded.js';
+import { toPartition, type AccountIndex } from '../../shared/types/branded.js';
 import type { StoreType } from '../../shared/types/config.js';
 import { asType } from '../../shared/typeUtils.js';
+
+export type ShutdownDiagnosticsOptions = {
+  /** Snapshot taken before {@link destroyAccountWindowManager}. Never recreate the manager. */
+  accountIndices?: readonly AccountIndex[];
+};
 
 /**
  * Type guard to check if a store has cache enabled
@@ -30,7 +34,9 @@ function isCachedStore(store: Store<StoreType>): store is CachedStore<StoreType>
  * Log comprehensive cache statistics on app quit.
  * Provides visibility into cache performance for optimization.
  */
-export async function logShutdownDiagnostics(): Promise<void> {
+export async function logShutdownDiagnostics(
+  options: ShutdownDiagnosticsOptions = {}
+): Promise<void> {
   try {
     // Icon Cache Statistics
     const iconCache = getIconCache();
@@ -113,11 +119,12 @@ export async function logShutdownDiagnostics(): Promise<void> {
       `[Main]   By phase: security=${summary.byPhase.security}, critical=${summary.byPhase.critical}, ui=${summary.byPhase.ui}, deferred=${summary.byPhase.deferred}`
     );
 
-    // Per-account disk cache sizes (diagnostics only). Sparse-safe index list.
-    try {
-      const manager = getAccountWindowManager();
+    // Per-account disk cache sizes (diagnostics only). Indices are snapshotted
+    // before destroy — do not call getAccountWindowManager() here.
+    const accountIndices = options.accountIndices ?? [];
+    if (accountIndices.length > 0) {
       log.info('[Main] --- Account Disk Cache Sizes ---');
-      for (const accountIndex of manager.listAccountIndices()) {
+      for (const accountIndex of accountIndices) {
         const partition = toPartition(accountIndex);
         try {
           const sesh = session.fromPartition(partition);
@@ -129,8 +136,6 @@ export async function logShutdownDiagnostics(): Promise<void> {
           log.debug(`[Main]   Account ${accountIndex} cache size unavailable:`, err);
         }
       }
-    } catch (err: unknown) {
-      log.debug('[Main] Account window manager not available for cache size logging:', err);
     }
   } catch (error: unknown) {
     log.error('[Main] Failed to log comprehensive cache statistics:', error);

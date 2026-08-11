@@ -183,12 +183,10 @@ export function setupBadgeHandlers(window: BrowserWindow, trayIcon: Tray): Badge
               focusWindow.isFocused() === true &&
               manager.isAccountVisible(accountIndex) === true;
           } else {
-            accountUiFocused =
-              !focusWindow.isDestroyed() && focusWindow.isFocused() === true;
+            accountUiFocused = !focusWindow.isDestroyed() && focusWindow.isFocused() === true;
           }
         } catch {
-          accountUiFocused =
-            !focusWindow.isDestroyed() && focusWindow.isFocused() === true;
+          accountUiFocused = !focusWindow.isDestroyed() && focusWindow.isFocused() === true;
         }
         if (
           shouldShowUnreadDeltaNotification({

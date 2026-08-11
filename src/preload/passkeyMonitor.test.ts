@@ -7,6 +7,10 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+vi.mock('electron', () => ({
+  ipcRenderer: { send: vi.fn(), on: vi.fn(), removeListener: vi.fn() },
+}));
+
 // Capture DOMContentLoaded handler
 type EventListenerEntry = { type: string; handler: EventListener };
 let windowListeners: EventListenerEntry[] = [];
@@ -62,7 +66,8 @@ describe('passkeyMonitor', () => {
       configurable: true,
     });
 
-    await import('./passkeyMonitor');
+    const { installPasskeyMonitor } = await import('./passkeyMonitor');
+    installPasskeyMonitor();
 
     const types = windowListeners.map((l) => l.type);
     expect(types).toContain('DOMContentLoaded');
@@ -83,7 +88,8 @@ describe('passkeyMonitor', () => {
       configurable: true,
     });
 
-    await import('./passkeyMonitor');
+    const { installPasskeyMonitor } = await import('./passkeyMonitor');
+    installPasskeyMonitor();
 
     // Fire DOMContentLoaded
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
@@ -109,7 +115,8 @@ describe('passkeyMonitor', () => {
       configurable: true,
     });
 
-    await import('./passkeyMonitor');
+    const { installPasskeyMonitor } = await import('./passkeyMonitor');
+    installPasskeyMonitor();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -134,7 +141,8 @@ describe('passkeyMonitor', () => {
       configurable: true,
     });
 
-    await import('./passkeyMonitor');
+    const { installPasskeyMonitor } = await import('./passkeyMonitor');
+    installPasskeyMonitor();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -159,7 +167,8 @@ describe('passkeyMonitor', () => {
       configurable: true,
     });
 
-    await import('./passkeyMonitor');
+    const { installPasskeyMonitor } = await import('./passkeyMonitor');
+    installPasskeyMonitor();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -183,7 +192,8 @@ describe('passkeyMonitor', () => {
       configurable: true,
     });
 
-    await import('./passkeyMonitor');
+    const { installPasskeyMonitor } = await import('./passkeyMonitor');
+    installPasskeyMonitor();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -207,7 +217,8 @@ describe('passkeyMonitor', () => {
       configurable: true,
     });
 
-    await import('./passkeyMonitor');
+    const { installPasskeyMonitor } = await import('./passkeyMonitor');
+    installPasskeyMonitor();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -236,7 +247,8 @@ describe('passkeyMonitor', () => {
       configurable: true,
     });
 
-    await import('./passkeyMonitor');
+    const { installPasskeyMonitor } = await import('./passkeyMonitor');
+    installPasskeyMonitor();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -278,7 +290,8 @@ describe('passkeyMonitor', () => {
         configurable: true,
       });
 
-      await import('./passkeyMonitor');
+      const { installPasskeyMonitor } = await import('./passkeyMonitor');
+      installPasskeyMonitor();
 
       const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
       handler!.handler(new Event('DOMContentLoaded'));
@@ -295,7 +308,8 @@ describe('passkeyMonitor', () => {
       configurable: true,
     });
 
-    await import('./passkeyMonitor');
+    const { installPasskeyMonitor } = await import('./passkeyMonitor');
+    installPasskeyMonitor();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
@@ -306,7 +320,7 @@ describe('passkeyMonitor', () => {
     );
   });
 
-  it('does not report when gogchat API is unavailable', async () => {
+  it('sends a validated object over IPC when the gogchat bridge is unavailable', async () => {
     Object.defineProperty(window, 'gogchat', {
       value: undefined,
       configurable: true,
@@ -325,13 +339,19 @@ describe('passkeyMonitor', () => {
       configurable: true,
     });
 
-    await import('./passkeyMonitor');
+    const { installPasskeyMonitor } = await import('./passkeyMonitor');
+    installPasskeyMonitor();
 
     const handler = windowListeners.find((l) => l.type === 'DOMContentLoaded');
     handler!.handler(new Event('DOMContentLoaded'));
 
     await expect(navigator.credentials.create()).rejects.toThrow();
-    // Should not throw, but also not report since gogchat is unavailable
     expect(mockReportPasskeyFailure).not.toHaveBeenCalled();
+    const { ipcRenderer } = await import('electron');
+    const { IPC_CHANNELS } = await import('../shared/constants.js');
+    expect(ipcRenderer.send).toHaveBeenCalledWith(
+      IPC_CHANNELS.PASSKEY_AUTH_FAILED,
+      expect.objectContaining({ errorType: 'NotAllowedError', timestamp: expect.any(Number) })
+    );
   });
 });
