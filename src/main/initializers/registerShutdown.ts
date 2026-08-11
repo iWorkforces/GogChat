@@ -16,12 +16,69 @@ import { destroyAccountWindowManager } from '../utils/account/accountWindowManag
 import { destroyAllSingletons } from './singletonDestroyers.js';
 import { logShutdownDiagnostics } from './shutdownDiagnostics.js';
 
-async function runShutdownStage(name: string, cleanup: () => void | Promise<void>): Promise<void> {
-  try {
-    await cleanup();
-  } catch (error: unknown) {
-    log.error(`[Main] ${name} failed:`, error);
+export const SHUTDOWN_STAGE_TIMEOUT_MS = 2_000;
+export const SHUTDOWN_OVERALL_TIMEOUT_MS = 8_000;
+
+export interface ShutdownDeadlineFactory {
+  createStageSignal: () => AbortSignal;
+  createOverallSignal: () => AbortSignal;
+}
+
+export function createProductionShutdownDeadlines(): ShutdownDeadlineFactory {
+  return {
+    createStageSignal: () => AbortSignal.timeout(SHUTDOWN_STAGE_TIMEOUT_MS),
+    createOverallSignal: () => AbortSignal.timeout(SHUTDOWN_OVERALL_TIMEOUT_MS),
+  };
+}
+
+function observeLateRejection(name: string, work: Promise<void>): void {
+  void work.catch((error: unknown) => {
+    log.error(`[Main] ${name} late rejection:`, error);
+  });
+}
+
+async function awaitWithDeadline(
+  name: string,
+  work: Promise<void>,
+  signal: AbortSignal
+): Promise<void> {
+  if (signal.aborted) {
+    log.warn(`[Main] ${name} abandoned — deadline already expired`);
+    observeLateRejection(name, work);
+    return;
   }
+
+  let onAbort: (() => void) | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    onAbort = () => {
+      log.warn(`[Main] ${name} abandoned after deadline`);
+      resolve();
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+
+  try {
+    await Promise.race([work, deadline]);
+  } finally {
+    if (onAbort) {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  observeLateRejection(name, work);
+}
+
+async function runShutdownStage(
+  name: string,
+  cleanup: () => void | Promise<void>,
+  createStageSignal: () => AbortSignal
+): Promise<void> {
+  const work = Promise.resolve()
+    .then(cleanup)
+    .catch((error: unknown) => {
+      log.error(`[Main] ${name} failed:`, error);
+    });
+  await awaitWithDeadline(name, work, createStageSignal());
 }
 
 /**
@@ -35,8 +92,18 @@ async function runShutdownStage(name: string, cleanup: () => void | Promise<void
  * 5. Singleton destruction (performance monitor, deduplicator, rate limiter, icon cache)
  * 6. app.exit() to allow quit to proceed
  */
-export function registerShutdownHandler(): void {
+export function registerShutdownHandler(
+  deadlines: ShutdownDeadlineFactory = createProductionShutdownDeadlines()
+): void {
   let isShuttingDown = false;
+  let didExit = false;
+  const exitOnce = (): void => {
+    if (didExit) {
+      return;
+    }
+    didExit = true;
+    app.exit();
+  };
 
   app.on('before-quit', (event) => {
     event.preventDefault(); // Prevent immediate quit until cleanup is done
@@ -46,17 +113,55 @@ export function registerShutdownHandler(): void {
     void (async () => {
       log.info('[Main] ========== Application Shutdown ==========');
 
+      const hangStage = process.env['GOGCHAT_TEST_HANG_SHUTDOWN'];
+      const hang = (): Promise<void> => new Promise(() => undefined);
+
       log.info('[Main] Cleaning up feature resources...');
-      await runShutdownStage('Feature cleanup', () => cleanupAll(getSharedFeatureContext()));
-      await runShutdownStage('Global resource cleanup', () =>
-        getCleanupManager().cleanup({ includeGlobalResources: true, logDetails: true })
+      await runShutdownStage(
+        'Feature cleanup',
+        hangStage === 'feature' ? hang : () => cleanupAll(getSharedFeatureContext()),
+        deadlines.createStageSignal
       );
-      await runShutdownStage('Account window manager cleanup', destroyAccountWindowManager);
-      await runShutdownStage('Shutdown diagnostics', logShutdownDiagnostics);
-      await runShutdownStage('Singleton destruction', destroyAllSingletons);
+      await runShutdownStage(
+        'Global resource cleanup',
+        hangStage === 'global'
+          ? hang
+          : () => getCleanupManager().cleanup({ includeGlobalResources: true, logDetails: true }),
+        deadlines.createStageSignal
+      );
+      await runShutdownStage(
+        'Account window manager cleanup',
+        hangStage === 'accounts' ? hang : destroyAccountWindowManager,
+        deadlines.createStageSignal
+      );
+      await runShutdownStage(
+        'Shutdown diagnostics',
+        hangStage === 'diagnostics' ? hang : logShutdownDiagnostics,
+        deadlines.createStageSignal
+      );
+      await runShutdownStage(
+        'Singleton destruction',
+        hangStage === 'singletons' ? hang : destroyAllSingletons,
+        deadlines.createStageSignal
+      );
 
       log.info('[Main] =====================================================');
-    })().finally(() => app.exit());
+    })()
+      .catch((error: unknown) => {
+        log.error('[Main] Shutdown sequence failed:', error);
+      })
+      .finally(exitOnce);
+
+    const overall = deadlines.createOverallSignal();
+    const onOverall = (): void => {
+      log.warn('[Main] Overall shutdown abandoned after deadline');
+      exitOnce();
+    };
+    if (overall.aborted) {
+      onOverall();
+    } else {
+      overall.addEventListener('abort', onOverall, { once: true });
+    }
   });
 
   app.on('window-all-closed', () => {

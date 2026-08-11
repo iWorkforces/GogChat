@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type BeforeQuitEvent = { preventDefault: () => void };
 type BeforeQuitListener = (event: BeforeQuitEvent) => void;
@@ -49,7 +49,12 @@ vi.mock('./shutdownDiagnostics.js', () => ({
   logShutdownDiagnostics: mocks.logShutdownDiagnostics,
 }));
 
-import { registerShutdownHandler } from './registerShutdown.js';
+import {
+  registerShutdownHandler,
+  SHUTDOWN_OVERALL_TIMEOUT_MS,
+  SHUTDOWN_STAGE_TIMEOUT_MS,
+  type ShutdownDeadlineFactory,
+} from './registerShutdown.js';
 
 function getBeforeQuitListener(): BeforeQuitListener {
   const listener = mocks.beforeQuitListeners[0];
@@ -89,8 +94,13 @@ function recordShutdownOrder(order: string[]): void {
 }
 
 describe('registerShutdownHandler', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
     mocks.beforeQuitListeners.length = 0;
     mocks.windowAllClosedListeners.length = 0;
     mocks.cleanupAll.mockResolvedValue(undefined);
@@ -169,6 +179,85 @@ describe('registerShutdownHandler', () => {
     expect(mocks.logShutdownDiagnostics).toHaveBeenCalledOnce();
     expect(mocks.destroyAllSingletons).toHaveBeenCalledOnce();
     expect(mocks.app.exit).toHaveBeenCalledOnce();
+  });
+
+  function timeoutSignal(ms: number): AbortSignal {
+    const controller = new AbortController();
+    setTimeout(() => {
+      controller.abort();
+    }, ms);
+    return controller.signal;
+  }
+
+  const fakeDeadlines: ShutdownDeadlineFactory = {
+    createStageSignal: () => timeoutSignal(SHUTDOWN_STAGE_TIMEOUT_MS),
+    createOverallSignal: () => timeoutSignal(SHUTDOWN_OVERALL_TIMEOUT_MS),
+  };
+
+  it('abandons a pending stage after 2s and continues later stages in order', async () => {
+    vi.useFakeTimers();
+    const order: string[] = [];
+    recordShutdownOrder(order);
+    mocks.cleanupAll.mockImplementation(() => new Promise(() => undefined));
+
+    registerShutdownHandler(fakeDeadlines);
+    getBeforeQuitListener()({ preventDefault: vi.fn() });
+
+    await vi.advanceTimersByTimeAsync(SHUTDOWN_STAGE_TIMEOUT_MS);
+    await Promise.resolve();
+
+    expect(order).toEqual(['global', 'accounts', 'diagnostics', 'singletons', 'exit']);
+    expect(mocks.app.exit).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it('observes a late rejection after the stage deadline without unhandled rejection', async () => {
+    vi.useFakeTimers();
+    const late = Promise.withResolvers<void>();
+    mocks.cleanupAll.mockReturnValue(late.promise);
+
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+
+    registerShutdownHandler(fakeDeadlines);
+    getBeforeQuitListener()({ preventDefault: vi.fn() });
+    await vi.advanceTimersByTimeAsync(SHUTDOWN_STAGE_TIMEOUT_MS);
+    await Promise.resolve();
+
+    late.reject(new Error('feature cleanup late'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    process.off('unhandledRejection', onUnhandled);
+    expect(unhandled).toEqual([]);
+    expect(mocks.app.exit).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it('exits once when the overall 8s ceiling fires while a stage is still pending', async () => {
+    vi.useFakeTimers();
+    mocks.cleanupAll.mockImplementation(() => new Promise(() => undefined));
+    mocks.cleanupResources.mockImplementation(() => new Promise(() => undefined));
+    mocks.destroyAccountWindowManager.mockImplementation(() => new Promise(() => undefined));
+    mocks.logShutdownDiagnostics.mockImplementation(() => new Promise(() => undefined));
+    mocks.destroyAllSingletons.mockImplementation(() => new Promise(() => undefined));
+
+    const deadlines: ShutdownDeadlineFactory = {
+      createStageSignal: () => timeoutSignal(60_000),
+      createOverallSignal: () => timeoutSignal(SHUTDOWN_OVERALL_TIMEOUT_MS),
+    };
+
+    registerShutdownHandler(deadlines);
+    getBeforeQuitListener()({ preventDefault: vi.fn() });
+
+    await vi.advanceTimersByTimeAsync(SHUTDOWN_OVERALL_TIMEOUT_MS);
+    await Promise.resolve();
+
+    expect(mocks.app.exit).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 
   it('routes window-all-closed through orderly shutdown', async () => {
