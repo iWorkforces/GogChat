@@ -1,12 +1,11 @@
 # GogChat Agent Guide
 
 **Generated:** 2026-08-11
-**Commit:** 7db000c
-**Branch:** develop
+**Commit:** f56a27c
+**Branch:** stability-performance-remediation
 **Version:** 3.20.0
-p
 
-## Project shapep
+## Project shape
 
 GogChat is a macOS-first Electron desktop wrapper for Google Chat (`https://mail.google.com/chat/u/0`). It is TypeScript-first, packages dual macOS arches (Apple Silicon `arm64` and Intel `x64`) as **separate** DMGs, and is built with a dual Rsbuild pipeline: ESM main process plus CJS preload because Electron sandboxed preloads cannot load ESM. Fixed bundle id / notarize identity: `com.ocworkforces.gogchat` (`src/shared/appIdentity.ts`, `scripts/app-identity.cjs`, `electron-builder.yml`).
 
