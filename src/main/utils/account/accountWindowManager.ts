@@ -42,10 +42,7 @@ import {
   readAccountWindowState as _getAccountWindowState,
 } from './accountWindowsStore.js';
 import { createTrackedTimeout } from '../lifecycle/resourceCleanup.js';
-import {
-  getAccountViewManager,
-  resetAccountViewManagerSingleton,
-} from './accountViewManager.js';
+import { getAccountViewManager, resetAccountViewManagerSingleton } from './accountViewManager.js';
 import {
   notifyAccountWebContentsCreated,
   notifyAccountWebContentsDestroyed,
@@ -411,21 +408,47 @@ export class AccountWindowManager implements IAccountWindowManager {
       isDehydrated: (i) => this.isDehydrated(i),
       hydrate: (i) => this.hydrateAccount(i),
     };
-    const window = routeAccountWindow(
+    return routeAccountWindow(
       this.registry,
       this.windowFactory,
       url,
       accountIndex,
-      hydrationHook
+      hydrationHook,
+      (created, createdIndex) => {
+        this.registerNewlyCreatedWindow(created, createdIndex);
+      }
     );
-    if (window && !window.isDestroyed() && window.webContents && !window.webContents.isDestroyed()) {
-      notifyAccountWebContentsCreated({
-        accountIndex,
-        webContents: window.webContents,
-        backend: 'browser-window',
-      });
+  }
+
+  /**
+   * Factory-created windows only. Register, attach activity/throttle listeners,
+   * and emit exactly one WebContents-created notification. On failure, detach
+   * partial state so the router can destroy the window.
+   */
+  private registerNewlyCreatedWindow(window: BrowserWindow, accountIndex: AccountIndex): void {
+    try {
+      this.registerWindow(window, accountIndex);
+      if (
+        window &&
+        !window.isDestroyed() &&
+        window.webContents &&
+        !window.webContents.isDestroyed()
+      ) {
+        notifyAccountWebContentsCreated({
+          accountIndex,
+          webContents: window.webContents,
+          backend: 'browser-window',
+        });
+      }
+    } catch (error: unknown) {
+      this.detachActivityListeners(window);
+      this.cancelDehydrate(accountIndex);
+      if (this.registry.getAccountWindow(accountIndex) === window) {
+        this.registry.unregisterAccount(accountIndex);
+      }
+      notifyAccountWebContentsDestroyed(accountIndex);
+      throw error;
     }
-    return window;
   }
 
   // ─── Bootstrap window tracking ───────────────────────────────────────────

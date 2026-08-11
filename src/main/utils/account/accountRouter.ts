@@ -31,6 +31,13 @@ export interface HydrationHook {
 }
 
 /**
+ * Required on the factory-created branch. The manager owns registration,
+ * activity/throttle listeners, and the single WebContents-created notify.
+ * Must not be invoked for existing or hydrated windows.
+ */
+export type RegisterNewAccountWindow = (window: BrowserWindow, accountIndex: AccountIndex) => void;
+
+/**
  * Route a createAccountWindow request: reuse existing, skip if mid-auth, or create new.
  *
  * @param registry - The window registry to query/update
@@ -47,7 +54,8 @@ export function routeAccountWindow(
   windowFactory: WindowFactory | undefined,
   url: string,
   accountIndex: AccountIndex,
-  hydrationHook?: HydrationHook
+  hydrationHook?: HydrationHook,
+  onNewWindow?: RegisterNewAccountWindow
 ): BrowserWindow {
   // Auto-hydrate path (T12/M3): if the account is currently dehydrated, the
   // hook recreates the window against the same persist:account-N partition.
@@ -91,10 +99,23 @@ export function routeAccountWindow(
   if (!windowFactory) {
     throw new Error('[AccountRouter] No WindowFactory injected — cannot create window');
   }
+  if (!onNewWindow) {
+    throw new Error(
+      '[AccountRouter] New-window registration callback is required for factory-created windows'
+    );
+  }
+
   const partition = toPartition(accountIndex);
   const window = windowFactory.createWindow(url, partition);
 
-  registry.registerWindow(window, accountIndex);
+  try {
+    onNewWindow(window, accountIndex);
+  } catch (error: unknown) {
+    if (!window.isDestroyed()) {
+      window.destroy();
+    }
+    throw error;
+  }
 
   log.info(`[AccountRouter] Created account window ${accountIndex} with partition: ${partition}`);
 

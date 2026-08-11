@@ -157,6 +157,7 @@ const h = vi.hoisted(() => {
     mockStore,
     bootstrapSet,
     trackedTimers,
+    recordActivity: vi.fn(),
   };
 });
 
@@ -229,7 +230,7 @@ vi.mock('./accountSessionMaintenance.js', () => ({
   startSessionMaintenance: vi.fn(),
   stopSessionMaintenance: vi.fn(),
   getAccountActivityTracker: vi.fn(() => ({
-    recordActivity: vi.fn(),
+    recordActivity: h.recordActivity,
     isIdle: vi.fn(() => false),
     forget: vi.fn(),
     reset: vi.fn(),
@@ -292,10 +293,7 @@ import {
 import { asAccountIndex, asWebContentsId, toPartition } from '../../../shared/types/branded';
 import type { WindowFactory } from '../../../shared/types/window';
 import { startSessionMaintenance, stopSessionMaintenance } from './accountSessionMaintenance.js';
-import {
-  getAccountViewManager,
-  resetAccountViewManagerSingleton,
-} from './accountViewManager.js';
+import { getAccountViewManager, resetAccountViewManagerSingleton } from './accountViewManager.js';
 import {
   clearAllBootstrap,
   markAsBootstrap as trackerMark,
@@ -647,6 +645,103 @@ describe('AccountWindowManager — createAccountWindow', () => {
     expect(factory.createWindow.mock.calls.length).toBe(callsBeforeDehydrate + 1);
     expect(w2).not.toBe(w1);
     expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+  });
+
+  it('starts account 1 throttled and wires activity, dehydrate, and throttle listeners once', async () => {
+    const hooks = await import('./accountWebContentsHooks.js');
+    hooks.clearAccountWebContentsHooksForTests();
+    const created = vi.fn();
+    hooks.onAccountWebContentsCreated(created);
+
+    const factory = makeFactory();
+    const m = new AccountWindowManager(factory);
+    h.recordActivity.mockClear();
+    const w = m.createAccountWindow('https://chat/', asAccountIndex(1));
+    const wMock = w as unknown as MockBWInstance;
+    const wc = wMock.webContents;
+
+    expect(wc.setBackgroundThrottling).toHaveBeenLastCalledWith(true);
+    expect(created).toHaveBeenCalledTimes(1);
+    expect(h.recordActivity).toHaveBeenCalled();
+
+    const activityCallsAfterCreate = h.recordActivity.mock.calls.length;
+    const focusCount = wMock.listenerCount('focus');
+    const blurCount = wMock.listenerCount('blur');
+
+    wMock.emit('focus');
+    expect(wc.setBackgroundThrottling).toHaveBeenLastCalledWith(false);
+    expect(h.recordActivity.mock.calls.length).toBe(activityCallsAfterCreate + 1);
+
+    h.trackedTimers.length = 0;
+    wMock.emit('blur');
+    expect(wc.setBackgroundThrottling).toHaveBeenLastCalledWith(true);
+    expect(h.recordActivity.mock.calls.length).toBe(activityCallsAfterCreate + 2);
+    expect(h.trackedTimers.filter((t) => t.name === 'dehydrate-account-1')).toHaveLength(1);
+
+    wMock.emit('focus');
+    wMock.emit('blur');
+    expect(h.trackedTimers.filter((t) => t.name === 'dehydrate-account-1')).toHaveLength(2);
+
+    wMock.emit('show');
+    expect(h.recordActivity.mock.calls.length).toBe(activityCallsAfterCreate + 5);
+
+    const reused = m.createAccountWindow('https://chat/again', asAccountIndex(1));
+    expect(reused).toBe(w);
+    expect(created).toHaveBeenCalledTimes(1);
+    expect(wMock.listenerCount('focus')).toBe(focusCount);
+    expect(wMock.listenerCount('blur')).toBe(blurCount);
+
+    hooks.clearAccountWebContentsHooksForTests();
+  });
+
+  it('does not increment hook or listener counts when hydrating through createAccountWindow', async () => {
+    const hooks = await import('./accountWebContentsHooks.js');
+    hooks.clearAccountWebContentsHooksForTests();
+    const created = vi.fn();
+    hooks.onAccountWebContentsCreated(created);
+
+    const factory = makeFactory();
+    const m = new AccountWindowManager(factory);
+    const first = m.createAccountWindow('https://first/', asAccountIndex(1));
+    expect(created).toHaveBeenCalledTimes(1);
+    m.dehydrateAccount(asAccountIndex(1));
+
+    const restored = m.createAccountWindow('https://second/', asAccountIndex(1));
+    expect(restored).not.toBe(first);
+    expect(created).toHaveBeenCalledTimes(2);
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+
+    hooks.clearAccountWebContentsHooksForTests();
+  });
+
+  it('rolls back a failed new-window callback: no live window, registry, hook, listener, or timer', async () => {
+    const hooks = await import('./accountWebContentsHooks.js');
+    hooks.clearAccountWebContentsHooksForTests();
+    const created = vi.fn();
+    hooks.onAccountWebContentsCreated(created);
+
+    const factory = makeFactory();
+    factory.createWindow.mockImplementation((url: string) => {
+      const w = new h.MockBW({ url });
+      w.webContents.setBackgroundThrottling.mockImplementation(() => {
+        throw new Error('throttle failed');
+      });
+      void w.loadURL(url);
+      return w as unknown as Electron.BrowserWindow;
+    });
+    const m = new AccountWindowManager(factory);
+
+    expect(() => m.createAccountWindow('https://boom/', asAccountIndex(1))).toThrow(
+      'throttle failed'
+    );
+
+    expect(m.getAccountWindow(asAccountIndex(1))).toBeNull();
+    expect(m.hasAccount(asAccountIndex(1))).toBe(false);
+    expect(created).not.toHaveBeenCalled();
+    expect(h.trackedTimers.filter((t) => t.name?.startsWith('dehydrate-account-'))).toHaveLength(0);
+    expect(h.createdWindows.every((w) => w.destroyed)).toBe(true);
+
+    hooks.clearAccountWebContentsHooksForTests();
   });
 });
 
