@@ -1155,3 +1155,209 @@ describe('AccountViewManager — host window lifecycle integration', () => {
     expect(host.show).toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Todo 13 — WCV resource-state / throttle transition matrix
+// ---------------------------------------------------------------------------
+
+interface ResourceCell {
+  visible: boolean;
+  dehydrated: boolean;
+  throttling: boolean;
+}
+
+function expectResourceCell(
+  manager: AccountViewManager,
+  idx: number,
+  expected: ResourceCell
+): void {
+  const view = viewOf(manager, idx);
+  expect(manager.isAccountVisible(asAccountIndex(idx)), `account ${idx} visibility`).toBe(
+    expected.visible
+  );
+  expect(manager.isDehydrated(asAccountIndex(idx)), `account ${idx} dehydrated`).toBe(
+    expected.dehydrated
+  );
+  expect(view.webContents.throttling, `account ${idx} setBackgroundThrottling`).toBe(
+    expected.throttling
+  );
+  expect(view.webContents.setBackgroundThrottling).toHaveBeenLastCalledWith(expected.throttling);
+}
+
+const UNTHROTTLED_VISIBLE: ResourceCell = {
+  visible: true,
+  dehydrated: false,
+  throttling: false,
+};
+const ACCOUNT0_HIDDEN_LIVE: ResourceCell = {
+  visible: false,
+  dehydrated: false,
+  throttling: false,
+};
+const SECONDARY_HIDDEN_LIVE: ResourceCell = {
+  visible: false,
+  dehydrated: false,
+  throttling: true,
+};
+const SECONDARY_PARKED: ResourceCell = {
+  visible: false,
+  dehydrated: true,
+  throttling: true,
+};
+
+describe('AccountViewManager — resource-state throttle matrix (Todo 13)', () => {
+  it('walks 0 -> 1 -> 2 -> 0 and asserts state, visibility, and exact throttle', () => {
+    const m = new AccountViewManager();
+
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    expectResourceCell(m, 0, UNTHROTTLED_VISIBLE);
+
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    expectResourceCell(m, 0, ACCOUNT0_HIDDEN_LIVE);
+    expectResourceCell(m, 1, UNTHROTTLED_VISIBLE);
+
+    m.createAccountWindow('https://2/', asAccountIndex(2));
+    expectResourceCell(m, 0, ACCOUNT0_HIDDEN_LIVE);
+    expectResourceCell(m, 1, SECONDARY_HIDDEN_LIVE);
+    expectResourceCell(m, 2, UNTHROTTLED_VISIBLE);
+
+    m.focusAccount(asAccountIndex(0));
+    expectResourceCell(m, 0, UNTHROTTLED_VISIBLE);
+    expectResourceCell(m, 1, SECONDARY_HIDDEN_LIVE);
+    expectResourceCell(m, 2, SECONDARY_HIDDEN_LIVE);
+
+    // Host WebContents is not an account renderer — never throttle it.
+    expect(lastWindow().webContents.setBackgroundThrottling).not.toHaveBeenCalled();
+  });
+
+  it('switching away from account 1/2 sets true; returning sets false; account 0 stays false', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    m.createAccountWindow('https://2/', asAccountIndex(2));
+
+    m.focusAccount(asAccountIndex(1));
+    expectResourceCell(m, 0, ACCOUNT0_HIDDEN_LIVE);
+    expectResourceCell(m, 1, UNTHROTTLED_VISIBLE);
+    expectResourceCell(m, 2, SECONDARY_HIDDEN_LIVE);
+
+    m.focusAccount(asAccountIndex(2));
+    expectResourceCell(m, 0, ACCOUNT0_HIDDEN_LIVE);
+    expectResourceCell(m, 1, SECONDARY_HIDDEN_LIVE);
+    expectResourceCell(m, 2, UNTHROTTLED_VISIBLE);
+
+    m.focusAccount(asAccountIndex(0));
+    expectResourceCell(m, 0, UNTHROTTLED_VISIBLE);
+    expectResourceCell(m, 1, SECONDARY_HIDDEN_LIVE);
+    expectResourceCell(m, 2, SECONDARY_HIDDEN_LIVE);
+  });
+
+  it('create of a secondary account unthrottles it and leaves account 0 unthrottled', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+    expect(m.isDehydrated(asAccountIndex(0))).toBe(false);
+    expectResourceCell(m, 0, ACCOUNT0_HIDDEN_LIVE);
+    expectResourceCell(m, 1, UNTHROTTLED_VISIBLE);
+  });
+
+  it('parking the frontmost secondary promotes account 0 and throttles the parked view', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    m.createAccountWindow('https://2/', asAccountIndex(2));
+    expect(m.isAccountVisible(asAccountIndex(2))).toBe(true);
+
+    m.dehydrateAccount(asAccountIndex(2));
+
+    expectResourceCell(m, 0, UNTHROTTLED_VISIBLE);
+    expectResourceCell(m, 1, SECONDARY_HIDDEN_LIVE);
+    expectResourceCell(m, 2, SECONDARY_PARKED);
+  });
+
+  it('parking a hidden-live secondary does not mark it visible or dehydrate account 0', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    m.focusAccount(asAccountIndex(0));
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+
+    m.dehydrateAccount(asAccountIndex(1));
+
+    expectResourceCell(m, 0, UNTHROTTLED_VISIBLE);
+    expectResourceCell(m, 1, SECONDARY_PARKED);
+    expect(m.isAccountVisible(asAccountIndex(0))).toBe(true);
+  });
+
+  it('hydrateAccount and focusAccount restore a parked secondary as visible + unthrottled', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    m.dehydrateAccount(asAccountIndex(1));
+    expectResourceCell(m, 1, SECONDARY_PARKED);
+
+    expect(m.hydrateAccount(asAccountIndex(1))).toBe(lastWindow());
+    expectResourceCell(m, 0, ACCOUNT0_HIDDEN_LIVE);
+    expectResourceCell(m, 1, UNTHROTTLED_VISIBLE);
+
+    m.dehydrateAccount(asAccountIndex(1));
+    m.focusAccount(asAccountIndex(1));
+    expectResourceCell(m, 0, ACCOUNT0_HIDDEN_LIVE);
+    expectResourceCell(m, 1, UNTHROTTLED_VISIBLE);
+  });
+
+  it('unregister of the visible secondary promotes account 0 and keeps it unthrottled', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    m.createAccountWindow('https://2/', asAccountIndex(2));
+    expect(m.isAccountVisible(asAccountIndex(2))).toBe(true);
+
+    m.unregisterAccount(asAccountIndex(2));
+
+    expect(m.hasAccount(asAccountIndex(2))).toBe(false);
+    expectResourceCell(m, 0, UNTHROTTLED_VISIBLE);
+    expectResourceCell(m, 1, SECONDARY_HIDDEN_LIVE);
+    expect(lastWindow().webContents.setBackgroundThrottling).not.toHaveBeenCalled();
+  });
+
+  it('unregister of a hidden-live secondary leaves the visible account in place', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    m.focusAccount(asAccountIndex(0));
+
+    m.unregisterAccount(asAccountIndex(1));
+
+    expect(m.hasAccount(asAccountIndex(1))).toBe(false);
+    expectResourceCell(m, 0, UNTHROTTLED_VISIBLE);
+  });
+
+  it('refuses to park the last visible account when no fallback exists', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+
+    m.dehydrateAccount(asAccountIndex(1));
+
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+    expectResourceCell(m, 1, UNTHROTTLED_VISIBLE);
+  });
+
+  it('does not park account 0 or a bootstrap secondary, and never marks hidden-live dehydrated', () => {
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://0/', asAccountIndex(0));
+    m.createAccountWindow('https://1/', asAccountIndex(1));
+    m.markAsBootstrap(asAccountIndex(1));
+
+    m.dehydrateAccount(asAccountIndex(0));
+    m.dehydrateAccount(asAccountIndex(1));
+    m.focusAccount(asAccountIndex(0));
+
+    expect(m.isDehydrated(asAccountIndex(0))).toBe(false);
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+    expectResourceCell(m, 0, UNTHROTTLED_VISIBLE);
+    expectResourceCell(m, 1, SECONDARY_HIDDEN_LIVE);
+  });
+});

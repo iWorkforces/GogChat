@@ -16,7 +16,7 @@ This directory owns multi-account window/view backends and per-account session p
 - `index.ts` is a legacy barrel and does **not** re-export navigation, webPreferences, hooks, lifecycle helpers, or the windows store — import those modules by path.
 - Session maintenance (`accountSessionMaintenance.ts`) clears code caches on idle, HTTP cache / service-worker timers, and pressure-dehydrates non-0 accounts; never account-0.
 - `listAccountIndices()` is sparse-safe (sorted, includes live + dehydrated-parked). `hasAccount()` is true for live **and** dehydrated-parked. `isAccountVisible()` is frontmost UI only. Do not loop `0..getAccountCount()-1` for live accounts (`closeToTray`, shutdown diagnostics use `listAccountIndices`).
-- BrowserWindow `dehydrateAccount` / `hydrateAccount` must notify hooks (destroy then create) so multi-account feature guards reinstall after restore. WCV `switchToAccount` / `focusAccount` unthrottle the frontmost view; parking the frontmost promotes a fallback (prefer account-0).
+- BrowserWindow `dehydrateAccount` / `hydrateAccount` must notify hooks (destroy then create) so multi-account feature guards reinstall after restore. WCV create/switch/park/hydrate/unregister go through one private helper that sets `resourceState` and reapplies throttle on child views only (never the host WebContents): account 0 unthrottled; visible secondary unthrottled; hidden-live and dehydrated-parked secondary throttled. Parking the frontmost promotes a fallback (prefer account-0) and is refused when no fallback exists.
 - `destroyAccountWindowManager()` runs `destroyAll` once, then `resetAccountViewManagerSingleton()` so WCV is not double-destroyed and the next `getAccountViewManager()` is fresh.
 - Background throttling: account-0 stays unthrottled for badge/notification reliability; accounts 1+ enable Chromium background throttling (window factory + focus/blur toggles). Preserve that split when changing activity listeners.
 - Do **not** change the default backend or WebContentsView hide/throttle/destroy semantics without controlled multi-account evidence and an explicit policy decision.
@@ -48,10 +48,10 @@ This directory owns multi-account window/view backends and per-account session p
 - WebContentsView uses a **three-state** model: `visible` | `hidden-live` | `dehydrated-parked`.
   - Switch-away → `hidden-live` (`isDehydrated === false`).
   - `dehydrateAccount` → `dehydrated-parked` (hide + throttle; session preserved).
-  - `visible` ⇒ unthrottled; park sets throttle true; `focusAccount` / `hydrateAccount` clear throttle via switch.
+  - One helper reapplies: account 0 always unthrottled; visible secondary unthrottled; hidden-live and dehydrated-parked secondary throttled.
   - `isDehydrated` is **only** true for `dehydrated-parked`, never for mere switch-away.
   - Account 0 and bootstrap accounts are never parked on WCV.
-  - Parking a frontmost non-0 account promotes a visible fallback (prefer account-0).
+  - Parking a frontmost non-0 account promotes a visible fallback (prefer account-0). Refuse to park the last visible account when no fallback exists.
 - Memory-pressure dehydration **never** targets account-0 (BW pressure path aligned with AGENTS).
 - Keep backend-specific behavior behind the shared manager contract whenever possible.
 - Router hydration hooks must hydrate only when `isDehydrated===true`, not when merely non-visible.
