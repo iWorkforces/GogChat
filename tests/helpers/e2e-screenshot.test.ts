@@ -98,6 +98,10 @@ describe('e2e screenshot and auth skip helpers', () => {
     expect(multiAccount).not.toContain('toBe(600)');
     expect(performance).not.toMatch(/waitForLoadState\(\s*'networkidle'\s*\)/);
     expect(performance).toContain('waitForLoadStateBounded');
+    expect(performance).not.toContain('toBeLessThan(10)');
+    expect(performance).not.toContain('toBeLessThan(5000)');
+    expect(performance).toContain('PERFORMANCE_THRESHOLDS.IPC_AVERAGE');
+    expect(performance).toContain('PERFORMANCE_THRESHOLDS.DOM_NODES');
   });
 });
 
