@@ -96,7 +96,7 @@ export const test = base.extend<ElectronTestFixtures>({
       try {
         await app.firstWindow({ timeout: 45_000 });
       } catch (error: unknown) {
-        await app.close().catch(() => undefined);
+        await closeElectronApp(app);
         throw new Error(
           `Electron fixture: firstWindow timed out or failed — BrowserWindow never appeared: ${formatUnknownError(error)}`
         );
@@ -137,7 +137,34 @@ type ElectronChildProcess = {
   exitCode: number | null;
   killed: boolean;
   once: (event: 'exit', listener: () => void) => void;
+  kill?: (signal?: string) => boolean | void;
 };
+
+/** Playwright `close()` can hang after Chat load. Teardown must not wait forever. */
+export const ELECTRON_CLOSE_TIMEOUT_MS = 3_000;
+export const ELECTRON_KILL_WAIT_MS = 1_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function isChildGone(child: ElectronChildProcess): boolean {
+  try {
+    return child.exitCode !== null || child.killed;
+  } catch {
+    return true;
+  }
+}
+
+function killElectronChild(child: ElectronChildProcess): void {
+  try {
+    child.kill?.('SIGKILL');
+  } catch {
+    // already gone
+  }
+}
 
 /** Playwright's `app.process()` throws `_object` after the child already quit. */
 export function peekElectronChildProcess(app: {
@@ -185,22 +212,20 @@ export function wrapEvaluateWithGcRetry<
   return app;
 }
 
-export async function closeElectronApp(app: {
-  close: () => Promise<unknown>;
-  process?: () => ElectronChildProcess;
-}): Promise<void> {
+export async function closeElectronApp(
+  app: {
+    close: () => Promise<unknown>;
+    process?: () => ElectronChildProcess;
+  },
+  timeoutMs = ELECTRON_CLOSE_TIMEOUT_MS
+): Promise<void> {
   const child = peekElectronChildProcess(app);
-  await app.close().catch(() => undefined);
-  if (!child) {
+  await Promise.race([app.close().catch(() => undefined), sleep(timeoutMs)]);
+  if (!child || isChildGone(child)) {
     return;
   }
-  let alreadyGone = false;
-  try {
-    alreadyGone = child.exitCode !== null || child.killed;
-  } catch {
-    alreadyGone = true;
-  }
-  if (alreadyGone) {
+  killElectronChild(child);
+  if (isChildGone(child)) {
     return;
   }
   try {
@@ -210,9 +235,7 @@ export async function closeElectronApp(app: {
           resolve();
         });
       }),
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, 1000);
-      }),
+      sleep(ELECTRON_KILL_WAIT_MS),
     ]);
   } catch {
     // Bounded-shutdown already exited; the Playwright handle can die mid-wait.

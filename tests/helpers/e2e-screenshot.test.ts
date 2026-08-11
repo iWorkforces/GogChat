@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   E2E_SCREENSHOT_TIMEOUT_MS,
+  ELECTRON_CLOSE_TIMEOUT_MS,
   closeElectronApp,
   isCiScreenshotDisabled,
   isEvaluateGarbageCollectedError,
@@ -165,6 +166,33 @@ describe('Electron fixture evaluate safety', () => {
     expect(peekElectronChildProcess(app)).toBeUndefined();
     await expect(closeElectronApp(app)).resolves.toBeUndefined();
     expect(app.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not hang teardown when app.close() never settles', async () => {
+    expect(ELECTRON_CLOSE_TIMEOUT_MS).toBeLessThanOrEqual(5_000);
+    let exitListener: (() => void) | undefined;
+    const child = {
+      exitCode: null as number | null,
+      killed: false,
+      once: vi.fn((event: string, listener: () => void) => {
+        if (event === 'exit') {
+          exitListener = listener;
+        }
+      }),
+      kill: vi.fn(() => {
+        child.killed = true;
+        exitListener?.();
+        return true;
+      }),
+    };
+    const app = {
+      process: () => child,
+      close: () => new Promise<void>(() => undefined),
+    };
+    const started = Date.now();
+    await expect(closeElectronApp(app, 40)).resolves.toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(child.kill).toHaveBeenCalledWith('SIGKILL');
   });
 
   it('retries evaluate once after Playwright GC', async () => {
