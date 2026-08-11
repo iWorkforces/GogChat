@@ -14,7 +14,6 @@ import { getSharedFeatureContext } from '../utils/lifecycle/featureContextStore.
 import { getCleanupManager } from '../utils/lifecycle/resourceCleanup.js';
 import { destroyAccountWindowManager } from '../utils/account/accountWindowManager.js';
 import { destroyAllSingletons } from './singletonDestroyers.js';
-import { logShutdownDiagnostics } from './shutdownDiagnostics.js';
 
 export const SHUTDOWN_STAGE_TIMEOUT_MS = 2_000;
 export const SHUTDOWN_OVERALL_TIMEOUT_MS = 8_000;
@@ -136,7 +135,13 @@ export function registerShutdownHandler(
       );
       await runShutdownStage(
         'Shutdown diagnostics',
-        hangStage === 'diagnostics' ? hang : logShutdownDiagnostics,
+        hangStage === 'diagnostics'
+          ? hang
+          : async () => {
+              // Keep diagnostic log strings out of lib/main/index.js.
+              const { logShutdownDiagnostics } = await import('./shutdownDiagnostics.js');
+              await logShutdownDiagnostics();
+            },
         deadlines.createStageSignal
       );
       await runShutdownStage(

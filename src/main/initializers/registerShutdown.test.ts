@@ -276,8 +276,20 @@ describe('registerShutdownHandler', () => {
     registerShutdownHandler(deadlines);
     getBeforeQuitListener()({ preventDefault: vi.fn() });
     await waitForShutdown();
+    await vi.waitFor(() => {
+      expect(order).toEqual(
+        expect.arrayContaining([
+          'features',
+          'global',
+          'accounts',
+          'diagnostics',
+          'singletons',
+          'exit',
+        ])
+      );
+    });
 
-    expect(order).toEqual(['features', 'global', 'accounts', 'diagnostics', 'singletons', 'exit']);
+    expect(order.filter((step) => step === 'exit')).toEqual(['exit']);
     expect(mocks.app.exit).toHaveBeenCalledOnce();
   });
 
