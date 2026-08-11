@@ -1,3 +1,5 @@
+import { webFrame } from 'electron';
+
 /**
  * Disable WebAuthn/U2F to prevent authentication stuck issues
  *
@@ -12,9 +14,28 @@
  * Reference: https://github.com/ankurk91/google-chat-electron/issues/16
  */
 
-// Delete navigator.credentials to disable WebAuthn/U2F
-// This must run before Google's auth scripts execute
-if (typeof navigator !== 'undefined') {
+const PAGE_WORLD_DISABLE_WEBAUTHN = `(() => {
+  try {
+    Object.defineProperty(navigator, 'credentials', {
+      get: () => undefined,
+      configurable: true,
+    });
+  } catch (error) {
+    try {
+      Object.defineProperty(Navigator.prototype, 'credentials', {
+        get: () => undefined,
+        configurable: true,
+      });
+    } catch (_) {
+      /* page-world override failed; isolated-world attempt still applies */
+    }
+  }
+})();`;
+
+function disableIsolatedNavigator(): void {
+  if (typeof navigator === 'undefined') {
+    return;
+  }
   try {
     Object.defineProperty(navigator, 'credentials', {
       value: undefined,
@@ -24,5 +45,14 @@ if (typeof navigator !== 'undefined') {
     console.log('[Preload] WebAuthn/U2F disabled via property override');
   } catch (e: unknown) {
     console.warn('[Preload] Failed to disable WebAuthn/U2F:', e);
+  }
+}
+
+// Isolated-world navigator is not the page navigator under contextIsolation.
+// Inject the same override into page world so Google scripts observe it.
+export function installDisableWebAuthn(): void {
+  disableIsolatedNavigator();
+  if (webFrame && typeof webFrame.executeJavaScript === 'function') {
+    void webFrame.executeJavaScript(PAGE_WORLD_DISABLE_WEBAUTHN);
   }
 }

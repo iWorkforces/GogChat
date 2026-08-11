@@ -15,10 +15,11 @@ The preload is sandboxed and built as CommonJS because Electron sandboxed preloa
 
 ## Current entry shape
 
-`src/preload/index.ts` constructs `window.gogchat`, then lists static side-effect imports: `disableWebAuthn`, `faviconChanged`, `offline`, `passkeyMonitor`, `searchShortcut`, `unreadCount`, `notificationBridge`. Do **not** import `overrideNotifications.ts` from `index.ts`.
+`src/preload/index.ts` calls explicit installers in order: `installDisableWebAuthn` → `contextBridge.exposeInMainWorld('gogchat')` → `installFaviconChanged` → `installOffline` → `installPasskeyMonitor` → `installSearchShortcut` → `installUnreadCount` → `installNotificationBridge`. Do **not** import `overrideNotifications.ts` from `index.ts`. Do not add bare side-effect imports.
 
-- `searchShortcut.ts` focuses `SELECTORS.SEARCH_INPUT` on `onSearchShortcut`. It has no colocated test today.
-- ESM `import` statements hoist; the production preload is CJS. The comment “Disable WebAuthn FIRST” is the intended authored order, not a proven evaluation guarantee. Do not add more bare side-effect imports; explicit installers are the planned replacement.
+- Isolated-world code cannot see `window.gogchat`. Feature installers may use the bridge when present (unit tests) and must fall back to `ipcRenderer` in production.
+- `installDisableWebAuthn` overrides isolated `navigator.credentials` and injects the same override into page world via `webFrame.executeJavaScript` (contextIsolation).
+- `searchShortcut.ts` focuses `SELECTORS.SEARCH_INPUT`. Built-CJS proof: `tests/artifact/preload/preload-entry.test.ts` (`--project=preload-artifact`).
 - Entire `src/preload/**` is excluded from Vitest coverage in `vitest.config.ts`. Preload tests still exist and must stay green.
 
 ## Bridge surface

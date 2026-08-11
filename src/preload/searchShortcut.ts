@@ -3,7 +3,8 @@
  * Focuses the GogChat search input when triggered from main process
  */
 
-import { SELECTORS } from '../shared/constants.js';
+import { ipcRenderer } from 'electron';
+import { IPC_CHANNELS, SELECTORS } from '../shared/constants.js';
 
 const getSearchElement = (): HTMLElement | null => {
   return document.querySelector(SELECTORS.SEARCH_INPUT);
@@ -25,20 +26,27 @@ const handleSearchShortcut = () => {
   }
 };
 
-// Use secure API exposed via contextBridge
-// Listen to event coming from main process
 let unsubscribe: (() => void) | null = null;
 
-window.addEventListener('DOMContentLoaded', () => {
-  if (window.gogchat?.onSearchShortcut) {
-    unsubscribe = window.gogchat.onSearchShortcut(handleSearchShortcut);
-  }
-});
+export function installSearchShortcut(): void {
+  window.addEventListener('DOMContentLoaded', () => {
+    if (window.gogchat?.onSearchShortcut) {
+      unsubscribe = window.gogchat.onSearchShortcut(handleSearchShortcut);
+      return;
+    }
+    const listener = () => {
+      handleSearchShortcut();
+    };
+    ipcRenderer.on(IPC_CHANNELS.SEARCH_SHORTCUT, listener);
+    unsubscribe = () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.SEARCH_SHORTCUT, listener);
+    };
+  });
 
-// Clean up listener when page unloads
-window.addEventListener('beforeunload', () => {
-  if (unsubscribe) {
-    unsubscribe();
-    unsubscribe = null;
-  }
-});
+  window.addEventListener('beforeunload', () => {
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
+  });
+}

@@ -5,6 +5,12 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+vi.mock('electron', () => ({
+  webFrame: {
+    executeJavaScript: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 describe('disableWebAuthn', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -25,7 +31,8 @@ describe('disableWebAuthn', () => {
     });
 
     // Import the module (triggers side effect)
-    await import('./disableWebAuthn');
+    const { installDisableWebAuthn } = await import('./disableWebAuthn');
+    installDisableWebAuthn();
 
     // navigator.credentials should be undefined
     expect((navigator as unknown as Record<string, unknown>).credentials).toBeUndefined();
@@ -40,7 +47,9 @@ describe('disableWebAuthn', () => {
     });
 
     // Should not throw
-    await expect(import('./disableWebAuthn')).resolves.toBeDefined();
+    const loaded = import('./disableWebAuthn');
+    await expect(loaded).resolves.toBeDefined();
+    (await loaded).installDisableWebAuthn();
   });
 
   it('logs success message after disabling', async () => {
@@ -51,7 +60,8 @@ describe('disableWebAuthn', () => {
       configurable: true,
     });
 
-    await import('./disableWebAuthn');
+    const { installDisableWebAuthn } = await import('./disableWebAuthn');
+    installDisableWebAuthn();
 
     expect(logSpy).toHaveBeenCalledWith('[Preload] WebAuthn/U2F disabled via property override');
     logSpy.mockRestore();
@@ -72,7 +82,8 @@ describe('disableWebAuthn', () => {
       configurable: false,
     });
 
-    await import('./disableWebAuthn');
+    const { installDisableWebAuthn } = await import('./disableWebAuthn');
+    installDisableWebAuthn();
 
     // Should have warned about the failure
     expect(warnSpy).toHaveBeenCalledWith(

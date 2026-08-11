@@ -1,3 +1,6 @@
+import { ipcRenderer } from 'electron';
+import { IPC_CHANNELS } from '../shared/constants.js';
+
 /**
  * Monitors WebAuthn API calls for passkey authentication failures
  * Detects when passkey authentication fails and notifies main process
@@ -29,7 +32,10 @@ function reportPasskeyFailure(errorName: string): void {
     hasReportedFailure = true;
     window.gogchat.reportPasskeyFailure(errorName);
     console.debug('[Passkey Monitor] Reported failure:', errorName);
+    return;
   }
+  hasReportedFailure = true;
+  ipcRenderer.send(IPC_CHANNELS.PASSKEY_AUTH_FAILED, errorName);
 }
 
 /**
@@ -95,8 +101,8 @@ function monitorWebAuthn(): void {
   console.debug('[Passkey Monitor] WebAuthn monitoring initialized');
 }
 
-// Initialize monitoring when DOM is ready
-// We wait for DOMContentLoaded to ensure window.gogchat is available
-window.addEventListener('DOMContentLoaded', () => {
-  monitorWebAuthn();
-});
+export function installPasskeyMonitor(): void {
+  window.addEventListener('DOMContentLoaded', () => {
+    monitorWebAuthn();
+  });
+}

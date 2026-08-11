@@ -6,6 +6,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('electron', () => ({
+  ipcRenderer: { send: vi.fn(), on: vi.fn(), removeListener: vi.fn() },
+}));
+
 const appUrl = 'https://mail.google.com/chat/u/0';
 
 vi.mock('../urls.js', () => ({
