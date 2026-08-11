@@ -104,16 +104,13 @@ export const test = base.extend<ElectronTestFixtures>({
 
       // Product windows start show:false and only show() on ready-to-show.
       // Unauthenticated Chat often never paints on macos-latest, so that
-      // event never fires. Force a native show and continue — do not wait
-      // for Chat first paint in this shared fixture.
-      if (!(await isMainWindowVisible(app))) {
-        await app.evaluate(({ BrowserWindow }) => {
-          BrowserWindow.getAllWindows()[0]?.show();
-        });
-      }
+      // event never fires. Force-show is best-effort: Playwright Electron
+      // evaluate can throw "Resulting promise was garbage collected" after
+      // many sequential launches. Do not fail the fixture for that.
+      await showMainWindowBestEffort(app);
 
       await use(app);
-      await app.close();
+      await closeElectronApp(app);
     },
     { timeout: 120_000 },
   ],
@@ -129,6 +126,35 @@ export const test = base.extend<ElectronTestFixtures>({
 
 function formatUnknownError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export function isEvaluateGarbageCollectedError(error: unknown): boolean {
+  return /resulting promise was garbage collected/i.test(formatUnknownError(error));
+}
+
+async function closeElectronApp(app: {
+  close: () => Promise<unknown>;
+  process?: () => {
+    exitCode: number | null;
+    killed: boolean;
+    once: (event: 'exit', listener: () => void) => void;
+  };
+}): Promise<void> {
+  const child = typeof app.process === 'function' ? app.process() : undefined;
+  await app.close().catch(() => undefined);
+  if (!child || child.exitCode !== null || child.killed) {
+    return;
+  }
+  await Promise.race([
+    new Promise<void>((resolve) => {
+      child.once('exit', () => {
+        resolve();
+      });
+    }),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 1000);
+    }),
+  ]);
 }
 
 type ElectronEvaluateApi = {
@@ -204,10 +230,34 @@ export async function setMainSize(
 export async function isMainWindowVisible(electronApp: {
   evaluate: (fn: (api: ElectronEvaluateApi) => boolean) => Promise<boolean>;
 }): Promise<boolean> {
-  return electronApp.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0];
-    return Boolean(window && !window.isDestroyed() && window.isVisible());
-  });
+  try {
+    return await electronApp.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      return Boolean(window && !window.isDestroyed() && window.isVisible());
+    });
+  } catch {
+    return false;
+  }
+}
+
+/** Force native show(). Returns false if evaluate dies or no window exists. */
+export async function showMainWindowBestEffort(electronApp: {
+  evaluate: (fn: (api: ElectronEvaluateApi) => boolean) => Promise<boolean>;
+}): Promise<boolean> {
+  try {
+    return await electronApp.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      if (!window || window.isDestroyed()) {
+        return false;
+      }
+      if (!window.isVisible()) {
+        window.show();
+      }
+      return window.isVisible();
+    });
+  } catch {
+    return false;
+  }
 }
 
 /** Poll until the native window is shown, or `timeoutMs` elapses. */

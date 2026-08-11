@@ -3,7 +3,14 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { E2E_SCREENSHOT_TIMEOUT_MS, isCiScreenshotDisabled, takeScreenshot } from './electron-test';
+import {
+  E2E_SCREENSHOT_TIMEOUT_MS,
+  isCiScreenshotDisabled,
+  isEvaluateGarbageCollectedError,
+  isMainWindowVisible,
+  showMainWindowBestEffort,
+  takeScreenshot,
+} from './electron-test';
 
 const E2E_WORKFLOW = path.resolve(import.meta.dirname, '../e2e/user-workflows.test.ts');
 
@@ -85,6 +92,51 @@ describe('e2e screenshot and auth skip helpers', () => {
     expect(multiAccount).not.toContain('toBe(600)');
     expect(performance).not.toMatch(/waitForLoadState\(\s*'networkidle'\s*\)/);
     expect(performance).toContain('waitForLoadStateBounded');
+  });
+});
+
+describe('Electron fixture evaluate safety', () => {
+  it('classifies Playwright evaluate GC errors', () => {
+    expect(
+      isEvaluateGarbageCollectedError(
+        new Error('electronApplication.evaluate: Resulting promise was garbage collected.')
+      )
+    ).toBe(true);
+    expect(isEvaluateGarbageCollectedError(new Error('timeout'))).toBe(false);
+  });
+
+  it('treats visibility and force-show evaluate failures as hidden', async () => {
+    const evaluate = vi
+      .fn()
+      .mockRejectedValue(
+        new Error('electronApplication.evaluate: Resulting promise was garbage collected.')
+      );
+    await expect(isMainWindowVisible({ evaluate })).resolves.toBe(false);
+    await expect(showMainWindowBestEffort({ evaluate })).resolves.toBe(false);
+    expect(evaluate).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows a hidden window and returns a boolean primitive', async () => {
+    let visible = false;
+    const window = {
+      isDestroyed: () => false,
+      isVisible: () => visible,
+      show: vi.fn(() => {
+        visible = true;
+      }),
+    };
+    const evaluate = vi.fn(async (fn: (api: unknown) => boolean) =>
+      fn({ BrowserWindow: { getAllWindows: () => [window] } })
+    );
+    await expect(showMainWindowBestEffort({ evaluate })).resolves.toBe(true);
+    expect(window.show).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps fixture force-show best-effort and closes without throwing', () => {
+    const source = fs.readFileSync(path.resolve(import.meta.dirname, './electron-test.ts'), 'utf8');
+    expect(source).toContain('showMainWindowBestEffort');
+    expect(source).toContain('closeElectronApp');
+    expect(source).not.toMatch(/BrowserWindow\.getAllWindows\(\)\[0\]\?\.show\(\)/);
   });
 });
 
