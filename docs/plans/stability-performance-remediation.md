@@ -323,7 +323,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `deep` - irreversible release ownership modeled in testable code.
   - Commit: Y | `ci(release): make eligibility read-only and exact-SHA`.
 
-- [ ] 24. Qualify, build, and aggregate before the sole tag write
+- [x] 24. Qualify, build, and aggregate before the sole tag write
   - What to do: RED-first extend release workflow contract, then implement DAG: `prepare-release` -> `qualify-release`; macOS and Windows matrix builds need both and checkout the emitted exact SHA; aggregate verifier needs all four builds; `create-release-tag` needs aggregate verification and is the sole `contents: write` tag owner; publish needs both verified assets and create-tag. Qualification runs typecheck, docs, lint, coverage, circular deps, production build, all Playwright projects, headless capture, and budget on exact SHA.
   - Must NOT do: do not push a tag before aggregate verification, relax all-four artifact policy/signing checks, allow build legs write credentials, or publish on qualification/build/verify failure.
   - Parallelization: Wave 6 | Blocked by: 23 | Blocks: 25.
