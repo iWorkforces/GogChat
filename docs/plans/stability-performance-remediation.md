@@ -283,7 +283,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `unspecified-high` - CI orchestration across qualified suites.
   - Commit: Y | `ci: enforce stability and runtime test gates`.
 
-- [ ] 20. Build a fail-closed CDP persistence measurement harness
+- [x] 20. Build a fail-closed CDP persistence measurement harness
   - What to do: RED-first add a script/test harness under `scripts/` that builds first, launches an Electron child, points `app.userData` to a unique temp directory, imports the built current `recordMetrics` entry, pre-seeds valid 1/100/1000-record files, resets before each sample, measures one append/rewrite, and writes raw machine-readable samples. Reject sample count below 20, missing sizes, invalid JSON, order/cap failure, or receipt-only `NO CHANGE`.
   - Must NOT do: do not edit CDP product files, invent a treatment, use Date-only aggregate without raw samples, access user real data, or add a dependency.
   - Parallelization: Wave 5 | Blocked by: 19 | Blocks: 21.

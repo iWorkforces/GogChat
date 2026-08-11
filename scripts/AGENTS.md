@@ -77,6 +77,7 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 - Gated vs warn-only budget behavior must stay explicit. Missing gated metrics → exit 1. IPC latency remains warn-only until a real producer and baseline exist.
 - Do not represent `account-0-ready` or `account-0-content-loaded` as first paint or first interaction in script messages or claims.
 - Evidence roots: `.omo/evidence/performance-remediation/task-<N>-*.{json,md,log}`, `.omo/evidence/macos-intel-x64-dmg/` for dual-arch packaging receipts, `.omo/evidence/deep-enhancements/` for dual-backend/truth/safety closeout, and `.omo/evidence/stability-performance-remediation/` for the active liveness/preload/release plan (often gitignored).
+- CDP persistence harness: `scripts/cdp-persistence-benchmark.js` + Electron child `scripts/cdp-persistence-child.js`. It loads the built `lib/chunks/cdpMetrics.js` `recordMetrics` entry into a unique temp `userData`, seeds 1/100/1000-record files, and emits raw samples. Valid evidence requires ≥20 samples per size; receipt-only `NO CHANGE` is rejected. Do not edit `cdpTelemetry.ts` / `cdpMetrics.ts` from this harness.
 
 ## Packaging
 
