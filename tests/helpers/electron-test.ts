@@ -34,7 +34,7 @@ try {
 const __dirname = import.meta.dirname;
 
 import { join } from 'path';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 /**
@@ -60,6 +60,11 @@ export const test = base.extend<ElectronTestFixtures>({
   extraElectronEnv: [{}, { option: true }],
 
   electronApp: async ({ appPath, extraElectronEnv }, use) => {
+    if (!existsSync(appPath)) {
+      throw new Error(
+        `Electron fixture: missing built main entry at ${appPath}. Run \`bun scripts/build-rsbuild.js\` before Playwright.`
+      );
+    }
     const projectRoot = join(__dirname, '../..');
     const userDataDir = mkdtempSync(join(tmpdir(), 'gogchat-pw-'));
     const env: NodeJS.ProcessEnv = {
@@ -73,23 +78,57 @@ export const test = base.extend<ElectronTestFixtures>({
     if (!extraElectronEnv['GOGCHAT_TEST_HANG_SHUTDOWN']) {
       delete env['GOGCHAT_TEST_HANG_SHUTDOWN'];
     }
-    const app = await electron.launch({
-      cwd: projectRoot,
-      args: [appPath, `--user-data-dir=${userDataDir}`],
-      env,
-    });
+    let app;
+    try {
+      app = await electron.launch({
+        cwd: projectRoot,
+        args: [appPath, `--user-data-dir=${userDataDir}`],
+        env,
+        timeout: 45_000,
+      });
+    } catch (error: unknown) {
+      throw new Error(
+        `Electron fixture: electron.launch failed (${appPath}): ${formatUnknownError(error)}`
+      );
+    }
 
-    await app.firstWindow();
+    try {
+      await app.firstWindow({ timeout: 45_000 });
+    } catch (error: unknown) {
+      await app.close().catch(() => undefined);
+      throw new Error(
+        `Electron fixture: firstWindow timed out or failed — BrowserWindow never appeared: ${formatUnknownError(error)}`
+      );
+    }
+
+    const shown = await waitForMainWindowVisible(app, 20_000);
+    if (!shown) {
+      await app.close().catch(() => undefined);
+      throw new Error(
+        'Electron fixture: window was created but never became visible (ready-to-show / show race)'
+      );
+    }
+
     await use(app);
     await app.close();
   },
 
   mainWindow: async ({ electronApp }, use) => {
-    const window = await electronApp.firstWindow();
-    await window.waitForLoadState('domcontentloaded');
+    const window = await electronApp.firstWindow({ timeout: 45_000 });
+    try {
+      await window.waitForLoadState('domcontentloaded', { timeout: 45_000 });
+    } catch (error: unknown) {
+      throw new Error(
+        `Electron fixture: main window did not reach domcontentloaded within 45s (url=${window.url()}): ${formatUnknownError(error)}`
+      );
+    }
     await use(window);
   },
 });
+
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 type ElectronEvaluateApi = {
   app: {
@@ -361,8 +400,10 @@ export async function takeScreenshot(
   name: string,
   metadata?: Record<string, any>
 ): Promise<Buffer> {
+  const screenshotDir = join(__dirname, '../screenshots');
+  mkdirSync(screenshotDir, { recursive: true });
   const screenshot = await page.screenshot({
-    path: `tests/screenshots/${name}.png`,
+    path: join(screenshotDir, `${name}.png`),
     fullPage: true,
   });
 

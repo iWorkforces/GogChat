@@ -19,7 +19,7 @@ bun run check:doc-claims
 
 - Unit: Vitest, colocated `*.test.ts` and `scripts/**/*.test.js` (included by `vitest.config.ts`).
 - Integration/e2e/performance: Playwright/Electron helpers under `tests/`. `*.spec.ts` under `initializers/` are **feature-plan input**, not tests.
-- Playwright config: `testDir: './tests'`, `workers: 1`, timeout 60000, retries 0, four isolated projects — `e2e`, `integration`, `performance`, `preload-artifact`. Contract: `scripts/playwright-config.test.js`. `preload-artifact` executes `tests/artifact/preload/preload-entry.test.ts` against built `lib/preload/index.js`.
+- Playwright config: `testDir: './tests'`, `workers: 1`, timeout 60000 (e2e project 120000 for cold macos CI document load), retries 0, four isolated projects — `e2e`, `integration`, `performance`, `preload-artifact`. Contract: `scripts/playwright-config.test.js`. `preload-artifact` executes `tests/artifact/preload/preload-entry.test.ts` against built `lib/preload/index.js`.
 - Coverage thresholds in `vitest.config.ts`: statements 94, branches 92, functions 94, lines 94. Include is `src/**/*.ts` only.
 - Coverage includes remediates seams: `src/preload/**` (except `overrideNotifications.ts`), `registerAppReady.ts`, `inOnline.ts`, `appUpdates.ts`, and `defineIPC.ts`. CDP product files and `src/main/generated/**` stay excluded. Thresholds remain 94/92/94/94. Todo 18 closed remaining branch gaps with colocated happy/failure tests only (no production or threshold edits).
 - Evidence classes (source-unit, built-CJS execution, packaged-presence, packaged-runtime, headless, workflow) are defined in root `AGENTS.md`. Do not substitute one for another.

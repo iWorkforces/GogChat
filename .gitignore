@@ -57,5 +57,6 @@ tsconfig.tsbuildinfo
 # CocoIndex Code (ccc)
 /.cocoindex_code/
 test-results/
+tests/screenshots/
 .opencode/
 .omo/

@@ -13,6 +13,8 @@ export default defineConfig({
     {
       name: 'e2e',
       testMatch: 'e2e/**/*.test.ts',
+      // Cold macos-latest Chat document load can exceed the shared 60s budget.
+      timeout: 120000,
     },
     {
       name: 'integration',
