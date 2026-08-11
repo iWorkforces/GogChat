@@ -15,7 +15,7 @@ This directory owns runtime lifecycle mechanics: feature execution, shared featu
 - `performanceMonitor.ts` - markers, main-heap snapshots, renderer/GPU/utility sampling, IPC/memory latency rings.
 - `performanceExport.ts` - versioned JSON export with capture completeness metadata.
 - `performanceFinalizer.ts` - one-shot final export after deferred + document load + renderer sample. Not re-exported from `index.ts`.
-- `configProfiler.ts` - optional store-read profiling used by `cacheWarmer.runDevPostDeferred`; must not write metrics JSON.
+- `configProfiler.ts` - optional store-read profiling used by `cacheWarmer.runDevPostDeferred`; must not write metrics JSON. Tests use a mocked monotonic `performance.now` (100_000-iteration case asserts exact call count and elapsed).
 - `cdpMetrics.ts` - local per-account FIFO JSON (`userData/cdp-metrics-account-N.json`, `MAX_RECORDS_PER_ACCOUNT = 1000`, no network). Consumed by `features/cdpTelemetry`. Best-effort; do not treat as load-bearing. Measure-first before any product edit.
 - `errorHandler.ts` / `errorUtils.ts` / `logger.ts` / `errors.ts` - process error handler, pure error helpers, electron-log wrapper, typed app errors.
 - `cleanupTypes.ts` exists to break import cycles; keep it lightweight.

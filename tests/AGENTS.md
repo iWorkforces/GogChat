@@ -39,6 +39,7 @@ bun run check:doc-claims
 - Preload/offline changes: false online replies produce zero reloads; true reply produces one app-URL replace; bridge cleanup on unload.
 - Security changes: URL validation (including `validateNotificationIconURL`), shell wrapper usage, CSP exceptions, media TCC, empty/unknown-only `mediaTypes` deny, requesting-origin trust (no embeddingOrigin allow), notification permission (`notificationAccess` first-run dialog + probe, CI skip, flag only on `show`), and no custom `certificate-error` listeners after security phase init.
 - Notification presentation: `nativeNotification`, `notificationFocus`, `accountNotificationIdentity`, `accountLabelStore`, bridge vs unread-delta sources, multi-account subtitle/tag namespacing, unread-delta suppress only when host focused **and** `isAccountVisible`.
+- Timing tests in `configProfiler.test.ts` and `performanceMonitor.test.ts` must stay on mocked clocks; do not reintroduce `Date.now()` busy-waits or `<N ms` wall-clock assertions.
 - Performance contract changes (TDD preferred):
   - Finalizer: no early export; complete+valid only with required markers + renderer samples.
   - Headless aggregation: invalid runs retained as failures; no medians from incomplete sets.
