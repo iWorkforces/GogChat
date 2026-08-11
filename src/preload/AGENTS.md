@@ -1,6 +1,7 @@
 # Preload Guide
 
 **Parent:** `../AGENTS.md`
+**Version:** 3.20.0
 
 The preload is sandboxed and built as CommonJS because Electron sandboxed preloads cannot load ESM. It exposes a narrow, validated bridge to Google Chat pages. Packaging arch and account backend (BW vs WCV) do not change the preload CJS contract.
 

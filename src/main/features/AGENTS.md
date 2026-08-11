@@ -1,6 +1,7 @@
 # Main Features Guide
 
 **Parent:** `../AGENTS.md`
+**Version:** 3.20.0
 
 Features are self-contained startup/runtime units registered through initializer specs. This directory holds the feature implementations; startup order lives outside this directory.
 
@@ -27,7 +28,7 @@ Known dependencies (from current specs) include `trayIcon -> aboutPanel`, `badge
 
 Security phase features (no deps): `reportExceptions`, `mediaPermissions` (fire-and-forget TCC; does not block the phase). Critical `userAgent` is declared in `ui.spec.ts` with `phase: 'critical'` — the phase field, not the filename, decides when it runs. UI: `singleInstance` (restore handler), `deepLinkHandler`. Deferred also includes `aboutPanel`, `trayIcon`, `badgeIcons`, `windowState`, `bootstrapPromotion`, `openAtLogin`, `appUpdates`, `firstLaunch`, `enforceMacOSAppLocation` (body is `platformHelpers.enforceMacOSAppLocation`, not a file here), `passkeySupport`, `handleNotification`, `contextMenu`, `inOnline`, `cdpTelemetry` (optional, `required: false`, account-0 only, 30s `Performance.getMetrics`, detaches if DevTools takes the debugger, kill switch `disableCdpTelemetry`). `cdpTelemetry.ts` has no colocated test and is coverage-excluded. `listenerCleanup.test.ts` is an orphan helper test with no `listenerCleanup.ts`.
 
-### About + Check for Updates (v3.19.0)
+### About + Check for Updates (since v3.19.0; current product v3.20.0)
 
 - **`aboutPanel`**: deferred `FeatureSpec` whose init side-effect-imports the module (registers `aboutPanel` menu action). Platform-native BrowserWindow: sandboxed `data:` HTML, CSP `script-src 'none'`, solid canvas `#0d1117`, macOS `hiddenInset`, brand aurora (About-tier) behind `resources/icons/normal/scalable.svg`, hide-cached (Esc / traffic lights). Tray and Help open via registry — not `app.showAboutPanel()`.
 - **`appUpdates`**: background silent path still uses `electron-update-notifier` (unchanged 5s initial + daily schedule). Manual **Help → Check For Updates** registers `checkForUpdates` and runs `checkForUpdatesManual()` → `utils/platform/updateWindow.ts` (same aurora tier; checking → result phases). The GitHub Releases list is parsed from `unknown` (`parseStableGithubRelease` / `selectFirstStableGithubRelease`): first entry with a non-empty tag, `github.com` / `www.github.com` HTTPS `/owner/repo/releases/…` `html_url`, `draft === false`, and `prerelease === false`. Fetch uses `AbortSignal.timeout(10_000)`. Timeout, HTTP failure, missing repo metadata, and **no stable release** are error dialogs — never “up to date”. Only a fetched stable tag that is not newer than the installed version is “up to date”. Dismissal and normal completion all release `manualGate`. A second in-flight manual check is a no-op. Download opens only that validated GitHub release URL via `validateExternalURL` + `shellWrapper`. Unpackaged installs get an explain-only dialog unless `TESTING=true` (Playwright fixture seam so the fetch path can run unpackaged). Checking-phase `loadURL` is deadline-bounded (`UPDATE_CHECKING_LOAD_TIMEOUT_MS`).
@@ -36,7 +37,7 @@ Security phase features (no deps): `reportExceptions`, `mediaPermissions` (fire-
 ## Multi-account feature attach
 
 - `externalLinks` subscribes to `accountWebContentsHooks` and installs open/will-navigate guards on **each** account WebContents (backfill on subscribe). Cleanup must unsubscribe hooks.
-- Cross-account Chat routing and deep links use URL `/u/N/`, `loadAccountURL` / `getAccountURL`, and `manager.focusAccount` — never host-window `loadURL` under WebContentsView.
+- Cross-account Chat routing and deep links use URL `/u/N/`, `focusAccount` (hydrate) **then** `loadAccountURL` / `getAccountURL` — never host-window `loadURL` under WebContentsView. Dehydrated BrowserWindow accounts are `hasAccount=true` with no live WebContents until focus.
 - `closeToTray` / sparse dehydrate use `listAccountIndices()` and skip account-0.
 
 ## Menu actions

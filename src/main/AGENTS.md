@@ -1,8 +1,9 @@
 # Main Process Guide
 
 **Parent:** `../AGENTS.md`
+**Version:** 3.20.0
 
-`src/main` is the Electron main process: startup orchestration, feature execution, BrowserWindow/WebContentsView account backends, app-level security, IPC handlers, and macOS integration. Arch-specific packaging (arm64/x64 DMGs) is not owned here; see `mac/AGENTS.md` and `scripts/AGENTS.md`. Product version and dual-backend multi-account contracts are summarized in root `AGENTS.md` (v3.19.0). `userAgent` is authored in `initializers/ui.spec.ts` with `phase: 'critical'`.
+`src/main` is the Electron main process: startup orchestration, feature execution, BrowserWindow/WebContentsView account backends, app-level security, IPC handlers, and macOS integration. Arch-specific packaging (arm64/x64 DMGs) is not owned here; see `mac/AGENTS.md` and `scripts/AGENTS.md`. Product version and dual-backend multi-account contracts are summarized in root `AGENTS.md` (v3.20.0). `userAgent` is authored in `initializers/ui.spec.ts` with `phase: 'critical'`.
 
 ## Entry and startup
 
@@ -17,16 +18,16 @@
 
 ## Module map
 
-| Area | Path | Local guide |
-| --- | --- | --- |
-| Feature modules | `features/` | `features/AGENTS.md` |
-| Startup/shutdown/specs | `initializers/` | `initializers/AGENTS.md` |
-| Account backends | `utils/account/` | `utils/account/AGENTS.md` |
+| Area                       | Path               | Local guide                 |
+| -------------------------- | ------------------ | --------------------------- |
+| Feature modules            | `features/`        | `features/AGENTS.md`        |
+| Startup/shutdown/specs     | `initializers/`    | `initializers/AGENTS.md`    |
+| Account backends           | `utils/account/`   | `utils/account/AGENTS.md`   |
 | Lifecycle/resource cleanup | `utils/lifecycle/` | `utils/lifecycle/AGENTS.md` |
-| IPC helpers | `utils/ipc/` | `utils/ipc/AGENTS.md` |
-| Security utilities | `utils/security/` | `utils/security/AGENTS.md` |
-| Platform/menu/badges | `utils/platform/` | `utils/platform/AGENTS.md` |
-| Config cache/schema access | `utils/config/` | `utils/config/AGENTS.md` |
+| IPC helpers                | `utils/ipc/`       | `utils/ipc/AGENTS.md`       |
+| Security utilities         | `utils/security/`  | `utils/security/AGENTS.md`  |
+| Platform/menu/badges       | `utils/platform/`  | `utils/platform/AGENTS.md`  |
+| Config cache/schema access | `utils/config/`    | `utils/config/AGENTS.md`    |
 
 ## Main-process rules
 

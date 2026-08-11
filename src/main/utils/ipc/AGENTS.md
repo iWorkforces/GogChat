@@ -1,6 +1,7 @@
 # IPC Utilities Guide
 
 **Parent:** `../AGENTS.md`
+**Version:** 3.20.0
 
 This directory owns the main-side IPC safety pipeline. Channel contracts and validation rules are packaging-arch independent.
 

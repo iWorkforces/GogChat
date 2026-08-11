@@ -1,8 +1,9 @@
 # Platform Utilities Guide
 
 **Parent:** `../AGENTS.md`
+**Version:** 3.20.0
 
-This directory owns platform integration: tray, dock/taskbar badges, native notifications presentation, account notification identity/labels, app menu helpers, help menu actions, icon cache, window defaults, and native About/Update dialog chrome (v3.19.0).
+This directory owns platform integration: tray, dock/taskbar badges, native notifications presentation, account notification identity/labels, app menu helpers, help menu actions, icon cache, window defaults, and native About/Update dialog chrome (since v3.19.0).
 
 ## Conventions
 

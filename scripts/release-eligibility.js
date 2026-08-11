@@ -8,7 +8,7 @@
  *     --ref refs/heads/main \
  *     --ref-name main \
  *     --source-sha <sha> \
- *     --package-version 3.19.0 \
+ *     --package-version 3.20.0 \
  *     --remote <url-or-path>
  */
 

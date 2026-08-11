@@ -1,6 +1,7 @@
 # Tests Guide
 
 **Parent:** `../AGENTS.md`
+**Version:** 3.20.0
 
 Tests cover unit, integration, e2e, performance, and packaging-contract behavior for an Electron app. Use `bun` commands only.
 

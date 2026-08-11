@@ -1,19 +1,20 @@
 # Main Utilities Guide
 
 **Parent:** `../AGENTS.md`
+**Version:** 3.20.0
 
 `src/main/utils` contains reusable main-process mechanics. Keep orchestration in initializers/features and keep reusable infrastructure here.
 
 ## Subdirectories
 
-| Area | Path | Guide |
-| --- | --- | --- |
-| Account backends | `account/` | `account/AGENTS.md` |
-| Config cache/access | `config/` | `config/AGENTS.md` |
-| IPC pipeline | `ipc/` | `ipc/AGENTS.md` |
-| Lifecycle/resources | `lifecycle/` | `lifecycle/AGENTS.md` |
-| Platform/menu/badges | `platform/` | `platform/AGENTS.md` |
-| Security wrappers | `security/` | `security/AGENTS.md` |
+| Area                 | Path         | Guide                 |
+| -------------------- | ------------ | --------------------- |
+| Account backends     | `account/`   | `account/AGENTS.md`   |
+| Config cache/access  | `config/`    | `config/AGENTS.md`    |
+| IPC pipeline         | `ipc/`       | `ipc/AGENTS.md`       |
+| Lifecycle/resources  | `lifecycle/` | `lifecycle/AGENTS.md` |
+| Platform/menu/badges | `platform/`  | `platform/AGENTS.md`  |
+| Security wrappers    | `security/`  | `security/AGENTS.md`  |
 
 ## Utility ownership
 

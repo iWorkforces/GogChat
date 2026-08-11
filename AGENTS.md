@@ -1,9 +1,12 @@
 # GogChat Agent Guide
 
 **Generated:** 2026-08-11
-**Commit:** b321dab
+**Commit:** 7db000c
+**Branch:** develop
+**Version:** 3.20.0
+p
 
-## Project shape
+## Project shapep
 
 GogChat is a macOS-first Electron desktop wrapper for Google Chat (`https://mail.google.com/chat/u/0`). It is TypeScript-first, packages dual macOS arches (Apple Silicon `arm64` and Intel `x64`) as **separate** DMGs, and is built with a dual Rsbuild pipeline: ESM main process plus CJS preload because Electron sandboxed preloads cannot load ESM. Fixed bundle id / notarize identity: `com.ocworkforces.gogchat` (`src/shared/appIdentity.ts`, `scripts/app-identity.cjs`, `electron-builder.yml`).
 
@@ -133,7 +136,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | Native notifications plan      | `docs/plans/native-os-notifications.md`                                                       | Permission, bridge, multi-account banners, unread-delta fallback.                                                |
 | Deep enhancements plan         | `docs/plans/deep-enhancements.md`                                                             | Dual-backend contract, truth/safety, measure handoff (closeout @ 3.18.2+).                                       |
 | Stability / liveness plan      | `docs/plans/stability-performance-remediation.md`                                             | Active: preload installers, account/shutdown/update liveness, verify-before-tag.                                 |
-| About / Updates UX             | `aboutPanel.ts`, `updateWindow.ts`, `appIconAurora.ts`                                        | Platform-native dialogs with animated brand aurora (v3.19.0).                                                    |
+| About / Updates UX             | `aboutPanel.ts`, `updateWindow.ts`, `appIconAurora.ts`                                        | Platform-native dialogs with animated brand aurora (since v3.19.0).                                              |
 | Tests                          | `tests/AGENTS.md`                                                                             | Unit/integration/e2e/perf/packaging contract guidance.                                                           |
 | Packaging                      | `mac/AGENTS.md` + `scripts/AGENTS.md`                                                         | DMG, signing, notarization, dual-arch, perf gates.                                                               |
 | Icons / resources              | `resources/AGENTS.md`                                                                         | Icon variants, generation, extraResources.                                                                       |
@@ -172,7 +175,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 - Never interrupt Google auth pages with `loadURL`; check `isGoogleAuthUrl()` (prefer `loadAccountURL` / `getAccountURL`).
 - BrowserWindow dehydration may destroy windows but must preserve session partitions; **notify WC hooks** on dehydrate/hydrate so multi-account feature guards reinstall.
 - WebContentsView parks (hide + throttle); it does not destroy per-account sessions. Three-state: `visible` | `hidden-live` | `dehydrated-parked`; `isDehydrated` only for parked.
-- BrowserWindow hydration: the window factory owns the single restored `loadURL`; the manager must not re-dispatch navigation.
+- BrowserWindow hydration: the window factory owns the snapshot `loadURL`; the manager must not re-dispatch it. After hydrate, `routeAccountWindow` may apply a different requested URL unless the window is mid Google auth. `externalLinks` must `focusAccount` (hydrate) before `loadAccountURL`. `peekAccountWindowManager()` never constructs a singleton.
 - Renderer observability: use `enumerateAccountWebContents()` (both backends). Do not sample host-only WebContents under WebContentsView.
 - BrowserWindow remains the default backend; WebContentsView stays opt-in. Do not change backend policy without measured evidence and an explicit decision.
 - Prefer `accountNavigation` helpers and `listAccountIndices()` / `isAccountVisible()` / `hasAccount()` (includes dehydrated-parked) over host `webContents` and dense `0..count-1` loops.
@@ -309,4 +312,4 @@ Nested guides supplement this root and are intentionally more specific:
 
 Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans under `docs/plans/`: performance remediation, macOS Intel x64 DMG, native OS notifications, deep enhancements (closeout @ 3.18.2+), and **stability-performance-remediation** (active on this branch).
 
-**v3.19.0 product notes for agents:** platform-native About + Check for Updates windows with shared brand aurora (`appIconAurora.ts`); manual update check via GitHub Releases + `updateWindow.ts`; background auto-check still `electron-update-notifier`. `mac/` is docs-only — DMG scripts, entitlements, and electron-builder yml live at the repo root.
+**v3.20.0 product notes for agents:** same About + Check for Updates aurora UX as 3.19.0 (`aboutPanel.ts`, `updateWindow.ts`, `appIconAurora.ts`); background auto-check still `electron-update-notifier`. Manual GitHub `html_url` must be `github.com` `/releases/`; no stable release is an error, not “up to date”; checking-phase `loadURL` is deadline-bounded. Release eligibility peels annotated tags and pushes `refs/tags/<name>`; candidate tag is `v3.20.0` (do not reuse remote `v3.19.0` — it is a different SHA). `mac/` is docs-only — DMG scripts, entitlements, and electron-builder yml live at the repo root.

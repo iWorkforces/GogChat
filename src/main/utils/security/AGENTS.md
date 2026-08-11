@@ -1,6 +1,7 @@
 # Security Utilities Guide
 
 **Parent:** `../AGENTS.md`
+**Version:** 3.20.0
 
 This directory contains main-process security wrappers and SafeStorage-backed kill-switch storage. It supplements shared URL validation, Chromium permission handlers, and targeted CSP header fixes. There is **no** custom certificate-pinning feature module anymore.
 

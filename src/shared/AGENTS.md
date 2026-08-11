@@ -1,6 +1,7 @@
 # Shared Code Guide
 
 **Parent:** `../AGENTS.md`
+**Version:** 3.20.0
 
 `src/shared` is the only code shared by main and preload. Keep it dependency-light, deterministic, and free of Electron runtime side effects. Shared contracts do not encode packaging arch (arm64/x64).
 
