@@ -1,7 +1,7 @@
 # GogChat Agent Guide
 
-**Generated:** 2026-08-06
-**Commit:** e8267e7
+**Generated:** 2026-08-11
+**Commit:** b321dab
 
 ## Project shape
 
@@ -84,7 +84,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | App entry                      | `src/main/index.ts`                                                             | Thin orchestrator only. Do not add feature logic here.                        |
 | App-ready sequence             | `src/main/initializers/registerAppReady.ts`                                     | Owns `app.whenReady()` work.                                                  |
 | Feature specs                  | `src/main/initializers/{security,ui,deferred}.spec.ts`                          | Declarative `FeatureSpec[]`; edit these to add/reorder features.              |
-| Feature codegen                | `scripts/featurePlanPlugin.js`                                                  | Parses specs and topo-sorts dependency batches at build time.                 |
+| Feature codegen                | `scripts/featurePlanPlugin.js` + `featureSpecParser.js`                         | Hand-scans spec literals (TS 7 dropped `createSourceFile`); topo-batches deps. Do not treat the parser as a compiler-API walker. |
 | Runtime feature runner         | `src/main/utils/lifecycle/featureRunner.ts`                                     | Runs security/critical/ui/deferred phases.                                    |
 | Shared feature context         | `src/main/utils/lifecycle/featureContextStore.ts`                               | Stores `mainWindow` and account manager after bootstrap.                      |
 | Shutdown                       | `src/main/initializers/registerShutdown.ts`                                     | Async cleanup before `app.exit()`.                                            |
@@ -92,6 +92,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | WebContentsView accounts       | `src/main/utils/account/accountViewManager.ts`                                  | Opt-in backend behind `app.useWebContentsView`.                               |
 | Account contract               | `src/shared/types/window.ts`                                                    | `IAccountWindowManager` boundary.                                             |
 | WC-first navigation            | `src/main/utils/account/accountNavigation.ts`                                   | `loadAccountURL` / `getAccountURL` / `sendToAccount` (never WCV host loadURL). |
+| Account composition helpers    | `accountLifecycleHelpers.ts` + `accountWindowsStore.ts`                         | Shared `bootstrapDelegates`; serialized `accountWindows` write queue.         |
 | Shared account webPreferences  | `src/main/utils/account/accountWebPreferences.ts`                               | `createAccountWebPreferences` for `windowWrapper` + WCV views.                |
 | Multi-account WC hooks         | `src/main/utils/account/accountWebContentsHooks.ts`                             | Create/destroy notify; `externalLinks` installs per-account guards.           |
 | App / notarize identity        | `src/shared/appIdentity.ts` + `scripts/app-identity.cjs`                        | Fixed `com.ocworkforces.gogchat`; keep lockstep with electron-builder.        |
@@ -113,6 +114,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | Error types                    | `src/shared/types/errors.ts` + `src/main/utils/lifecycle/errors.ts`             | Prefer typed errors and `{ cause }`.                                          |
 | Historical webview constraints | `docs/windowWrapper-history.md`                                                 | Historical notes; current factory uses `webSecurity: true` + targeted CSP fixes. |
 | Perf types / units / schema    | `src/main/utils/lifecycle/performanceTypes.ts`                                  | Schema version, MB memory, required markers.                                  |
+| Local CDP store                | `src/main/utils/lifecycle/cdpMetrics.ts`                                        | Per-account FIFO JSON under userData; no network. Product file — measure-first. |
 | Perf final export              | `src/main/utils/lifecycle/performanceFinalizer.ts`                              | One-shot after deferred + document load + renderer sample.                    |
 | Perf monitor / sampling        | `src/main/utils/lifecycle/performanceMonitor.ts`                                | Markers, memory, account renderer sampling.                                   |
 | Headless CI harness            | `scripts/headless-startup.js`                                                   | Multi-run, schema validation, refuses incomplete medians.                     |
@@ -130,6 +132,7 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 | macOS Intel x64 plan           | `docs/plans/macos-intel-x64-dmg.md`                                             | Dual-arch DMG production plan and acceptance criteria.                        |
 | Native notifications plan      | `docs/plans/native-os-notifications.md`                                         | Permission, bridge, multi-account banners, unread-delta fallback.             |
 | Deep enhancements plan         | `docs/plans/deep-enhancements.md`                                               | Dual-backend contract, truth/safety, measure handoff (closeout @ 3.18.2+).    |
+| Stability / liveness plan      | `docs/plans/stability-performance-remediation.md`                               | Active: preload installers, account/shutdown/update liveness, verify-before-tag. |
 | About / Updates UX             | `aboutPanel.ts`, `updateWindow.ts`, `appIconAurora.ts`                          | Platform-native dialogs with animated brand aurora (v3.19.0).                 |
 | Tests                          | `tests/AGENTS.md`                                                               | Unit/integration/e2e/perf/packaging contract guidance.                        |
 | Packaging                      | `mac/AGENTS.md` + `scripts/AGENTS.md`                                           | DMG, signing, notarization, dual-arch, perf gates.                            |
@@ -186,6 +189,29 @@ Production releases package **two** macOS DMGs (`arm64` and `x64`) plus guarded 
 - CI is unauthenticated. Authenticated first-interaction evidence belongs to the secured release benchmark (`scripts/release-auth-readiness-benchmark.js`) with isolated credentials.
 - Missing gated budget metrics fail CI; warn-only metrics may SKIP/WARN. Incompatible baseline schema/units are rejected; regenerate only with `PERF_UPDATE_BASELINE=1`.
 - Do not prune packaged dependencies without `verify-packaged-dependency-closure` proof. Do not claim runtime wins from package bytes alone.
+
+### Evidence classes
+
+One evidence class cannot substitute for another:
+
+| Class | Proves | Typical command |
+| --- | --- | --- |
+| Source-unit | TypeScript/JS behavior against `src/` or `scripts/*.test.js` | `bun run test:run -- <file>` |
+| Built-CJS | Emitted `lib/` actually executes (especially sandboxed preload) | `bun run build:prod` + Playwright fixture loading `lib/preload/index.js` |
+| Packaged-presence | Required files exist in a DMG/app | `package:mac:*` + verify scripts |
+| Packaged-runtime | Packaged app runs on a real arch | signed/unsigned smoke — not presence |
+| Headless-performance | Unauthenticated startup metrics | `GOGCHAT_PERF_RUNS=5 HEADLESS_TIMEOUT_MS=90000 node scripts/headless-startup.js` then `node scripts/check-perf-budget.js performance-metrics.json` |
+| Workflow | CI DAG / tag / publish safety | disposable-git fixtures + `scripts/release-workflow.test.js` |
+
+Current Playwright config discovers **only** `tests/e2e`. `tests/integration` and `tests/performance` exist but are excluded from Vitest and are not in `playwright.config.ts` `testDir`. PR Check runs typecheck, doc-claims, Vitest, coverage, madge, `build:prod`, headless, and budget — **not** `lint:all` and **not** Playwright.
+
+### Git and dirty-worktree safety
+
+- Inspect `GIT_MASTER=1 git status --short --untracked-files=all` before staging.
+- Do not edit, format, reset, stash, stage, or overwrite `package.json` unless the user explicitly owns that change. A changed SHA-256 is external drift: stop, record it, and reread the file.
+- Do not hand-edit or stage `src/main/generated/featurePlan.ts`.
+- Do not commit `.omo/evidence/`, disposable fixtures, `lib/`, `dist/`, or coverage HTML.
+- Keep implementation and its direct tests in the same commit. Do not collapse preload, account, performance, CI, and release concerns into one omnibus commit.
 
 ### Security and IPC
 
@@ -281,6 +307,6 @@ Nested guides supplement this root and are intentionally more specific:
 - `mac/AGENTS.md`
 - `resources/AGENTS.md`
 
-Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans under `docs/plans/`: performance remediation, macOS Intel x64 DMG, native OS notifications, and **deep enhancements** (`deep-enhancements.md` — mostly implemented; Wave 3 matrix/auth/signed smoke still residual).
+Low-score `docs/` and `.github/workflows/` are covered here plus `scripts/AGENTS.md` and `mac/AGENTS.md`; add local AGENTS files there only if new agent-critical conventions appear. Work plans under `docs/plans/`: performance remediation, macOS Intel x64 DMG, native OS notifications, deep enhancements (closeout @ 3.18.2+), and **stability-performance-remediation** (active on this branch).
 
-**v3.19.0 product notes for agents:** platform-native About + Check for Updates windows with shared brand aurora (`appIconAurora.ts`); manual update check via GitHub Releases + `updateWindow.ts`; background auto-check still `electron-update-notifier`.
+**v3.19.0 product notes for agents:** platform-native About + Check for Updates windows with shared brand aurora (`appIconAurora.ts`); manual update check via GitHub Releases + `updateWindow.ts`; background auto-check still `electron-update-notifier`. `mac/` is docs-only — DMG scripts, entitlements, and electron-builder yml live at the repo root.

@@ -9,7 +9,7 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 ### Build and feature plan
 
 - `build-rsbuild.js` - builds ESM main and CJS preload, copies offline assets, preserves preload `cleanDistPath: false`, records `buildTimeMs` and `lib/chunks/*.js` counts in `.build-history.json`. With `ANALYZE=true`, writes machine-readable stats under the evidence root.
-- `featurePlanPlugin.js` / `featureSpecParser.js` - parse initializer specs with the TypeScript compiler API, unwrap `as const satisfies`, topologically batch dependencies, and idempotently write `src/main/generated/featurePlan.ts`.
+- `featurePlanPlugin.js` / `featureSpecParser.js` - hand-scan initializer spec literals (TS 7 no longer exports `createSourceFile` from the public `typescript` package), unwrap `as const satisfies` / parens, topologically batch dependencies, and idempotently write `src/main/generated/featurePlan.ts`. This is a narrow literal extractor, not a compiler-API walker. Unsupported expressions are currently skipped rather than fail-closed.
 - `install-electron-binary.js` - repo-controlled Electron zip extract for macOS CI (ditto); respects `npm_config_arch` and Rosetta detection. Pin target arch when packaging non-host arches.
 
 ### Performance (CI unauthenticated path)
@@ -55,9 +55,10 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 
 ## Feature-plan plugin rules
 
-- It intentionally ignores implementation `init`/`cleanup` bodies and reads declarative spec metadata.
+- It intentionally ignores implementation `init`/`cleanup` bodies and reads declarative spec metadata via the hand-scanner.
 - Dependency sorting is greedy by batch; preserve deterministic output.
 - Export pure helpers such as `buildPlanFromSources` for tests.
+- Current parser skips entries that lack literal `name`/`phase` instead of failing closed on spreads/calls/identifiers. Do not document it as a compiler-API grammar.
 
 ## Performance scripts
 
@@ -70,7 +71,7 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 - Schema version and `units.memory: "MB"` / `units.time: "ms"` are required; incomplete or invalid runs must not feed medians or gated PASS.
 - Gated vs warn-only budget behavior must stay explicit. Missing gated metrics → exit 1. IPC latency remains warn-only until a real producer and baseline exist.
 - Do not represent `account-0-ready` or `account-0-content-loaded` as first paint or first interaction in script messages or claims.
-- Evidence roots: `.omo/evidence/performance-remediation/task-<N>-*.{json,md,log}`, `.omo/evidence/macos-intel-x64-dmg/` for dual-arch packaging receipts, and `.omo/evidence/deep-enhancements/` for dual-backend/truth/safety closeout (often gitignored).
+- Evidence roots: `.omo/evidence/performance-remediation/task-<N>-*.{json,md,log}`, `.omo/evidence/macos-intel-x64-dmg/` for dual-arch packaging receipts, `.omo/evidence/deep-enhancements/` for dual-backend/truth/safety closeout, and `.omo/evidence/stability-performance-remediation/` for the active liveness/preload/release plan (often gitignored).
 
 ## Packaging
 
@@ -84,6 +85,12 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 - Windows setup artifacts must stay as separate NSIS installers named `${productName}-${version}-windows-x64-setup.exe` and `${productName}-${version}-windows-arm64-setup.exe`.
 - Native Windows CI packaging runs x64 on `windows-latest` with AMD64 proof and arm64 on `windows-11-arm` with ARM64 proof.
 - `electron-builder.yml` excludes proven build-only namespaces (`@rslib`, `@rspack`, `@ast-grep`); keep that aligned with the closure report.
+### Current CI (do not invent extra gates)
+
+- **PR Check** (`.github/workflows/pr-check.yml`): frozen install → Electron binary → typecheck → `check:doc-claims` → `bun run test` → `test:coverage` → madge → `build:prod` → five-run headless (`HEADLESS_TIMEOUT_MS=90000`) → budget → always-upload metrics. **Does not** run `lint:all` or Playwright. Lint lives in `scripts/hooks/pre-push` / local `bun run lint:all`.
+- **Release** (`.github/workflows/release.yml`): `prepare-release` may create `v{version}` on `main` when the tag is absent (`contents: write`); then mac arm64/x64 + Windows x64/arm64 package jobs; aggregate verify; single publish. Workflow YAML is string-tested by `release-workflow.test.js` — cosmetic YAML edits break tests.
+- Typecheck uses `@typescript/native` (TS 7). The `typescript` package on disk is 6.x and is **not** the typecheck binary.
+
 - Never call packaging scripts without building first.
 - Never remove a dependency from the package without a green closure report and disposable package smoke.
 - Do not log secrets from signing/notarization environment variables.

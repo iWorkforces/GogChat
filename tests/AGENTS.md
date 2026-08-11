@@ -18,10 +18,11 @@ bun run check:doc-claims
 ## Test tiers
 
 - Unit: Vitest, colocated `*.test.ts` and `scripts/**/*.test.js` (included by `vitest.config.ts`).
-- Integration/e2e/performance: Playwright/Electron helpers under `tests/`.
-- E2E config: `playwright.config.ts` uses `testDir: './tests/e2e'`, `workers: 1`, timeout 60000, retries 0.
-- Coverage thresholds in `vitest.config.ts`: statements 94, branches 92, functions 94, lines 94.
-- Playwright e2e/integration/performance dirs are excluded from Vitest; run them with Playwright separately.
+- Integration/e2e/performance: Playwright/Electron helpers under `tests/`. `*.spec.ts` under `initializers/` are **feature-plan input**, not tests.
+- Current Playwright config: `testDir: './tests/e2e'` only, `workers: 1`, timeout 60000, retries 0, no `projects`. `tests/integration` and `tests/performance` are excluded from Vitest **and** are not discovered by `bunx playwright test --list` today.
+- Coverage thresholds in `vitest.config.ts`: statements 94, branches 92, functions 94, lines 94. Include is `src/**/*.ts` only.
+- Current coverage exclusions include all of `src/preload/**`, `registerAppReady.ts`, `inOnline.ts`, `appUpdates.ts`, `defineIPC.ts`, `cdpMetrics.ts`, `cdpTelemetry.ts`, and several Electron-heavy features. Exclusion ≠ “no tests”; colocated tests can still exist.
+- Evidence classes (source-unit, built-CJS execution, packaged-presence, packaged-runtime, headless, workflow) are defined in root `AGENTS.md`. Do not substitute one for another.
 
 ## Electron test helpers
 
@@ -68,6 +69,8 @@ bun run package:mac:artifacts
 ```
 
 CI remains unauthenticated. Authenticated first-interaction is credential-isolated; without credentials expect `[blocked: credentials unavailable]`.
+
+PR Check does **not** run Playwright or `lint:all`. Default `bun run test` is Vitest only. Electron Playwright cases need `bun run build:prod` first and import from `tests/helpers/electron-test.ts`.
 
 ## Anti-patterns
 

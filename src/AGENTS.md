@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-`src` contains the Electron main process, sandboxed preload bridge, shared contracts, and static offline fallback assets. Packaging and dual-arch DMG work live outside `src/` (`mac/AGENTS.md`, `scripts/AGENTS.md`). Product version, dual-backend multi-account rules, and security invariants live in root `AGENTS.md` (v3.19.0).
+`src` contains the Electron main process, sandboxed preload bridge, shared contracts, and static offline fallback assets. There is **no** `src/renderer` — the UI is remote Google Chat plus `offline/` and sandboxed About/Update dialogs. Packaging and dual-arch DMG work live outside `src/` (`mac/AGENTS.md`, `scripts/AGENTS.md`). Product version, dual-backend multi-account rules, and security invariants live in root `AGENTS.md` (v3.19.0).
 
 ## Route source work
 

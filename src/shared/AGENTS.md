@@ -13,7 +13,7 @@
 - `typeUtils.ts` owns `assertNever`, `asType<T>()`, and documented unsafe-cast helpers.
 - `escapeHtml.ts` owns pure HTML-escape for data: HTML dialogs (About / Update). Safe for main-process templates.
 - `appIconAurora.ts` owns brand-icon aurora CSS + HTML strings (`APP_ICON_AURORA_CSS`, `appIconWithAuroraHtml`); About-tier (`.app-icon-aurora--about`) fancy motion for About/Update; reduced-motion / reduced-transparency / contrast queries; no DOM/Electron.
-- `types/` owns contracts used across process boundaries; see `types/AGENTS.md` (`IAccountWindowManager`, `AccountWebContentsInfo`, bridge API, config, errors, IPC maps).
+- `types/` owns contracts used across process boundaries; see `types/AGENTS.md` (`IAccountWindowManager`, `AccountWebContentsInfo`, bridge API, `AppConfig`/`MemoryConfig`, errors, IPC maps). `CERTIFICATE_PINNING_FAILED` remains in `ErrorCode` after pinning removal.
 
 ## IPC/channel workflow
 

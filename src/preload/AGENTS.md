@@ -13,6 +13,14 @@ The preload is sandboxed and built as CommonJS because Electron sandboxed preloa
 - Bare debounce timers are acceptable here; main-process tracked timer helpers are unavailable in the sandbox.
 - Do not load feature preloads conditionally as part of offline recovery work; keep the existing import list stable unless a plan explicitly requires it.
 
+## Current entry shape
+
+`src/preload/index.ts` constructs `window.gogchat`, then lists static side-effect imports: `disableWebAuthn`, `faviconChanged`, `offline`, `passkeyMonitor`, `searchShortcut`, `unreadCount`, `notificationBridge`. Do **not** import `overrideNotifications.ts` from `index.ts`.
+
+- `searchShortcut.ts` focuses `SELECTORS.SEARCH_INPUT` on `onSearchShortcut`. It has no colocated test today.
+- ESM `import` statements hoist; the production preload is CJS. The comment “Disable WebAuthn FIRST” is the intended authored order, not a proven evaluation guarantee. Do not add more bare side-effect imports; explicit installers are the planned replacement.
+- Entire `src/preload/**` is excluded from Vitest coverage in `vitest.config.ts`. Preload tests still exist and must stay green.
+
 ## Bridge surface
 
 `GogChatBridgeAPI` exposes send methods for unread count, favicon changes, notification clicks, online checks, and passkey auth failures, plus subscriptions for search shortcut and online status.
@@ -33,7 +41,7 @@ The preload is sandboxed and built as CommonJS because Electron sandboxed preloa
 ## DOM behavior
 
 - DOM observation uses `MutationObserver`.
-- `disableWebAuthn.ts` must be imported first in `src/preload/index.ts`, before any other preload module, to neutralize `navigator.credentials` before Google scripts run.
+- `disableWebAuthn.ts` must remain the first feature import in `src/preload/index.ts` so `navigator.credentials` is neutralized before Google scripts. Keep that authored order when adding modules.
 - Keep selectors and timing constants in shared constants where practical.
 
 ## Notification override

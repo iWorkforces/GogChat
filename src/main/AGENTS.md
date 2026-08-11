@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-`src/main` is the Electron main process: startup orchestration, feature execution, BrowserWindow/WebContentsView account backends, app-level security, IPC handlers, and macOS integration. Arch-specific packaging (arm64/x64 DMGs) is not owned here; see `mac/AGENTS.md` and `scripts/AGENTS.md`. Product version and dual-backend multi-account contracts are summarized in root `AGENTS.md` (v3.19.0).
+`src/main` is the Electron main process: startup orchestration, feature execution, BrowserWindow/WebContentsView account backends, app-level security, IPC handlers, and macOS integration. Arch-specific packaging (arm64/x64 DMGs) is not owned here; see `mac/AGENTS.md` and `scripts/AGENTS.md`. Product version and dual-backend multi-account contracts are summarized in root `AGENTS.md` (v3.19.0). `userAgent` is authored in `initializers/ui.spec.ts` with `phase: 'critical'`.
 
 ## Entry and startup
 

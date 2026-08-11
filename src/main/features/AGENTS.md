@@ -11,6 +11,7 @@ Features are self-contained startup/runtime units registered through initializer
 - Do not reintroduce runtime feature registration.
 - Do not hand-edit `src/main/generated/featurePlan.ts`.
 - Keep feature names aligned with spec IDs and generated plan output.
+- `FeatureSpec.ipcChannels` is documentation for `check:doc-claims` only; runtime does not enforce those lists. `platforms` and `required` are runtime.
 
 ## Registration workflow
 
@@ -24,7 +25,7 @@ Features are self-contained startup/runtime units registered through initializer
 
 Known dependencies (from current specs) include `trayIcon -> aboutPanel`, `badgeIcons -> trayIcon`, `windowState -> singleInstance/deepLinkHandler/bootstrapPromotion`, `appMenu -> openAtLogin/externalLinks/appUpdates/aboutPanel`, `externalLinks -> bootstrapPromotion`, `closeToTray -> trayIcon`, and **`cdpTelemetry -> appMenu`** (CDP after shell UI batch).
 
-Security phase features (no deps): `reportExceptions`, `mediaPermissions` (fire-and-forget TCC; does not block the phase). Critical: `userAgent`. UI: `singleInstance` (restore handler), `deepLinkHandler`. Deferred also includes `aboutPanel`, `trayIcon`, `bootstrapPromotion`, `openAtLogin`, `appUpdates`, `firstLaunch`, `enforceMacOSAppLocation`, `passkeySupport`, `handleNotification`, `contextMenu`, `inOnline`, `cdpTelemetry` (optional).
+Security phase features (no deps): `reportExceptions`, `mediaPermissions` (fire-and-forget TCC; does not block the phase). Critical `userAgent` is declared in `ui.spec.ts` with `phase: 'critical'` — the phase field, not the filename, decides when it runs. UI: `singleInstance` (restore handler), `deepLinkHandler`. Deferred also includes `aboutPanel`, `trayIcon`, `badgeIcons`, `windowState`, `bootstrapPromotion`, `openAtLogin`, `appUpdates`, `firstLaunch`, `enforceMacOSAppLocation` (body is `platformHelpers.enforceMacOSAppLocation`, not a file here), `passkeySupport`, `handleNotification`, `contextMenu`, `inOnline`, `cdpTelemetry` (optional, `required: false`, account-0 only, 30s `Performance.getMetrics`, detaches if DevTools takes the debugger, kill switch `disableCdpTelemetry`). `cdpTelemetry.ts` has no colocated test and is coverage-excluded. `listenerCleanup.test.ts` is an orphan helper test with no `listenerCleanup.ts`.
 
 ### About + Check for Updates (v3.19.0)
 

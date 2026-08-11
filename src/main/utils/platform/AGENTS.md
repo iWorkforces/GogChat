@@ -7,6 +7,8 @@ This directory owns platform integration: tray, dock/taskbar badges, native noti
 ## Conventions
 
 - Public product remains macOS with dual packaging arches (`arm64` and `x64` separate DMGs). Guarded Windows release-engineering/runtime preparation may live here when capability-gated and explicitly not documented as public support.
+- Capability gates live in `platformDetection.ts` (`SUPPORTED_PLATFORM_NAMES`, overlay/dock/tray/autolaunch flags). Feature specs use `platforms: [SUPPORTED_PLATFORM_NAMES.macOS]` for `openAtLogin` and `enforceMacOSAppLocation`.
+- `platformHelpers.enforceMacOSAppLocation()` is the deferred feature body (not under `features/`). Packaged apps not under `/Applications/` call `app.quit()`.
 - Tray/badge coupling is one-way through `trayIconState.setTrayUnread()`.
 - Badge image composition belongs in `badgeHelpers.ts` using `nativeImage` primitives. Dock badge sum is capped at `BADGE.DISPLAY_MAX` (99).
 - `nativeNotification.ts` owns Electron `Notification` show, tag de-dupe, auto-dismiss, subtitle/groupId options, and bridge vs unread-delta source marking.
