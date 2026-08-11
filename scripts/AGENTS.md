@@ -27,6 +27,7 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 - `verify-mac-release-signing.js` - codesign / spctl / stapler trust checks on a macOS GHA runner for the current job's `dist/`.
 - `verify-macos-package-artifacts.js` - checks macOS DMG basenames, required arm64/x64 outputs, duplicates, and forbidden labels (`amd64`, `ia32`, `universal`).
 - `verify-packaged-dependency-closure.js` - derives runtime externals from emitted main/preload imports + Rsbuild string externals; classifies packages (including `@rspack`, `@ast-grep`, `@rslib`); compares to packaged fixture/artifact. Run **before** removing payload.
+- `verify-packaged-preload.js` - packaged-presence only: `lib/preload/index.js` plus relative CommonJS chunks required by that entry. Does not prove execution (that is Todo 7's built-CJS fixture).
 - `app-identity.cjs` - fixed `APP_ID` / `NOTARIZE_BUNDLE_ID` = `com.ocworkforces.gogchat`. Keep lockstep with `src/shared/appIdentity.ts` and `electron-builder.yml` `appId`. Covered by `notarize-identity.test.js` (forbids productFilename-derived / typo bundle ids).
 - `notarize.cjs` - uses notarytool with `APPLE_ID`, `APPLE_APP_PASSWORD`, and `APPLE_TEAM_ID`; bundle id from `app-identity.cjs` only.
 - `after-pack.cjs` - strip/locale optimizations for darwin **arm64 and x64** (not universal).
