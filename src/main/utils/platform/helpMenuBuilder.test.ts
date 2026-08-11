@@ -250,17 +250,15 @@ describe('helpMenuBuilder', () => {
       const sub = troubleshooting?.submenu as MenuItemConstructorOptions[];
 
       expect(() => {
-        items.find((i) => i.label === 'Check For Updates')?.click?.(
-          {} as never,
-          undefined as never,
-          {} as never
-        );
-        sub.find((i) => i.label === 'Toggle External Links Guard')?.click?.(
-          {} as never,
-          undefined as never,
-          {} as never
-        );
-        items.find((i) => i.label === 'About')?.click?.({} as never, undefined as never, {} as never);
+        items
+          .find((i) => i.label === 'Check For Updates')
+          ?.click?.({} as never, undefined as never, {} as never);
+        sub
+          .find((i) => i.label === 'Toggle External Links Guard')
+          ?.click?.({} as never, undefined as never, {} as never);
+        items
+          .find((i) => i.label === 'About')
+          ?.click?.({} as never, undefined as never, {} as never);
       }).not.toThrow();
       expect(mockCheckUpdatesHandler).not.toHaveBeenCalled();
       expect(mockToggleGuardHandler).not.toHaveBeenCalled();
@@ -274,11 +272,9 @@ describe('helpMenuBuilder', () => {
       const items = menu.submenu as MenuItemConstructorOptions[];
       const troubleshooting = items.find((i) => i.label === 'Troubleshooting');
       const sub = troubleshooting?.submenu as MenuItemConstructorOptions[];
-      sub.find((i) => i.label === 'Show Logs in File Manager')?.click?.(
-        {} as never,
-        undefined as never,
-        {} as never
-      );
+      sub
+        .find((i) => i.label === 'Show Logs in File Manager')
+        ?.click?.({} as never, undefined as never, {} as never);
       expect(shell.showItemInFolder).toHaveBeenCalledWith(path.join('/mock/logs', 'logs'));
       Object.defineProperty(process, 'platform', { value: original });
     });
@@ -291,12 +287,16 @@ describe('helpMenuBuilder', () => {
       const sub = troubleshooting?.submenu as MenuItemConstructorOptions[];
       const reset = sub.find((i) => i.label === 'Reset and Relaunch App');
 
-      vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 1 } as Electron.MessageBoxReturnValue);
+      vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({
+        response: 1,
+      } as Electron.MessageBoxReturnValue);
       reset?.click?.({} as never, undefined as never, {} as never);
       await Promise.resolve();
       expect(store.clear).not.toHaveBeenCalled();
 
-      vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 0 } as Electron.MessageBoxReturnValue);
+      vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({
+        response: 0,
+      } as Electron.MessageBoxReturnValue);
       reset?.click?.({} as never, undefined as never, {} as never);
       await vi.waitFor(() => {
         expect(store.clear).toHaveBeenCalled();

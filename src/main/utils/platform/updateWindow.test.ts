@@ -226,9 +226,7 @@ describe('updateWindow', () => {
     expect(getInstances()).toHaveLength(1);
     const navigate = win.webContents.on.mock.calls.find((c: unknown[]) => c[0] === 'will-navigate');
     const handler = navigate![1] as (event: { preventDefault: () => void; url: string }) => void;
-    handler(
-      { preventDefault: vi.fn(), url: 'https://gogchat.local/__update_action__/0' }
-    );
+    handler({ preventDefault: vi.fn(), url: 'https://gogchat.local/__update_action__/0' });
     await expect(promise).resolves.toEqual({ response: 0 });
     expect(win.hide).toHaveBeenCalled();
     mod.destroyUpdateWindow();
@@ -387,9 +385,7 @@ describe('updateWindow', () => {
 
   it('loads a PNG icon when the SVG candidate is missing', async () => {
     const fs = await import('fs');
-    vi.mocked(fs.default.existsSync)
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(true);
+    vi.mocked(fs.default.existsSync).mockReturnValueOnce(false).mockReturnValueOnce(true);
     vi.mocked(fs.default.readFileSync).mockReturnValueOnce(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     const { presentUpdateDialog, destroyUpdateWindow } = await import('./updateWindow.js');
     await presentUpdateDialog({ message: 'Checking for updates…', phase: 'checking' });

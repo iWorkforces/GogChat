@@ -94,8 +94,8 @@ describe('PR check workflow contract', () => {
 
     expect(job.match(/vitest\.mjs run --coverage/g) ?? []).toHaveLength(1);
     expect(job.match(/vitest\.mjs/g) ?? []).toHaveLength(1);
-    expect(job).toContain('GOGCHAT_PERF_RUNS: \'5\'');
-    expect(job).toContain('HEADLESS_TIMEOUT_MS: \'90000\'');
+    expect(job).toContain("GOGCHAT_PERF_RUNS: '5'");
+    expect(job).toContain("HEADLESS_TIMEOUT_MS: '90000'");
     expect(job).toContain(LITERAL.headless);
     expect(job).toContain(LITERAL.budget);
     expect(job).not.toMatch(/GOOGLE|gogchat-auth|client_secret|refresh_token/i);
@@ -134,7 +134,9 @@ describe('PR check workflow contract', () => {
       const file = entry.rest.split(':')[0] ?? entry.rest;
       const previous = owner.get(file);
       if (previous && previous !== entry.project) {
-        throw new Error(`duplicate project ownership for ${file}: ${previous} and ${entry.project}`);
+        throw new Error(
+          `duplicate project ownership for ${file}: ${previous} and ${entry.project}`
+        );
       }
       owner.set(file, entry.project);
     }

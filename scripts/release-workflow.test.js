@@ -330,12 +330,21 @@ describe('release qualify-then-tag DAG', () => {
     ]);
     expect(jobWritesTag(createTagJob)).toBe(true);
     expect(createTagJob).toContain('node scripts/release-tag.js');
-    expect(createTagJob).toContain('group: create-release-tag-${{ needs.prepare-release.outputs.tag_name }}');
+    expect(createTagJob).toContain(
+      'group: create-release-tag-${{ needs.prepare-release.outputs.tag_name }}'
+    );
     expect(createTagJob).toContain('cancel-in-progress: false');
     expect(createTagJob).toContain('ref: ${{ needs.prepare-release.outputs.source_sha }}');
     expect(workflow.match(/softprops\/action-gh-release@/g) ?? []).toHaveLength(1);
 
-    for (const job of [prepareJob, qualifyJob, buildMacJob, buildWindowsJob, verifyJob, publishJob]) {
+    for (const job of [
+      prepareJob,
+      qualifyJob,
+      buildMacJob,
+      buildWindowsJob,
+      verifyJob,
+      publishJob,
+    ]) {
       expect(jobWritesTag(job)).toBe(false);
     }
   });
@@ -354,7 +363,12 @@ describe('release qualify-then-tag DAG', () => {
       expect(result.skipped).toContain('publish-release');
     }
     expect(simulateReleaseDag('qualify-release').skipped).toEqual(
-      expect.arrayContaining(['build-mac', 'build-windows', 'create-release-tag', 'publish-release'])
+      expect.arrayContaining([
+        'build-mac',
+        'build-windows',
+        'create-release-tag',
+        'publish-release',
+      ])
     );
   });
 });

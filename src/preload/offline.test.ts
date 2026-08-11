@@ -123,9 +123,10 @@ describe('preload offline recovery', () => {
     window.dispatchEvent(new Event('DOMContentLoaded'));
     expect(ipcRenderer.on).toHaveBeenCalledWith(IPC_CHANNELS.ONLINE_STATUS, expect.any(Function));
 
-    const statusListener = vi.mocked(ipcRenderer.on).mock.calls.find(
-      (call) => call[0] === IPC_CHANNELS.ONLINE_STATUS
-    )?.[1] as ((event: unknown, online: boolean) => void) | undefined;
+    const statusListener = vi
+      .mocked(ipcRenderer.on)
+      .mock.calls.find((call) => call[0] === IPC_CHANNELS.ONLINE_STATUS)?.[1] as
+      ((event: unknown, online: boolean) => void) | undefined;
     expect(statusListener).toBeTypeOf('function');
     statusListener?.({}, false);
     expect(failedEventCount).toBe(1);

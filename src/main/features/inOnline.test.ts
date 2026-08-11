@@ -172,10 +172,7 @@ describe('inOnline feature', () => {
     });
 
     it('does not load the offline page when fetch reports online', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn().mockResolvedValue({ ok: true })
-      );
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
       const win = makeFakeWindow('https://mail.google.com/chat/u/0');
       const mod = await import('./inOnline.js');
       await mod.checkForInternet(win as unknown as Electron.BrowserWindow);
@@ -184,10 +181,7 @@ describe('inOnline feature', () => {
     });
 
     it('loads the offline page after a confirmed offline probe', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn().mockRejectedValue(new Error('offline'))
-      );
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
       const win = makeFakeWindow('https://mail.google.com/chat/u/0');
       const mod = await import('./inOnline.js');
       await mod.checkForInternet(win as unknown as Electron.BrowserWindow);
@@ -234,9 +228,7 @@ describe('inOnline feature', () => {
       cfg.handler(undefined, {});
       const event = { reply: vi.fn() };
       cfg.handler(undefined, event);
-      await vi.waitFor(() =>
-        expect(event.reply).toHaveBeenCalledWith('onlineStatus', true)
-      );
+      await vi.waitFor(() => expect(event.reply).toHaveBeenCalledWith('onlineStatus', true));
       vi.unstubAllGlobals();
     });
 
@@ -250,9 +242,7 @@ describe('inOnline feature', () => {
       };
       const event = { reply: vi.fn() };
       cfg.handler(undefined, event);
-      await vi.waitFor(() =>
-        expect(event.reply).toHaveBeenCalledWith('onlineStatus', false)
-      );
+      await vi.waitFor(() => expect(event.reply).toHaveBeenCalledWith('onlineStatus', false));
       vi.unstubAllGlobals();
     });
   });

@@ -209,9 +209,9 @@ export async function loadBuiltRecordMetrics(app) {
 export async function measureOneAppend({ userDataDir, accountIndex, seededCount, recordMetrics }) {
   seedMetricsFile(userDataDir, accountIndex, seededCount);
   const start = process.hrtime.bigint();
-  const loopStart = performance.now();
+  const loopStart = globalThis.performance.now();
   recordMetrics(accountIndex, { JSHeapUsedSize: seededCount + 1 });
-  const eventLoopDelayMs = performance.now() - loopStart;
+  const eventLoopDelayMs = globalThis.performance.now() - loopStart;
   const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
   const { raw, parsed } = readSeededFile(userDataDir, accountIndex);
   return {
@@ -233,15 +233,11 @@ export async function runDryElectronChild({ samplesPerSize = 1 } = {}) {
   }
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gogchat-cdp-'));
   const childPath = path.join(__dirname, 'cdp-persistence-child.js');
-  const child = spawn(
-    electronBinary(),
-    [childPath, userDataDir, String(samplesPerSize)],
-    {
-      cwd: repoRoot,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }
-  );
+  const child = spawn(electronBinary(), [childPath, userDataDir, String(samplesPerSize)], {
+    cwd: repoRoot,
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (chunk) => {

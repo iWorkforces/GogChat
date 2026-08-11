@@ -40,9 +40,10 @@ describe('searchShortcut', () => {
     window.dispatchEvent(new Event('DOMContentLoaded'));
     expect(ipcRenderer.on).toHaveBeenCalledWith(IPC_CHANNELS.SEARCH_SHORTCUT, expect.any(Function));
 
-    const listener = vi.mocked(ipcRenderer.on).mock.calls.find(
-      (call) => call[0] === IPC_CHANNELS.SEARCH_SHORTCUT
-    )?.[1] as (() => void) | undefined;
+    const listener = vi
+      .mocked(ipcRenderer.on)
+      .mock.calls.find((call) => call[0] === IPC_CHANNELS.SEARCH_SHORTCUT)?.[1] as
+      (() => void) | undefined;
     listener?.();
     expect(document.activeElement?.id).toBe('search');
 
@@ -76,7 +77,7 @@ describe('searchShortcut', () => {
       Object.defineProperty(input, 'offsetWidth', { configurable: true, value: 0 });
       Object.defineProperty(input, 'offsetHeight', { configurable: true, value: 0 });
       input.getClientRects = () =>
-        [{ width: 12, height: 12 }] as unknown as DOMRectList;
+        [{ width: 12, height: 12 }] as unknown as ReturnType<Element['getClientRects']>;
     }
     installSearchShortcut();
     window.dispatchEvent(new Event('DOMContentLoaded'));

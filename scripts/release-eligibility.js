@@ -39,13 +39,7 @@ export function inspectRemoteTag(remote, tagName) {
   return output.split(/\s+/)[0] ?? null;
 }
 
-export function evaluateEligibility({
-  ref,
-  refName,
-  sourceSha,
-  packageVersion,
-  remoteTagSha,
-}) {
+export function evaluateEligibility({ ref, refName, sourceSha, packageVersion, remoteTagSha }) {
   if (!sourceSha || !/^[0-9a-f]{40}$/i.test(sourceSha)) {
     throw new Error('source SHA must be a 40-character hex object id');
   }

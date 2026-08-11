@@ -54,12 +54,12 @@ describe('release-eligibility', () => {
 
   it('classifies absent, same-SHA, and wrong-SHA remote tags', () => {
     expect(classifyRemoteTag({ remoteSha: null, sourceSha: 'a'.repeat(40) })).toBe('absent');
-    expect(
-      classifyRemoteTag({ remoteSha: 'a'.repeat(40), sourceSha: 'a'.repeat(40) })
-    ).toBe('same-SHA');
-    expect(
-      classifyRemoteTag({ remoteSha: 'b'.repeat(40), sourceSha: 'a'.repeat(40) })
-    ).toBe('wrong-SHA');
+    expect(classifyRemoteTag({ remoteSha: 'a'.repeat(40), sourceSha: 'a'.repeat(40) })).toBe(
+      'same-SHA'
+    );
+    expect(classifyRemoteTag({ remoteSha: 'b'.repeat(40), sourceSha: 'a'.repeat(40) })).toBe(
+      'wrong-SHA'
+    );
   });
 
   it('does not mutate a disposable remote for absent, same-SHA, wrong-SHA, or tag-trigger', () => {
@@ -113,11 +113,22 @@ describe('release-eligibility', () => {
     expect(tagEvent.mutation).toBe(false);
 
     const after = execFileSync('git', ['ls-remote', remote], { encoding: 'utf8' });
-    expect(after).toBe(
-      execFileSync('git', ['ls-remote', remote], { encoding: 'utf8' })
-    );
+    expect(after).toBe(execFileSync('git', ['ls-remote', remote], { encoding: 'utf8' }));
     expect(after).toContain(before.trim().split('\n')[0] ?? '');
-    expect(main(['--ref', 'refs/heads/main', '--ref-name', 'main', '--source-sha', work.sha, '--package-version', '9.9.9', '--remote', remote]).classification).toBe('absent');
+    expect(
+      main([
+        '--ref',
+        'refs/heads/main',
+        '--ref-name',
+        'main',
+        '--source-sha',
+        work.sha,
+        '--package-version',
+        '9.9.9',
+        '--remote',
+        remote,
+      ]).classification
+    ).toBe('absent');
     expect(execFileSync('git', ['ls-remote', remote], { encoding: 'utf8' })).toBe(after);
   });
 });
