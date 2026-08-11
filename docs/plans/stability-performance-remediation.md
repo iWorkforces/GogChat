@@ -93,7 +93,7 @@ Your next move: after the plan review passes, start execution in a separate work
 > Implementation + Test = ONE todo. Never separate.
 <!-- APPEND TASK BATCHES BELOW THIS LINE WITH edit/apply_patch - never rewrite the headers above. -->
 
-- [ ] 1. Lock the dirty worktree and concurrent package manifest
+- [x] 1. Lock the dirty worktree and concurrent package manifest
   - What to do: record `GIT_MASTER=1 git status --short --untracked-files=all`, `shasum -a 256 package.json`, and `GIT_MASTER=1 git diff --cached -- package.json`; store the hash and path status in `<attemptDir>/task-1-worktree.json`. Recheck before and after every tooling/workflow todo.
   - Must NOT do: do not reset, restore, stash, format, stage, or edit `package.json`. If its hash changes, stop the active task, record drift, reread the user-owned file, and refresh only the guard baseline after confirming no agent write caused it.
   - Parallelization: Wave 0 | Blocked by: none | Blocks: 2-25.
@@ -103,7 +103,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `git` - repository-state and staging safety only.
   - Commit: N - evidence-only safeguard.
 
-- [ ] 2. Freeze baseline diagnostics by exact path and assertion
+- [x] 2. Freeze baseline diagnostics by exact path and assertion
   - What to do: run the current full gates and write `<attemptDir>/task-2-baseline.json` mapping every failure to command, test id/rule, path, and owner candidate. Include the known load-sensitive profiler timeout, wall-clock performance assertion, coverage deficit, lint findings, and Playwright discovery counts; do not classify them as product regressions.
   - Must NOT do: do not fix anything, update snapshots/baselines, or accept a command summary without the complete captured log.
   - Parallelization: Wave 0 | Blocked by: 1 | Blocks: 3-25.
@@ -113,7 +113,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `unspecified-high` - broad read-only baseline collection and classification.
   - Commit: N - evidence-only baseline.
 
-- [ ] 3. Freeze shared-file ownership and evidence validation
+- [x] 3. Freeze shared-file ownership and evidence validation
   - What to do: create `<attemptDir>/task-3-ownership.json` assigning exclusive owners exactly as follows: `package.json` none; `playwright.config.ts` Todo 4; preload modules Todo 7 then `offline.ts` Todo 14; account router/window Todo 8; WCV Todo 13; `vitest.config.ts` Todo 17; PR workflow Todo 19; release workflow Todos 23-25 serially; generated feature plan generator-only. Validate it with an inline `bun -e` assertion so no repository file is added.
   - Must NOT do: do not add product documentation or create overlapping write ownership; `src/main/generated/featurePlan.ts` can only change as build output and is never authored/staged manually.
   - Parallelization: Wave 0 | Blocked by: 2 | Blocks: 4-25.
@@ -123,7 +123,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `quick` - mechanical execution-safety contract.
   - Commit: N - evidence-only ownership contract.
 
-- [ ] 4. Establish complete Playwright project discovery before runtime RED tests
+- [x] 4. Establish complete Playwright project discovery before runtime RED tests
   - What to do: change `playwright.config.ts` to use `testDir: './tests'` and explicit projects named `e2e`, `integration`, `performance`, and `preload-artifact`, with non-overlapping `testMatch` patterns for existing directories and `tests/artifact/preload/**/*.test.ts`. Add `scripts/playwright-config.test.js` to load the exported config, enumerate normalized matches, and reject duplicate project ownership. Preserve one worker, 60-second per-test timeout, no retries, list reporter, and headless mode unless a project needs a longer explicit timeout.
   - Must NOT do: do not edit `package.json`, duplicate a test across projects, run artifact tests under generic integration, or add skipped/placeholder tests to inflate discovery.
   - Parallelization: Wave 1 | Blocked by: 3 | Blocks: 7, 9, 14, 15, 19.
@@ -133,7 +133,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `quick` - single-config deterministic test topology.
   - Commit: Y | `test(e2e): expose all Playwright test projects`.
 
-- [ ] 5. Characterize the app-ready orchestration seam
+- [x] 5. Characterize the app-ready orchestration seam
   - What to do: add `src/main/initializers/registerAppReady.test.ts` before changing coverage. Mock phase/store/account/finalizer boundaries and characterize security plus global cleanup, critical plus config initialization, preconnect, account-0 creation, account WebContents load hooks, UI phase, and `setImmediate` deferred scheduling.
   - Must NOT do: do not modify `registerAppReady.ts`, call document load first paint/interaction, or assert implementation-private incidental log text.
   - Parallelization: Wave 1 | Blocked by: 3 | Blocks: 17.
@@ -143,7 +143,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `unspecified-high` - central multi-boundary orchestration characterization.
   - Commit: Y | `test(startup): characterize app-ready ordering`.
 
-- [ ] 6. Make the frozen timing tests deterministic without weakening behavior
+- [x] 6. Make the frozen timing tests deterministic without weakening behavior
   - What to do: update only the baseline-listed timing tests. In `configProfiler.test.ts`, replace the million-iteration wall-time case with 100,000 deterministic mocked reads, exact call-count/statistics assertions, and a mocked monotonic clock. In `performanceMonitor.test.ts`, replace the `<10ms` real-clock assertion with a mocked clock sequence and exact elapsed value. Add no production fast path.
   - Must NOT do: do not raise global timeouts, remove iteration/call-count assertions, loosen inequalities, or touch non-manifest test debt.
   - Parallelization: Wave 1 | Blocked by: 3 | Blocks: 16, 18.
@@ -153,7 +153,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `quick` - tests-only deterministic clock repair.
   - Commit: Y | `test(perf): remove wall-clock timing flakiness`.
 
-- [ ] 7. Replace preload side effects with explicit installers and execute the built CJS entry
+- [x] 7. Replace preload side effects with explicit installers and execute the built CJS entry
   - What to do: RED-first update `src/preload/index.test.ts` and add `tests/artifact/preload/preload-entry.test.ts` plus a disposable Electron fixture. Export and explicitly call installers from `disableWebAuthn.ts`, `faviconChanged.ts`, `offline.ts`, `passkeyMonitor.ts`, `searchShortcut.ts`, `unreadCount.ts`, and `notificationBridge.ts`. Call WebAuthn disabling first, expose `window.gogchat` second, then install all remaining features in the current order. Preserve every unload cleanup and CJS `.js` import path.
   - Must NOT do: do not edit `package.json`, rely on bare side-effect imports, import `overrideNotifications.ts`, expose raw IPC, use string-grep as the sole artifact assertion, or treat separate emitted files as entry reachability.
   - Parallelization: Wave 2 | Blocked by: 4 | Blocks: 14, 15, 17.
@@ -163,7 +163,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `deep` - critical cross-process build/runtime correction.
   - Commit: Y | `fix(preload): retain production feature installers`.
 
-- [ ] 8. Route new BrowserWindows through manager-owned registration exactly once
+- [x] 8. Route new BrowserWindows through manager-owned registration exactly once
   - What to do: RED-first extend `accountRouter.test.ts` and `accountWindowManager.test.ts`. Add a required new-window registration callback to `routeAccountWindow`; invoke it only in the factory-created branch. The manager callback must register the window, attach activity/dehydration/throttle listeners, and emit one WebContents-created notification. Remove unconditional post-route notification. On callback failure, detach/unregister partial state, destroy the new window, and rethrow.
   - Must NOT do: do not call the callback for existing or hydrated windows, double-register, duplicate listeners/hooks/navigation, change partitions, or alter backend selection.
   - Parallelization: Wave 2 | Blocked by: 3 | Blocks: 16, 17.
@@ -173,7 +173,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `deep` - default-backend lifecycle and rollback semantics.
   - Commit: Y | `fix(accounts): register new windows through the manager`.
 
-- [ ] 9. Bound shutdown stages and prove process exit
+- [x] 9. Bound shutdown stages and prove process exit
   - What to do: RED-first add pending-promise, late-rejection, duplicate-quit, and process-exit cases. Implement an injectable deadline-signal factory whose production implementation uses `AbortSignal.timeout`: 2,000 ms per stage and an independent 8,000 ms overall ceiling. Timeout abandons but does not cancel a stage; observe late rejection, log stage identity, continue later stages in order, and guard `app.exit()` exactly once.
   - Must NOT do: do not add bare `setTimeout`, use timers tracked by cleanup machinery that can clear its own watchdog, change normal cleanup order, or claim cancellation support absent from cleanup contracts.
   - Parallelization: Wave 2 | Blocked by: 4 | Blocks: 16, 17.
@@ -183,7 +183,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `deep` - asynchronous liveness with process-level proof.
   - Commit: Y | `fix(lifecycle): bound graceful shutdown`.
 
-- [ ] 10. Bound manual update checks and select only valid stable releases
+- [x] 10. Bound manual update checks and select only valid stable releases
   - What to do: RED-first add a pure parser from `unknown`, require valid tag and HTTPS release URL plus `draft === false` and `prerelease === false`, select the first valid stable API entry, and use `AbortSignal.timeout(10_000)`. Timeout, malformed payload, empty/no-stable list, HTTP failure, dismissal, and normal completion must all release `manualGate`; leave background notifier unchanged. Add `tests/integration/manual-update.test.ts`; from `electronApp.evaluate`, replace main-process `globalThis.fetch` with a deferred/local fixture, import the built update feature, invoke the manual path, and inspect the real update window lifecycle without public network access.
   - Must NOT do: do not cast untrusted JSON, offer drafts/prereleases, open an unvalidated URL, change automatic update policy, or add a dependency.
   - Parallelization: Wave 2 | Blocked by: 3 | Blocks: 16, 17.
@@ -193,7 +193,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `unspecified-high` - network boundary parsing and native-dialog liveness.
   - Commit: Y | `fix(updates): bound stable release checks`.
 
-- [ ] 11. Make feature specification parsing fail closed
+- [x] 11. Make feature specification parsing fail closed
   - What to do: RED-first extend `featurePlanPlugin.test.js`, then replace the hand-scanner entry/metadata extraction with the already-installed TypeScript compiler API. Require every exported array element to be an object literal; reject spreads, calls, identifiers, conditionals, holes, computed names, and malformed known metadata with file, element index, and property. Allow static identifier/string keys, operational `init`/`cleanup`, same-phase dependencies, and earlier-phase dependencies. Reject forward-phase dependencies under `security < critical < ui < deferred`. Build all output before writing.
   - Must NOT do: do not evaluate arbitrary expressions, change runtime registration, inspect implementation bodies, hand-edit generated output, or partially write on error.
   - Parallelization: Wave 2 | Blocked by: 3 | Blocks: 16.
@@ -203,7 +203,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `deep` - build-time grammar and dependency validation.
   - Commit: Y | `fix(build): reject unsupported feature specifications`.
 
-- [ ] 12. Select coherent upper-median renderer evidence
+- [x] 12. Select coherent upper-median renderer evidence
   - What to do: RED-first update `headless-startup.test.js`. For complete valid runs in original order, count unique renderer identity by `(pid, creationTime)` when creationTime exists, otherwise PID; stable-sort by count then original index; choose `floor(validRunCount / 2)` (upper median for even counts); copy that run's complete `rendererSnapshots`. Incomplete runs never provide representative snapshots and still make aggregate completeness fail.
   - Must NOT do: do not synthesize unrelated snapshot fields, use the last run, accept incomplete evidence, change MB/ms units, or reinterpret document load as interaction.
   - Parallelization: Wave 2 | Blocked by: 3 | Blocks: 17, 19.
@@ -213,7 +213,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `unspecified-high` - performance evidence contract and adversarial fixtures.
   - Commit: Y | `fix(perf): aggregate representative renderer evidence`.
 
-- [ ] 13. Centralize WCV resource-state and throttling transitions
+- [x] 13. Centralize WCV resource-state and throttling transitions
   - What to do: RED-first add a `0 -> 1 -> 2 -> 0` matrix plus create/park/hydrate/unregister/fallback cases. Route all transitions through one private helper that updates visibility/resourceState and reapplies: account 0 unthrottled; visible secondary unthrottled; hidden-live and dehydrated-parked secondary throttled.
   - Must NOT do: do not mark hidden-live as dehydrated, park account 0/bootstrap, leave the host without a visible fallback, alter default backend, or conflate host and child WebContents.
   - Parallelization: Wave 2 | Blocked by: 3 | Blocks: 16, 17.
@@ -223,7 +223,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `unspecified-high` - opt-in backend state-machine correction.
   - Commit: Y | `fix(accounts): align WCV throttling with visibility`.
 
-- [ ] 14. Isolate online checks per sender and guarantee terminal offline UI
+- [x] 14. Isolate online checks per sender and guarantee terminal offline UI
   - What to do: after Todo 7, RED-first extend rate limiter, IPC pipeline, online feature, preload/offline, static offline, and integration tests. Scope limiter keys by `event.sender.id` in both canonical `defineIPC` and legacy helper paths. Remove `deduplicate: true` from online checks. Preserve channels/payloads. Arm one 6,000 ms preload deadline per request; clear it on response/unload and dispatch the existing failure DOM event exactly once on timeout.
   - Must NOT do: do not add correlation IDs/new channels/persisted state, globally relax rate limits, reload on false/timeout, or leave a timer/listener after unload.
   - Parallelization: Wave 3 | Blocked by: 7, 4 | Blocks: 16, 17, 19.
@@ -233,7 +233,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `deep` - cross-process multi-account liveness and shared pipeline behavior.
   - Commit: Y | `fix(ipc): isolate online checks by sender`.
 
-- [ ] 15. Verify packaged preload presence separately from built behavior
+- [x] 15. Verify packaged preload presence separately from built behavior
   - What to do: RED-first add `scripts/verify-packaged-preload.js` and `scripts/verify-packaged-preload.test.js`. The verifier inspects disposable packaged output and proves `lib/preload/index.js` plus every CommonJS chunk required by that entry is included. Consume Todo 7's built-CJS execution result; do not repeat or replace it. Run both macOS package commands; when credentials are absent, require the repository's unsigned path and label trust readiness separately.
   - Must NOT do: do not claim presence proves execution, prune dependencies, modify package arch policy, list universal/amd64, or treat unsigned output as signed release evidence.
   - Parallelization: Wave 3 | Blocked by: 7, 4 | Blocks: 19, 23.
@@ -243,7 +243,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `unspecified-high` - packaging contract and artifact-class separation.
   - Commit: Y | `test(package): verify production preload inclusion`.
 
-- [ ] 16. Resolve only residual frozen diagnostics after file owners finish
+- [x] 16. Resolve only residual frozen diagnostics after file owners finish
   - What to do: compare Todo 2's manifest to completed owners 6 and 8-14. Assign findings inside their changed files back to those owners. Fix only remaining manifest-listed lint/type/test findings in one path-scoped residual change; preserve runtime behavior and exact tests.
   - Must NOT do: do not run broad auto-fix over unrelated files, alter thresholds, clean adjacent code, or touch `package.json`.
   - Parallelization: Wave 3 | Blocked by: 6, 8-14 | Blocks: 17-19.
@@ -253,7 +253,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `quick` - bounded deterministic residual cleanup.
   - Commit: Y | `chore(quality): close frozen diagnostic debt`.
 
-- [ ] 17. Reinclude remediated orchestration and preload seams in coverage
+- [x] 17. Reinclude remediated orchestration and preload seams in coverage
   - What to do: change only `vitest.config.ts` after direct tests exist. Remove exclusions for `src/preload/**`, `registerAppReady.ts`, `inOnline.ts`, `appUpdates.ts`, and `defineIPC.ts`; keep unchanged CDP product files and genuine type/entry-only exclusions. Preserve thresholds 94 statements, 92 branches, 94 functions, 94 lines.
   - Must NOT do: do not lower thresholds, add blanket exclusions, count Playwright as Vitest coverage, or reinclude files without executable source tests.
   - Parallelization: Wave 4 | Blocked by: 5, 7-14, 16 | Blocks: 18.
@@ -345,7 +345,7 @@ Your next move: after the plan review passes, start execution in a separate work
 
 ## Final verification wave
 > Runs in parallel after ALL todos. ALL must APPROVE. Surface results and wait for the user's explicit okay before declaring complete.
-- [ ] F1. Plan compliance and evidence audit
+- [x] F1. Plan compliance and evidence audit
   - Verify every Todo 1-25 acceptance criterion against its exact receipt; reject self-report, missing RED, missing surface class, stale attempt directory, incomplete CDP cells, or an implementation claim backed only by source tests.
   - Required result: unconditional `APPROVED` with a finding-to-task-to-evidence traceability matrix.
   - Recommended task executor category: `unspecified-high`.
