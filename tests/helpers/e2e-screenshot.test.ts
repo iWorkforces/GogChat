@@ -79,6 +79,7 @@ describe('e2e screenshot and auth skip helpers', () => {
     );
     expect(source).toContain('window.setSize(1024, 768)');
     expect(source).not.toContain('toBeLessThanOrEqual(80)');
+    expect(source).toContain('isHarnessUrl(start)');
   });
 
   it('does not pin exact window sizes or unbounded networkidle on CI Electron suites', () => {

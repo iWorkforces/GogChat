@@ -265,6 +265,12 @@ test.describe('User Workflows', () => {
     });
 
     test('should allow Google domain navigation', async ({ mainWindow }) => {
+      const start = await mainWindow.url();
+      test.skip(
+        isHarnessUrl(start),
+        'Google-domain navigation is a Chat-origin policy; the local harness is file://'
+      );
+
       // Navigate within Google domains should work
       await mainWindow.evaluate(() => {
         window.location.href = 'https://accounts.google.com';
