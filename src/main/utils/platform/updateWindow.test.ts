@@ -149,4 +149,56 @@ describe('updateWindow', () => {
     expect(mod.isUpdateSessionDismissed()).toBe(false);
     mod.destroyUpdateWindow();
   });
+
+  it('Escape during checking marks the session dismissed and hides the window', async () => {
+    const mod = await import('./updateWindow.js');
+    mod.beginUpdateDialogSession();
+    await mod.presentUpdateDialog({
+      message: 'Checking for updates…',
+      phase: 'checking',
+    });
+
+    const win = getInstances()[0]!;
+    const beforeInput = win.webContents.on.mock.calls.find(
+      (c: unknown[]) => c[0] === 'before-input-event'
+    );
+    expect(beforeInput).toBeDefined();
+    const handler = beforeInput![1] as (_e: unknown, input: { type: string; key: string }) => void;
+    handler({}, { type: 'keyDown', key: 'Escape' });
+
+    expect(mod.isUpdateSessionDismissed()).toBe(true);
+    expect(win.hide).toHaveBeenCalled();
+    expect(mod.isUpdateDialogOpen()).toBe(false);
+    mod.destroyUpdateWindow();
+  });
+
+  it('result phase after checking can settle without leaking a waiter', async () => {
+    const mod = await import('./updateWindow.js');
+    await mod.presentUpdateDialog({
+      message: 'Checking for updates…',
+      phase: 'checking',
+    });
+
+    const promise = mod.presentUpdateDialog({
+      message: 'Couldn’t check for updates',
+      type: 'error',
+      phase: 'result',
+      buttons: [],
+      cancelId: 0,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const win = getInstances()[0]!;
+    const beforeInput = win.webContents.on.mock.calls.find(
+      (c: unknown[]) => c[0] === 'before-input-event'
+    );
+    const handler = beforeInput![1] as (_e: unknown, input: { type: string; key: string }) => void;
+    handler({}, { type: 'keyDown', key: 'Escape' });
+
+    await expect(promise).resolves.toEqual({ response: 0 });
+    expect(mod.isUpdateDialogOpen()).toBe(false);
+    mod.destroyUpdateWindow();
+  });
 });

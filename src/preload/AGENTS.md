@@ -36,7 +36,8 @@ The preload is sandboxed and built as CommonJS because Electron sandboxed preloa
 - Subscribes to `onOnlineStatus`:
   - **true** → exactly one `window.location.replace(urls.appUrl)` transition.
   - **false** → dispatch DOM-only `app:onlineCheckFailed` so the offline page restores retry UI. **Do not** `location.reload()`.
-- `beforeunload` removes the check listener and unsubscribes from online status.
+- Each check arms a 6,000 ms deadline; timeout dispatches `app:onlineCheckFailed` once. Clear the deadline on response or unload.
+- `beforeunload` removes the check listener, cancels the deadline, and unsubscribes from online status.
 - Keep the existing narrow bridge surface; never expose raw `ipcRenderer` to the offline page.
 
 ## DOM behavior
