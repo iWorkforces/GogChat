@@ -34,7 +34,7 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 - `verify-windows-package-artifacts.js` - checks guarded Windows NSIS setup names, required x64/arm64 outputs, and forbidden package types.
 - `verify-windows-signing-policy.js` - blocks Windows release publication unless `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` exists or the owner explicitly allows unsigned Windows assets.
 - `verify-release-artifacts.js` - verifies aggregated **macOS arm64 + x64 DMGs** plus guarded Windows x64/arm64 setups before the single publish job.
-- Contract tests: `package-scaffold.test.js`, `release-workflow.test.js`, `verify-macos-package-artifacts.test.js`, `verify-release-artifacts.test.js`, `mac-release-signing.test.js`, `verify-mac-release-signing.test.js`, Windows artifact/signing tests.
+- Contract tests: `package-scaffold.test.js`, `playwright-config.test.js` (four isolated Playwright projects, no overlapping `testMatch`), `release-workflow.test.js`, `verify-macos-package-artifacts.test.js`, `verify-release-artifacts.test.js`, `mac-release-signing.test.js`, `verify-mac-release-signing.test.js`, Windows artifact/signing tests.
 
 ### Evidence and claims
 
@@ -85,6 +85,7 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 - Windows setup artifacts must stay as separate NSIS installers named `${productName}-${version}-windows-x64-setup.exe` and `${productName}-${version}-windows-arm64-setup.exe`.
 - Native Windows CI packaging runs x64 on `windows-latest` with AMD64 proof and arm64 on `windows-11-arm` with ARM64 proof.
 - `electron-builder.yml` excludes proven build-only namespaces (`@rslib`, `@rspack`, `@ast-grep`); keep that aligned with the closure report.
+
 ### Current CI (do not invent extra gates)
 
 - **PR Check** (`.github/workflows/pr-check.yml`): frozen install → Electron binary → typecheck → `check:doc-claims` → `bun run test` → `test:coverage` → madge → `build:prod` → five-run headless (`HEADLESS_TIMEOUT_MS=90000`) → budget → always-upload metrics. **Does not** run `lint:all` or Playwright. Lint lives in `scripts/hooks/pre-push` / local `bun run lint:all`.
