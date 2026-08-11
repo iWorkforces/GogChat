@@ -122,10 +122,12 @@ export async function evaluateWithRequire<T>(
   electronApp: { evaluate: (fn: (...args: never[]) => unknown, arg?: unknown) => Promise<T> },
   work: (api: ElectronEvaluateApi & { require: NodeRequire }) => T | Promise<T>
 ): Promise<T> {
-  return electronApp.evaluate(async (electron: ElectronEvaluateApi, workSource: string) => {
-    const { createRequire } = await import('node:module');
-    const path = await import('node:path');
-    const require = createRequire(path.join(process.cwd(), 'package.json'));
+  // Electron 43 evaluate is ESM: `import()` and `require()` are rejected.
+  // `process.getBuiltinModule` is the Node 22+ seam that still works.
+  return electronApp.evaluate((electron: ElectronEvaluateApi, workSource: string) => {
+    const nodeModule = process.getBuiltinModule('module') as typeof import('node:module');
+    const nodePath = process.getBuiltinModule('path') as typeof import('node:path');
+    const require = nodeModule.createRequire(nodePath.join(process.cwd(), 'package.json'));
     const fn = new Function('api', `return (${workSource})(api);`) as (
       api: ElectronEvaluateApi & { require: NodeRequire }
     ) => T | Promise<T>;
@@ -166,6 +168,25 @@ export async function isMainWindowVisible(electronApp: {
     const window = BrowserWindow.getAllWindows()[0];
     return Boolean(window && !window.isDestroyed() && window.isVisible());
   });
+}
+
+/** Poll until the native window is shown, or `timeoutMs` elapses. */
+export async function waitForMainWindowVisible(
+  electronApp: {
+    evaluate: (fn: (api: ElectronEvaluateApi) => boolean) => Promise<boolean>;
+  },
+  timeoutMs = 1500
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isMainWindowVisible(electronApp)) {
+      return true;
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 20);
+    });
+  }
+  return isMainWindowVisible(electronApp);
 }
 
 export function isChatUrl(url: string): boolean {

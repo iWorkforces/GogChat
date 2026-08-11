@@ -30,7 +30,7 @@ bun run check:doc-claims
 - Use `tests/mocks/electron.ts` for Electron mocks.
 - Reset with `electronMock.reset()` and `vi.clearAllMocks()` between cases.
 - Keep `tests/polyfill-crypto.cjs` loaded for crypto-dependent unit tests.
-- Electron 43 evaluate is ESM: do not call `require()` or `import()` inside `electronApp.evaluate`. Use `BrowserWindow` APIs, `evaluateWithRequire` (CJS `require` bound to the repo root), or `TESTING` hooks such as `__gogchatGetAccountWindowManager`. `Page.isVisible()` needs a selector — use `isMainWindowVisible()`. Skip authenticated Chat UI when no session exists. Accept `workspace.google.com` as a Chat landing URL.
+- Electron 43 evaluate is ESM: do not call `require()` or `import()` inside `electronApp.evaluate`. Use `BrowserWindow` APIs, `evaluateWithRequire` (binds CJS `require` via `process.getBuiltinModule`), or `TESTING` hooks such as `__gogchatGetAccountWindowManager`. `Page.isVisible()` needs a selector — use `isMainWindowVisible()` for a snapshot or `waitForMainWindowVisible()` until native `show`. Skip authenticated Chat UI when no session exists. Accept `workspace.google.com` as a Chat landing URL.
 - `GOGCHAT_TEST_HANG_SHUTDOWN` is opt-in via `test.use({ extraElectronEnv: { GOGCHAT_TEST_HANG_SHUTDOWN: 'feature' } })`. The default Electron fixture strips that env so other integration files cannot inherit a hung shutdown.
 - Do not leave `expect(true).toBe(true)` or “window still exists” as the only assertion when the case claims to exercise IPC or the account manager.
 

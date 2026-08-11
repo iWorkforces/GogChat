@@ -3,7 +3,7 @@
  * Monitors application performance metrics to detect regressions
  */
 
-import { test, expect, isMainWindowVisible } from '../helpers/electron-test';
+import { test, expect, waitForMainWindowVisible } from '../helpers/electron-test';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'perf_hooks';
@@ -51,10 +51,10 @@ test.describe('Performance Regression Tests', () => {
     test('should show window quickly', async ({ electronApp, mainWindow }) => {
       const { duration, result } = await measureTime('Window Ready', async () => {
         await mainWindow.waitForLoadState('domcontentloaded');
-        return isMainWindowVisible(electronApp);
+        return waitForMainWindowVisible(electronApp, PERFORMANCE_THRESHOLDS.WINDOW_READY);
       });
 
-      expect(await result).toBe(true);
+      expect(result).toBe(true);
       expect(duration).toBeLessThan(PERFORMANCE_THRESHOLDS.WINDOW_READY);
     });
 
