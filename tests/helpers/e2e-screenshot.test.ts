@@ -65,6 +65,27 @@ describe('e2e screenshot and auth skip helpers', () => {
     expect(source).toContain('window.setSize(1024, 768)');
     expect(source).not.toContain('toBeLessThanOrEqual(80)');
   });
+
+  it('does not pin exact window sizes or unbounded networkidle on CI Electron suites', () => {
+    const integrationLaunch = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../integration/app-launch.test.ts'),
+      'utf8'
+    );
+    const multiAccount = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../integration/multi-account.test.ts'),
+      'utf8'
+    );
+    const performance = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../performance/performance-regression.test.ts'),
+      'utf8'
+    );
+    expect(integrationLaunch).not.toMatch(/waitForLoadState\(\s*'networkidle'\s*\)/);
+    expect(integrationLaunch).toContain('isGoogleSurfaceUrl');
+    expect(multiAccount).not.toContain('toBe(800)');
+    expect(multiAccount).not.toContain('toBe(600)');
+    expect(performance).not.toMatch(/waitForLoadState\(\s*'networkidle'\s*\)/);
+    expect(performance).toContain('waitForLoadStateBounded');
+  });
 });
 
 function restoreEnv(name: string, value: string | undefined): void {

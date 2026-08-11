@@ -237,6 +237,33 @@ export function isChatUrl(url: string): boolean {
   );
 }
 
+/** Unauthenticated CI often lands on accounts.google.com instead of Chat. */
+export function isGoogleSurfaceUrl(url: string): boolean {
+  return isChatUrl(url) || url.includes('google.com');
+}
+
+/**
+ * Bounded load-state wait. Google Chat keeps sockets open, so `networkidle`
+ * can run to the project timeout on macos-latest.
+ */
+export async function waitForLoadStateBounded(
+  page: {
+    waitForLoadState: (
+      state: 'load' | 'domcontentloaded' | 'networkidle',
+      options?: { timeout?: number }
+    ) => Promise<void>;
+  },
+  state: 'load' | 'domcontentloaded' | 'networkidle',
+  timeoutMs = 8_000
+): Promise<boolean> {
+  try {
+    await page.waitForLoadState(state, { timeout: timeoutMs });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Re-export expect for convenience
  */
