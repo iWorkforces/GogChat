@@ -11,7 +11,7 @@ This directory is the canonical home for app startup/shutdown sequencing and bui
 - `registerGlobalCleanups.ts` - lazy `require()` of cleanup owners (avoid startup import cycles).
 - `singletonDestroyers.ts` / `shutdownDiagnostics.ts` - ordered teardown helpers used by shutdown. About/Update destroyers are **dynamic-imported** (keep aurora HTML out of main bundle); then perf/IPC/icon singletons.
 - `security.spec.ts`, `ui.spec.ts`, `deferred.spec.ts` - declarative startup plan input (`FeatureSpec` from `utils/lifecycle/featureConfigTypes.ts`). `ui.spec.ts` is mixed: it owns **critical** `userAgent` plus UI `singleInstance` / `deepLinkHandler`.
-- `registerAppReady.ts` has no characterization test today. Do not treat leftover comments about “cert pinning + permissions” as current behavior — pinning is gone.
+- `registerAppReady.test.ts` characterizes ordering against unchanged production: security ∥ global cleanup, critical ∥ store, preconnect before account-0, account WebContents (not WCV host) owns load markers, UI before detached `setImmediate` deferred, deferred rejection does not relabel readiness, required security failure skips account/UI/deferred. Do not treat leftover production comments about “cert pinning + permissions” as current behavior — pinning is gone.
 
 ## Feature plan contract
 

@@ -33,7 +33,7 @@ bun run check:doc-claims
 
 ## What to test
 
-- Startup/spec changes: generated feature plan and phase ordering.
+- Startup/spec changes: generated feature plan and phase ordering. App-ready orchestration: `src/main/initializers/registerAppReady.test.ts` (preconnect before account-0, account WC load markers, UI before deferred).
 - IPC changes: validation, rate limiting, dedup behavior, success and failure paths.
 - Account changes: partition persistence, auth-page protection, switching, dehydration, single hydration navigation, `enumerateAccountWebContents` (both backends), sparse `listAccountIndices` / `hasAccount` (includes dehydrated), WCV three-state, hooks re-fire on BW dehydrate→hydrate, WC-first `loadAccountURL` (never WCV host loadURL).
 - Preload/offline changes: false online replies produce zero reloads; true reply produces one app-URL replace; bridge cleanup on unload.
