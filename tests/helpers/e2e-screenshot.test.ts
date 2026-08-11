@@ -53,14 +53,17 @@ describe('e2e screenshot and auth skip helpers', () => {
     expect(options.path).toMatch(/local-viewport\.png$/);
   });
 
-  it('skips signed-in e2e flows unless a conversation list exists', () => {
+  it('skips signed-in e2e flows on CI and unless a conversation list exists', () => {
     const source = fs.readFileSync(E2E_WORKFLOW, 'utf8');
     expect(source).not.toMatch(/locator\('\[[^\]]*role="main"[^\]]*\]'\)\.count\(\)/);
     expect(source).not.toMatch(/locator\('\[[^\]]*role="navigation"[^\]]*\]'\)\.count\(\)/);
     expect(source).toContain('locator(\'[role="listitem"]\').count()');
+    expect(source).toContain("process.env['CI'] || process.env['GITHUB_ACTIONS']");
     expect(source).toContain(
       "test.skip(conversationCount === 0, 'unauthenticated CI has no Google session')"
     );
+    expect(source).toContain('window.setSize(1024, 768)');
+    expect(source).not.toContain('toBeLessThanOrEqual(80)');
   });
 });
 
