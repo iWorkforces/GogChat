@@ -144,6 +144,15 @@ describe('Electron fixture evaluate safety', () => {
     expect(source).not.toMatch(/BrowserWindow\.getAllWindows\(\)\[0\]\?\.show\(\)/);
   });
 
+  it('does not await evaluate(app.quit()) in the bounded-shutdown case', () => {
+    const shutdown = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../integration/bounded-shutdown.test.ts'),
+      'utf8'
+    );
+    expect(shutdown).not.toMatch(/await electronApp\.evaluate\(\(\{ app \}\) => \{\s*app\.quit\(\)/);
+    expect(shutdown).toContain('void electronApp');
+  });
+
   it('ignores Playwright process() _object errors after the child already quit', async () => {
     const app = {
       process: vi.fn(() => {

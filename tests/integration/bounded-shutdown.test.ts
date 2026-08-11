@@ -19,9 +19,13 @@ test.describe('bounded shutdown', () => {
       });
     });
 
-    await electronApp.evaluate(({ app }) => {
-      app.quit();
-    });
+    // Do not await evaluate(app.quit()): quitting destroys the evaluate context
+    // so the promise never settles (or throws GC / target-closed) on CI.
+    void electronApp
+      .evaluate(({ app }) => {
+        app.quit();
+      })
+      .catch(() => undefined);
 
     const code = await Promise.race([
       exited,
