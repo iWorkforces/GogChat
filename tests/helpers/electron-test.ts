@@ -441,15 +441,22 @@ export async function sendIPCFromMain(
   channel: string,
   data?: any
 ): Promise<void> {
-  await app.evaluate(
-    ({ BrowserWindow }, { channel, data }) => {
-      const windows = BrowserWindow.getAllWindows();
-      if (windows.length > 0) {
-        windows[0].webContents.send(channel, data);
-      }
-    },
-    { channel, data }
-  );
+  await Promise.race([
+    app.evaluate(
+      ({ BrowserWindow }, payload: { channel: string; data?: unknown }) => {
+        const windows = BrowserWindow.getAllWindows();
+        if (windows.length > 0) {
+          windows[0].webContents.send(payload.channel, payload.data);
+        }
+      },
+      { channel, data }
+    ),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`sendIPCFromMain timed out on ${channel}`));
+      }, 5_000);
+    }),
+  ]);
 }
 
 /**

@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { _electron as electron, expect, test } from '@playwright/test';
+import { closeElectronApp } from '../helpers/electron-test';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '../..');
 const APP_PATH = path.join(PROJECT_ROOT, 'lib/main/index.js');
@@ -292,7 +293,12 @@ async function probeManualUpdate(
         } else {
           dismissUpdateWindow();
         }
-        await running.catch(() => undefined);
+        await Promise.race([
+          running.catch(() => undefined),
+          new Promise<void>((resolve) => {
+            setTimeout(resolve, 2_000);
+          }),
+        ]);
         const trailing = await readUpdateWindow();
         if (trailing) snapshots.push(trailing);
 
@@ -408,7 +414,7 @@ test.describe('manual update liveness', () => {
       expect(again.openedUrls).toEqual([STABLE_URL]);
     } finally {
       if (app) {
-        await app.close();
+        await closeElectronApp(app);
         teardown.push('electron-app-closed');
       }
       await rm(userData, { recursive: true, force: true });

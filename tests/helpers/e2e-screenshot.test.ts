@@ -145,6 +145,22 @@ describe('Electron fixture evaluate safety', () => {
     expect(source).not.toMatch(/BrowserWindow\.getAllWindows\(\)\[0\]\?\.show\(\)/);
   });
 
+  it('bounds sendIPCFromMain and manual-update teardown', () => {
+    const helper = fs.readFileSync(path.resolve(import.meta.dirname, './electron-test.ts'), 'utf8');
+    const ipc = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../integration/ipc-communication.test.ts'),
+      'utf8'
+    );
+    const update = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../integration/manual-update.test.ts'),
+      'utf8'
+    );
+    expect(helper).toContain('sendIPCFromMain timed out');
+    expect(ipc).toContain('main evaluate unavailable');
+    expect(update).toContain('closeElectronApp');
+    expect(update).not.toMatch(/await app\.close\(\)/);
+  });
+
   it('does not await evaluate(app.quit()) in the bounded-shutdown case', () => {
     const shutdown = fs.readFileSync(
       path.resolve(import.meta.dirname, '../integration/bounded-shutdown.test.ts'),
