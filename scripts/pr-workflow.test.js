@@ -111,6 +111,21 @@ describe('PR check workflow contract', () => {
     expect(job).toContain('coverage-output.txt');
   });
 
+  it('uploads Playwright traces and reports when a Playwright step fails', () => {
+    const job = workflowJob(readPrWorkflow(), 'check');
+    const e2eAt = indexOfCommand(job, 'bunx playwright test --project=e2e');
+    const preloadAt = indexOfCommand(job, 'bunx playwright test --project=preload-artifact');
+    const failureUploadAt = job.indexOf('if: failure()');
+    const headlessAt = indexOfCommand(job, LITERAL.headless);
+
+    expect(failureUploadAt).toBeGreaterThan(e2eAt);
+    expect(failureUploadAt).toBeGreaterThan(preloadAt);
+    expect(failureUploadAt).toBeLessThan(headlessAt);
+    expect(job).toContain('test-results/');
+    expect(job).toContain('playwright-report/');
+    expect(job).toContain('retention-days: 7');
+  });
+
   it('lists every Playwright project once and no extra project names', () => {
     const output = execFileSync('bunx', ['playwright', 'test', '--list'], {
       cwd: PROJECT_ROOT,

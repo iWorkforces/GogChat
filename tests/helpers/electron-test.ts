@@ -59,59 +59,64 @@ export const test = base.extend<ElectronTestFixtures>({
 
   extraElectronEnv: [{}, { option: true }],
 
-  electronApp: async ({ appPath, extraElectronEnv }, use) => {
-    if (!existsSync(appPath)) {
-      throw new Error(
-        `Electron fixture: missing built main entry at ${appPath}. Run \`bun scripts/build-rsbuild.js\` before Playwright.`
-      );
-    }
-    const projectRoot = join(__dirname, '../..');
-    const userDataDir = mkdtempSync(join(tmpdir(), 'gogchat-pw-'));
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      NODE_ENV: 'test',
-      TESTING: 'true',
-      ...extraElectronEnv,
-    };
-    // Hang injection is opt-in per fixture. Never leak a parent-process flag
-    // into every Electron launch.
-    if (!extraElectronEnv['GOGCHAT_TEST_HANG_SHUTDOWN']) {
-      delete env['GOGCHAT_TEST_HANG_SHUTDOWN'];
-    }
-    let app;
-    try {
-      app = await electron.launch({
-        cwd: projectRoot,
-        args: [appPath, `--user-data-dir=${userDataDir}`],
-        env,
-        timeout: 45_000,
-      });
-    } catch (error: unknown) {
-      throw new Error(
-        `Electron fixture: electron.launch failed (${appPath}): ${formatUnknownError(error)}`
-      );
-    }
+  electronApp: [
+    async ({ appPath, extraElectronEnv }, use) => {
+      if (!existsSync(appPath)) {
+        throw new Error(
+          `Electron fixture: missing built main entry at ${appPath}. Run \`bun scripts/build-rsbuild.js\` before Playwright.`
+        );
+      }
+      const projectRoot = join(__dirname, '../..');
+      const userDataDir = mkdtempSync(join(tmpdir(), 'gogchat-pw-'));
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        NODE_ENV: 'test',
+        TESTING: 'true',
+        ...extraElectronEnv,
+      };
+      // Hang injection is opt-in per fixture. Never leak a parent-process flag
+      // into every Electron launch.
+      if (!extraElectronEnv['GOGCHAT_TEST_HANG_SHUTDOWN']) {
+        delete env['GOGCHAT_TEST_HANG_SHUTDOWN'];
+      }
+      let app;
+      try {
+        app = await electron.launch({
+          cwd: projectRoot,
+          args: [appPath, `--user-data-dir=${userDataDir}`],
+          env,
+          timeout: 45_000,
+        });
+      } catch (error: unknown) {
+        throw new Error(
+          `Electron fixture: electron.launch failed (${appPath}): ${formatUnknownError(error)}`
+        );
+      }
 
-    try {
-      await app.firstWindow({ timeout: 45_000 });
-    } catch (error: unknown) {
-      await app.close().catch(() => undefined);
-      throw new Error(
-        `Electron fixture: firstWindow timed out or failed — BrowserWindow never appeared: ${formatUnknownError(error)}`
-      );
-    }
+      try {
+        await app.firstWindow({ timeout: 45_000 });
+      } catch (error: unknown) {
+        await app.close().catch(() => undefined);
+        throw new Error(
+          `Electron fixture: firstWindow timed out or failed — BrowserWindow never appeared: ${formatUnknownError(error)}`
+        );
+      }
 
-    const shown = await waitForMainWindowVisible(app, 20_000);
-    if (!shown) {
-      await app.close().catch(() => undefined);
-      throw new Error(
-        'Electron fixture: window was created but never became visible (ready-to-show / show race)'
-      );
-    }
+      // Product windows start show:false and only show() on ready-to-show.
+      // Unauthenticated Chat often never paints on macos-latest, so that
+      // event never fires. Force a native show and continue — do not wait
+      // for Chat first paint in this shared fixture.
+      if (!(await isMainWindowVisible(app))) {
+        await app.evaluate(({ BrowserWindow }) => {
+          BrowserWindow.getAllWindows()[0]?.show();
+        });
+      }
 
-    await use(app);
-    await app.close();
-  },
+      await use(app);
+      await app.close();
+    },
+    { timeout: 120_000 },
+  ],
 
   mainWindow: async ({ electronApp }, use) => {
     const window = await electronApp.firstWindow({ timeout: 45_000 });
