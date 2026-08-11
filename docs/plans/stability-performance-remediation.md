@@ -333,7 +333,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `deep` - cross-platform release DAG and irreversible action ordering.
   - Commit: Y | `ci(release): verify artifacts before tagging`.
 
-- [ ] 25. Lock release race, retry, and publication recovery behavior
+- [x] 25. Lock release race, retry, and publication recovery behavior
   - What to do: add job-level concurrency keyed by candidate tag with `cancel-in-progress: false`; immediately before tag creation recheck the remote. If absent, create at exact source SHA; if same SHA, continue retry; if different, fail. Preserve an existing qualified tag after publish failure so a main rerun can rebuild/reverify/publish; never auto-delete/move. Test tag-trigger no-op and real-main ownership.
   - Must NOT do: do not force-push tags, auto-delete recovery tags, allow two tag writers, skip requalification on retry, or contact GitHub during tests.
   - Parallelization: Wave 6 | Blocked by: 24 | Blocks: F1-F4.

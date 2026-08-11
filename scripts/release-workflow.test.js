@@ -258,7 +258,7 @@ function parseNeeds(job) {
 }
 
 function jobWritesTag(job) {
-  return /git tag /.test(job) && /git push origin/.test(job);
+  return /release-tag\.js/.test(job) || (/git tag /.test(job) && /git push origin/.test(job));
 }
 
 export function simulateReleaseDag(failedJob) {
@@ -329,6 +329,9 @@ describe('release qualify-then-tag DAG', () => {
       'create-release-tag',
     ]);
     expect(jobWritesTag(createTagJob)).toBe(true);
+    expect(createTagJob).toContain('node scripts/release-tag.js');
+    expect(createTagJob).toContain('group: create-release-tag-${{ needs.prepare-release.outputs.tag_name }}');
+    expect(createTagJob).toContain('cancel-in-progress: false');
     expect(createTagJob).toContain('ref: ${{ needs.prepare-release.outputs.source_sha }}');
     expect(workflow.match(/softprops\/action-gh-release@/g) ?? []).toHaveLength(1);
 

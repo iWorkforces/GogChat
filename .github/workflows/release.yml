@@ -304,20 +304,23 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-latest
+    concurrency:
+      group: create-release-tag-${{ needs.prepare-release.outputs.tag_name }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.prepare-release.outputs.source_sha }}
           fetch-depth: 0
 
-      - name: Create release tag at exact source SHA
+      - name: Create or retry release tag at exact source SHA
         run: |
-          TAG_NAME="${{ needs.prepare-release.outputs.tag_name }}"
-          SOURCE_SHA="${{ needs.prepare-release.outputs.source_sha }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "${TAG_NAME}" "${SOURCE_SHA}"
-          git push origin "${TAG_NAME}"
+          node scripts/release-tag.js \
+            --tag "${{ needs.prepare-release.outputs.tag_name }}" \
+            --source-sha "${{ needs.prepare-release.outputs.source_sha }}" \
+            --remote origin
 
   publish-release:
     needs: [prepare-release, verify-release-artifacts, create-release-tag]
