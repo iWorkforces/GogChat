@@ -1,16 +1,18 @@
 /**
  * Contract tests: notarize bundleId matches app identity (no productFilename derivation).
  */
+import { createRequire } from 'node:module';
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+const require = createRequire(import.meta.url);
 
 const ROOT = join(import.meta.dirname, '..');
 const EXPECTED_APP_ID = 'com.ocworkforces.gogchat';
 
 describe('notarize identity (KD7)', () => {
   it('exports APP_ID / NOTARIZE_BUNDLE_ID matching appIdentity', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS packaging helper
     const identity = require('./app-identity.cjs');
     expect(identity.APP_ID).toBe(EXPECTED_APP_ID);
     expect(identity.NOTARIZE_BUNDLE_ID).toBe(EXPECTED_APP_ID);

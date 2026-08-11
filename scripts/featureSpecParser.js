@@ -148,12 +148,7 @@ function extractFeatureEntry(objectLiteral, fileName, index) {
       case 'phase': {
         const phase = requireStringLiteral(property.initializer, fileName, index, 'phase');
         if (!FEATURE_PHASES.includes(phase)) {
-          throw specError(
-            fileName,
-            index,
-            'phase',
-            `expected one of ${FEATURE_PHASES.join('|')}`
-          );
+          throw specError(fileName, index, 'phase', `expected one of ${FEATURE_PHASES.join('|')}`);
         }
         result.phase = phase;
         break;
@@ -197,7 +192,12 @@ function staticPropertyName(name, fileName, index) {
         : '[computed]';
     throw specError(fileName, index, hint, 'computed property names are not allowed');
   }
-  throw specError(fileName, index, undefined, 'property name must be a static identifier or string');
+  throw specError(
+    fileName,
+    index,
+    undefined,
+    'property name must be a static identifier or string'
+  );
 }
 
 function requireStringLiteral(node, fileName, index, property) {

@@ -215,13 +215,7 @@ describe('representative rendererSnapshots selection', () => {
       { pid: 100, creationTime: 9 },
       { pid: 100, creationTime: 9 },
     ]);
-    const snapSets = [
-      reusedPidFour,
-      reusedPidFour,
-      reusedPidFour,
-      reusedPidFour,
-      reusedPidOne,
-    ];
+    const snapSets = [reusedPidFour, reusedPidFour, reusedPidFour, reusedPidFour, reusedPidOne];
     const runs = snapSets.map((rendererSnapshots, i) =>
       makeValidRun({ timestamp: `run-${i}`, rendererSnapshots })
     );
@@ -230,16 +224,12 @@ describe('representative rendererSnapshots selection', () => {
     // after the low-count row (original index 1). Last run is 1 identity.
     expect(merged.rendererSnapshots).toEqual(snapSets[1]);
     expect(merged.rendererSnapshots).not.toEqual(snapSets[4]);
-    const uniqueKeys = new Set(
-      merged.rendererSnapshots.map((s) => `${s.pid}:${s.creationTime}`)
-    );
+    const uniqueKeys = new Set(merged.rendererSnapshots.map((s) => `${s.pid}:${s.creationTime}`));
     expect(uniqueKeys.size).toBe(4);
   });
 
   it('falls back to PID identity when creationTime is missing', () => {
-    const fourPids = makeRendererSnapshots(
-      identitiesWithCount(4, 10, { withCreationTime: false })
-    );
+    const fourPids = makeRendererSnapshots(identitiesWithCount(4, 10, { withCreationTime: false }));
     const onePidRepeated = makeRendererSnapshots([
       { pid: 50 },
       { pid: 50 },

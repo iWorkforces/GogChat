@@ -100,8 +100,7 @@ export const BUDGETS = [
     budget: 4,
     unit: 'count',
     gated: true,
-    describe:
-      'unique renderer identities after document-load sample ((pid, creationTime) or PID)',
+    describe: 'unique renderer identities after document-load sample ((pid, creationTime) or PID)',
     extract: (m) => uniqueRendererCount(m),
   },
   {

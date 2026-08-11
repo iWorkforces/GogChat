@@ -82,7 +82,11 @@ function logEnsureResult(
   const suffix = detail !== undefined ? ` (${detail})` : '';
   if (result === 'failed-to-schedule') {
     log.error(`[NotificationAccess] ensure → ${result}${suffix}`);
-  } else if (result === 'unsupported' || result === 'already-requested' || result === 'prompt-declined') {
+  } else if (
+    result === 'unsupported' ||
+    result === 'already-requested' ||
+    result === 'prompt-declined'
+  ) {
     log.debug(`[NotificationAccess] ensure → ${result}${suffix}`);
   } else {
     log.info(`[NotificationAccess] ensure → ${result}${suffix}`);
@@ -144,7 +148,9 @@ function showPermissionProbe(): void {
 async function runFirstRunPromptThenProbe(parentWindow: BrowserWindow): Promise<void> {
   try {
     if (parentWindow.isDestroyed()) {
-      log.warn('[NotificationAccess] Parent window destroyed before first-run prompt; probing only');
+      log.warn(
+        '[NotificationAccess] Parent window destroyed before first-run prompt; probing only'
+      );
       showPermissionProbe();
       return;
     }

@@ -73,7 +73,11 @@ import {
   getMostRecentWindow,
 } from '../utils/account/accountWindowManager';
 import { loadAccountURL, getAccountURL } from '../utils/account/accountNavigation.js';
-import { validateDeepLinkURL, validateExternalURL, isGoogleAuthUrl } from '../../shared/urlValidators.js';
+import {
+  validateDeepLinkURL,
+  validateExternalURL,
+  isGoogleAuthUrl,
+} from '../../shared/urlValidators.js';
 import { addTrackedListener } from '../utils/lifecycle/resourceCleanup';
 import log from 'electron-log';
 
@@ -387,7 +391,11 @@ describe('deepLinkHandler', () => {
 
       initDeepLinkHandler({});
 
-      expect(loadAccountURL).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'gogchat://room/cold-start');
+      expect(loadAccountURL).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        'gogchat://room/cold-start'
+      );
       process.argv = originalArgv;
     });
   });
@@ -403,7 +411,11 @@ describe('deepLinkHandler', () => {
 
       processDeepLink('gogchat://chat.google.com/u/1/room/test');
 
-      expect(loadAccountURL).toHaveBeenCalledWith(expect.anything(), 1, expect.stringContaining('/u/1/'));
+      expect(loadAccountURL).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        expect.stringContaining('/u/1/')
+      );
       expect(mockFocusAccount).toHaveBeenCalledWith(1);
     });
   });

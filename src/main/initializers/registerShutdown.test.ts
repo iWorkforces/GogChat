@@ -1,3 +1,4 @@
+/* global AbortSignal, AbortController */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type BeforeQuitEvent = { preventDefault: () => void };

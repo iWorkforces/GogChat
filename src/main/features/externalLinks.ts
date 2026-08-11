@@ -206,7 +206,7 @@ export function installExternalLinkGuards(
       return;
     }
 
-    let currentHost = '';
+    let currentHost: string;
     try {
       currentHost = extractHostname(webContents.getURL());
     } catch {

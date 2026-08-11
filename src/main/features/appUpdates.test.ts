@@ -1,6 +1,7 @@
 /**
  * Unit tests for appUpdates feature.
  */
+/* global AbortSignal, AbortController, RequestInit, RequestInfo, Response, URL */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('electron-update-notifier', () => ({
@@ -99,17 +100,15 @@ type ReleaseParser = (value: unknown) => {
 } | null;
 
 function getReleaseParser(): ReleaseParser {
-  const parse = (
-    appUpdatesModule as { parseStableGithubRelease?: ReleaseParser }
-  ).parseStableGithubRelease;
+  const parse = (appUpdatesModule as { parseStableGithubRelease?: ReleaseParser })
+    .parseStableGithubRelease;
   expect(parse).toEqual(expect.any(Function));
   return parse as ReleaseParser;
 }
 
 function getReleaseSelector(): ReleaseParser {
-  const select = (
-    appUpdatesModule as { selectFirstStableGithubRelease?: ReleaseParser }
-  ).selectFirstStableGithubRelease;
+  const select = (appUpdatesModule as { selectFirstStableGithubRelease?: ReleaseParser })
+    .selectFirstStableGithubRelease;
   expect(select).toEqual(expect.any(Function));
   return select as ReleaseParser;
 }

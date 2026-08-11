@@ -184,9 +184,7 @@ describe('parseSpecSource – AST-based parser', () => {
       ] as const;
     `;
     const { entries } = parseSpecSource(src, 'string-keys.spec.ts');
-    expect(entries).toEqual([
-      { name: 'quoted', phase: 'ui', description: 'string keys' },
-    ]);
+    expect(entries).toEqual([{ name: 'quoted', phase: 'ui', description: 'string keys' }]);
   });
 });
 
