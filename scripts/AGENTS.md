@@ -9,13 +9,13 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 ### Build and feature plan
 
 - `build-rsbuild.js` - builds ESM main and CJS preload, copies offline assets, preserves preload `cleanDistPath: false`, records `buildTimeMs` and `lib/chunks/*.js` counts in `.build-history.json`. With `ANALYZE=true`, writes machine-readable stats under the evidence root.
-- `featurePlanPlugin.js` / `featureSpecParser.js` - hand-scan initializer spec literals (TS 7 no longer exports `createSourceFile` from the public `typescript` package), unwrap `as const satisfies` / parens, topologically batch dependencies, and idempotently write `src/main/generated/featurePlan.ts`. This is a narrow literal extractor, not a compiler-API walker. Unsupported expressions are currently skipped rather than fail-closed.
+- `featurePlanPlugin.js` / `featureSpecParser.js` - parse initializer specs with the installed TypeScript 6.x compiler API (`createSourceFile`; typecheck still uses `@typescript/native` / TS 7), unwrap `as const satisfies` / parens, fail closed on unsupported array elements, topologically batch dependencies, reject forward-phase deps (`security < critical < ui < deferred`), and write `src/main/generated/featurePlan.ts` only after the full source is built. Unsupported expressions are rejected with file, element index, and property.
 - `install-electron-binary.js` - repo-controlled Electron zip extract for macOS CI (ditto); respects `npm_config_arch` and Rosetta detection. Pin target arch when packaging non-host arches.
 
 ### Performance (CI unauthenticated path)
 
-- `headless-startup.js` - launches Electron with a temp userData dir, waits for versioned `performance-metrics.json`, validates schema/completeness per run, refuses medians from incomplete data. Supports `GOGCHAT_PERF_RUNS`.
-- `check-perf-budget.js` - gated budgets fail on absence or exceedance; warn-only may SKIP/WARN. Memory is MB (not bytes). Renamed metrics: `nativeWindowReady`, `contentDocumentLoaded`. Baseline updates only with `PERF_UPDATE_BASELINE=1` and compatible schema/units.
+- `headless-startup.js` - launches Electron with a temp userData dir, waits for versioned `performance-metrics.json`, validates schema/completeness per run, refuses medians from incomplete data. Supports `GOGCHAT_PERF_RUNS`. Multi-run `rendererSnapshots` are the complete list from the upper-median complete+valid run: unique identity is `(pid, creationTime)` when `creationTime` exists, otherwise PID; candidates are stable-sorted by that count then original index; pick `floor(validRunCount / 2)`. Incomplete runs never supply representative snapshots and still fail aggregate completeness. Do not copy the last run or synthesize snapshot fields.
+- `check-perf-budget.js` - gated budgets fail on absence or exceedance; warn-only may SKIP/WARN. Memory is MB (not bytes). `rendererCount` uses the same `(pid, creationTime)` / PID identity on the representative snapshots and cannot false-pass from a final low-count run. Renamed metrics: `nativeWindowReady`, `contentDocumentLoaded`. Baseline updates only with `PERF_UPDATE_BASELINE=1` and compatible schema/units.
 - `account-backend-benchmark.js` - BrowserWindow / WebContentsView matrix contract (1/2/4 accounts, lifecycle states). Does **not** select a backend policy or declare a resource winner.
 - `performance-candidate-benchmark.js` - threshold-gated candidate decisions (unread, cdp, timers, split-chunks, preconnect). Product changes only when 20-pair / 10% median / 5% p95 rules pass; otherwise `NO CHANGE`.
 - `release-auth-readiness-benchmark.js` - secured authenticated first-interaction path. Without credentials records `[blocked: credentials unavailable]` (conditional core remediation only, never release-readiness approval).
@@ -55,10 +55,13 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 
 ## Feature-plan plugin rules
 
-- It intentionally ignores implementation `init`/`cleanup` bodies and reads declarative spec metadata via the hand-scanner.
+- It intentionally ignores implementation `init`/`cleanup` bodies and reads declarative spec metadata via the TypeScript compiler API.
+- Every exported array element must be an object literal with static identifier or string keys. Reject spreads, calls, identifiers, conditionals, holes, computed names, and malformed known metadata.
+- Same-phase and earlier-phase dependencies are allowed. Forward-phase dependencies are rejected.
+- Build the complete generated source before writing; a parse/plan error must leave any existing output file unchanged.
 - Dependency sorting is greedy by batch; preserve deterministic output.
 - Export pure helpers such as `buildPlanFromSources` for tests.
-- Current parser skips entries that lack literal `name`/`phase` instead of failing closed on spreads/calls/identifiers. Do not document it as a compiler-API grammar.
+- Do not evaluate arbitrary expressions or inspect `init`/`cleanup` bodies.
 
 ## Performance scripts
 
@@ -69,6 +72,7 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
   - `GOGCHAT_DISABLE_PRECONNECT=1` — skip Google domain session preconnect for A/B cold-start measurement.
 - Metrics are produced by the main-process finalizer after document load + deferred + renderer sample — not by early deferred-phase export.
 - Schema version and `units.memory: "MB"` / `units.time: "ms"` are required; incomplete or invalid runs must not feed medians or gated PASS.
+- Multi-run renderer evidence is the upper-median complete run's full `rendererSnapshots` (identity `(pid, creationTime)` else PID; pick `floor(n / 2)` after sorting by count then original index). Never last-run copy, incomplete rows, or synthesized snapshot fields. Budget `rendererCount` uses that same identity.
 - Gated vs warn-only budget behavior must stay explicit. Missing gated metrics → exit 1. IPC latency remains warn-only until a real producer and baseline exist.
 - Do not represent `account-0-ready` or `account-0-content-loaded` as first paint or first interaction in script messages or claims.
 - Evidence roots: `.omo/evidence/performance-remediation/task-<N>-*.{json,md,log}`, `.omo/evidence/macos-intel-x64-dmg/` for dual-arch packaging receipts, `.omo/evidence/deep-enhancements/` for dual-backend/truth/safety closeout, and `.omo/evidence/stability-performance-remediation/` for the active liveness/preload/release plan (often gitignored).
