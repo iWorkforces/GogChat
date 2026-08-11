@@ -68,7 +68,17 @@ jobs:
           fi
 
       - name: 'Playwright: integration'
-        run: bunx playwright test --project=integration
+        run: |
+          set +e
+          set -o pipefail
+          bunx playwright test --project=integration 2>&1 | tee playwright-integration.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            excerpt="$(tail -n 15 playwright-integration.log | tr '\r\n' '  ' | cut -c1-1200)"
+            echo "::error file=tests/integration/app-launch.test.ts::${excerpt}"
+            exit "$status"
+          fi
 
       - name: 'Playwright: performance'
         run: bunx playwright test --project=performance
@@ -111,5 +121,6 @@ jobs:
             .perf-history.json
             coverage-output.txt
             playwright-e2e.log
+            playwright-integration.log
           if-no-files-found: ignore
           retention-days: 14

@@ -59,11 +59,20 @@ test.describe('App Launch', () => {
   });
 
   test('should have application menu', async ({ electronApp }) => {
-    const hasMenu = await electronApp.evaluate(({ Menu }) => {
-      const menu = Menu.getApplicationMenu();
-      return menu !== null;
-    });
-
+    // Menu is installed in the deferred phase; poll instead of snapshotting boot.
+    const deadline = Date.now() + 15_000;
+    let hasMenu = false;
+    while (Date.now() < deadline) {
+      hasMenu = await electronApp.evaluate(({ Menu }) => {
+        return Menu.getApplicationMenu() !== null;
+      });
+      if (hasMenu) {
+        break;
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 50);
+      });
+    }
     expect(hasMenu).toBe(true);
   });
 

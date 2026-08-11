@@ -110,6 +110,7 @@ describe('PR check workflow contract', () => {
     expect(job).toContain('.perf-history.json');
     expect(job).toContain('coverage-output.txt');
     expect(job).toContain('playwright-e2e.log');
+    expect(job).toContain('playwright-integration.log');
   });
 
   it('tees Playwright e2e output and annotates the last failure excerpt', () => {
@@ -120,6 +121,16 @@ describe('PR check workflow contract', () => {
     expect(job).toContain('PIPESTATUS');
     expect(job).toContain('::error file=tests/e2e/user-workflows.test.ts::');
     expect(e2eAt).toBeLessThan(job.indexOf('::error file=tests/e2e/user-workflows.test.ts::'));
+  });
+
+  it('tees Playwright integration output and annotates the last failure excerpt', () => {
+    const job = workflowJob(readPrWorkflow(), 'check');
+    const integrationAt = indexOfCommand(job, 'bunx playwright test --project=integration');
+    expect(job).toContain('tee playwright-integration.log');
+    expect(job).toContain('::error file=tests/integration/app-launch.test.ts::');
+    expect(integrationAt).toBeLessThan(
+      job.indexOf('::error file=tests/integration/app-launch.test.ts::')
+    );
   });
 
   it('uploads Playwright traces and reports when a Playwright step fails', () => {
