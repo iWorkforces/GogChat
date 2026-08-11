@@ -17,10 +17,10 @@ The preload is sandboxed and built as CommonJS because Electron sandboxed preloa
 
 `src/preload/index.ts` calls explicit installers in order: `installDisableWebAuthn` → `contextBridge.exposeInMainWorld('gogchat')` → `installFaviconChanged` → `installOffline` → `installPasskeyMonitor` → `installSearchShortcut` → `installUnreadCount` → `installNotificationBridge`. Do **not** import `overrideNotifications.ts` from `index.ts`. Do not add bare side-effect imports.
 
-- Isolated-world code cannot see `window.gogchat`. Feature installers may use the bridge when present (unit tests) and must fall back to `ipcRenderer` in production.
+- Isolated-world code cannot see `window.gogchat`. Feature installers may use the bridge when present (unit tests) and must fall back to `ipcRenderer` in production. `offline.test.ts` and `searchShortcut.test.ts` cover that ipc fallback.
 - `installDisableWebAuthn` overrides isolated `navigator.credentials` and injects the same override into page world via `webFrame.executeJavaScript` (contextIsolation).
 - `searchShortcut.ts` focuses `SELECTORS.SEARCH_INPUT`. Built-CJS proof: `tests/artifact/preload/preload-entry.test.ts` (`--project=preload-artifact`).
-- Entire `src/preload/**` is excluded from Vitest coverage in `vitest.config.ts`. Preload tests still exist and must stay green.
+- `src/preload/**` is included in Vitest coverage except `overrideNotifications.ts`. Do not stack multiple `install*()` calls that leave `window` listeners if a later case deletes `window.gogchat` — old listeners will take the ipc path.
 
 ## Bridge surface
 
@@ -58,4 +58,4 @@ The preload is sandboxed and built as CommonJS because Electron sandboxed preloa
 
 ## Tests
 
-Keep coverage around `index.test.ts`, `notificationBridge.test.ts`, `offline.test.ts`, unread count, favicon changes, notification overrides, passkey monitoring, and WebAuthn disabling when touching preload behavior. Offline recovery tests must assert zero reloads on false replies and one app-URL replace on true.
+Keep coverage around `index.test.ts`, `notificationBridge.test.ts`, `offline.test.ts`, unread count, favicon changes, notification overrides, passkey monitoring, search shortcut, and WebAuthn disabling when touching preload behavior. Offline recovery tests must assert zero reloads on false replies, one app-URL replace on true, and ipc fallback when `window.gogchat` is absent.

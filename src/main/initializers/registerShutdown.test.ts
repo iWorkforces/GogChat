@@ -261,6 +261,61 @@ describe('registerShutdownHandler', () => {
     vi.useRealTimers();
   });
 
+  it('abandons a stage immediately when its deadline is already expired', async () => {
+    const order: string[] = [];
+    recordShutdownOrder(order);
+    const deadlines: ShutdownDeadlineFactory = {
+      createStageSignal: () => {
+        const controller = new AbortController();
+        controller.abort();
+        return controller.signal;
+      },
+      createOverallSignal: () => new AbortController().signal,
+    };
+
+    registerShutdownHandler(deadlines);
+    getBeforeQuitListener()({ preventDefault: vi.fn() });
+    await waitForShutdown();
+
+    expect(order).toEqual(['features', 'global', 'accounts', 'diagnostics', 'singletons', 'exit']);
+    expect(mocks.app.exit).toHaveBeenCalledOnce();
+  });
+
+  it('exits immediately when the overall deadline is already expired', async () => {
+    mocks.cleanupAll.mockImplementation(() => new Promise(() => undefined));
+    const deadlines: ShutdownDeadlineFactory = {
+      createStageSignal: () => new AbortController().signal,
+      createOverallSignal: () => {
+        const controller = new AbortController();
+        controller.abort();
+        return controller.signal;
+      },
+    };
+
+    registerShutdownHandler(deadlines);
+    getBeforeQuitListener()({ preventDefault: vi.fn() });
+    await waitForShutdown();
+    expect(mocks.app.exit).toHaveBeenCalledOnce();
+  });
+
+  it.each(['feature', 'global', 'accounts', 'diagnostics', 'singletons'] as const)(
+    'honors GOGCHAT_TEST_HANG_SHUTDOWN=%s and still exits after the stage deadline',
+    async (stage) => {
+      vi.useFakeTimers();
+      process.env['GOGCHAT_TEST_HANG_SHUTDOWN'] = stage;
+      try {
+        registerShutdownHandler(fakeDeadlines);
+        getBeforeQuitListener()({ preventDefault: vi.fn() });
+        await vi.advanceTimersByTimeAsync(SHUTDOWN_STAGE_TIMEOUT_MS * 5);
+        await Promise.resolve();
+        expect(mocks.app.exit).toHaveBeenCalled();
+      } finally {
+        delete process.env['GOGCHAT_TEST_HANG_SHUTDOWN'];
+        vi.useRealTimers();
+      }
+    }
+  );
+
   it('routes window-all-closed through orderly shutdown', async () => {
     const order: string[] = [];
     recordShutdownOrder(order);

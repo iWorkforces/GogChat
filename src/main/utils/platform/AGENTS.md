@@ -18,8 +18,9 @@ This directory owns platform integration: tray, dock/taskbar badges, native noti
 - `accountLabelStore.ts` / `accountLabelDialog.ts` persist optional custom labels (`app.accountLabels`) for notification subtitles (Preferences → Account Labels). Store helpers are config readers/writers, not process singletons with destroyers.
 - `helpMenuBuilder.ts` consumes feature actions through `features/menuActionRegistry.ts` (`aboutPanel`, `checkForUpdates`, troubleshooting actions); it should not import feature modules directly.
 - Window defaults live in `windowUtils.ts` (`getWindowDefaults`) used by account managers and `windowWrapper`.
-- Auxiliary dialog chrome: `dialogChrome.ts` (About / Update solid canvas `#0d1117`, macOS `hiddenInset` + traffic-light inset).
-- Native update dialog: `updateWindow.ts` (data: HTML, brand aurora, hide-cache, checking/result phases; used by `features/appUpdates.checkForUpdatesManual`).
+- Auxiliary dialog chrome: `dialogChrome.ts` (About / Update solid canvas `#0d1117`, macOS `hiddenInset` + traffic-light inset). `dialogChrome.test.ts` locks darwin vs off-darwin options.
+- Native update dialog: `updateWindow.ts` (data: HTML, brand aurora, hide-cache, checking/result phases; used by `features/appUpdates.checkForUpdatesManual`). `updateWindow.test.ts` covers action/close sentinels, waiter supersede, icon SVG/PNG/fallback, and destroyed-window load completions.
+- `helpMenuBuilder.test.ts` covers registered/missing menu actions, Reset confirm/cancel, and off-darwin log path.
 - Brand-icon aurora CSS/HTML: `src/shared/appIconAurora.ts` (shared pure strings; About-tier fancy motion for About/Update).
 - About/Update app mark loads `resources/icons/normal/scalable.svg` (PNG fallback) as a data URI — CSS aurora is the glow, not the static `aura/` PNGs.
 - Icon assets are shared across mac packaging arches; see `resources/AGENTS.md`.

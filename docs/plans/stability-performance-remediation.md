@@ -263,7 +263,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `quick` - focused coverage configuration change.
   - Commit: Y | `test(coverage): include remediated runtime seams`.
 
-- [ ] 18. Close branch coverage gaps without production or threshold changes
+- [x] 18. Close branch coverage gaps without production or threshold changes
   - What to do: add only missing happy/failure tests identified by Todo 17 until `bun run test:coverage` passes 94/92/94/94. Prioritize installer cleanup/error branches, startup required/optional phase failures, update malformed/timeout branches, and IPC limited/sender branches.
   - Must NOT do: do not edit production solely for coverage, exclude new lines, add vacuous assertions, use snapshots of logs as behavior proof, or change thresholds.
   - Parallelization: Wave 4 | Blocked by: 6, 17 | Blocks: 19-25.

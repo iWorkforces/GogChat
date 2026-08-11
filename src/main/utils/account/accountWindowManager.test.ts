@@ -89,6 +89,7 @@ const h = vi.hoisted(() => {
     public isDestroyed: ReturnType<typeof vi.fn>;
     public loadURL: ReturnType<typeof vi.fn>;
     public destroy: ReturnType<typeof vi.fn>;
+    public isVisible: ReturnType<typeof vi.fn>;
     public removeListener: (event: string, listener: (...a: unknown[]) => void) => MockBW;
 
     constructor(options?: unknown) {
@@ -120,6 +121,7 @@ const h = vi.hoisted(() => {
       this.isMaximized = vi.fn((): boolean => this.maximized);
       this.isMinimized = vi.fn((): boolean => this.minimized);
       this.isDestroyed = vi.fn((): boolean => this.destroyed);
+      this.isVisible = vi.fn((): boolean => !this.destroyed);
       this.loadURL = vi.fn((url: string): Promise<void> => {
         this.webContents.url = url;
         return Promise.resolve();
@@ -742,6 +744,29 @@ describe('AccountWindowManager — createAccountWindow', () => {
     expect(h.createdWindows.every((w) => w.destroyed)).toBe(true);
 
     hooks.clearAccountWebContentsHooksForTests();
+  });
+
+  it('focusAccount shows the window and isAccountVisible tracks live vs dehydrated', () => {
+    const factory = makeFactory();
+    const m = new AccountWindowManager(factory);
+    const w = m.createAccountWindow('https://chat/', asAccountIndex(1));
+    const wMock = w as unknown as MockBWInstance;
+    wMock.show.mockClear();
+    wMock.focus.mockClear();
+
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+    m.focusAccount(asAccountIndex(1));
+    expect(wMock.show).toHaveBeenCalled();
+    expect(wMock.focus).toHaveBeenCalled();
+
+    m.dehydrateAccount(asAccountIndex(1));
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(false);
+    m.focusAccount(asAccountIndex(1));
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+    expect(m.isAccountVisible(asAccountIndex(1))).toBe(true);
+
+    m.focusAccount(asAccountIndex(99));
+    expect(m.hasAccount(asAccountIndex(99))).toBe(false);
   });
 });
 

@@ -1154,6 +1154,20 @@ describe('AccountViewManager — host window lifecycle integration', () => {
     host.emit('ready-to-show');
     expect(host.show).toHaveBeenCalled();
   });
+
+  it('host ready-to-show does not show when startHidden is true', async () => {
+    const { getWindowDefaults } = await import('../platform/windowUtils.js');
+    vi.mocked(getWindowDefaults).mockReturnValueOnce({
+      hideMenuBar: false,
+      startHidden: true,
+    });
+    const m = new AccountViewManager();
+    m.createAccountWindow('https://x/', asAccountIndex(0));
+    const host = lastWindow();
+    host.show.mockClear();
+    host.emit('ready-to-show');
+    expect(host.show).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

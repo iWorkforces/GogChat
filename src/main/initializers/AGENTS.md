@@ -46,7 +46,7 @@ Deferred phase (via `cacheWarmer.runDeferredPhase`) calls `notifyDeferredPhaseCo
 
 ## Shutdown
 
-Shutdown is deadline-bounded: 2,000 ms per stage and an independent 8,000 ms overall ceiling via injectable `AbortSignal.timeout` (`createProductionShutdownDeadlines`). A timed-out stage is abandoned, not cancelled; late rejection is logged; later stages still run in order; `app.exit()` is guarded once. `GOGCHAT_TEST_HANG_SHUTDOWN` may hang a named stage for process-level proof only.
+Shutdown is deadline-bounded: 2,000 ms per stage and an independent 8,000 ms overall ceiling via injectable `AbortSignal.timeout` (`createProductionShutdownDeadlines`). A timed-out stage is abandoned, not cancelled; late rejection is logged; later stages still run in order; `app.exit()` is guarded once. `GOGCHAT_TEST_HANG_SHUTDOWN` may hang a named stage for process-level proof only. `registerShutdown.test.ts` also covers already-aborted stage/overall signals and each named hang-stage env.
 
 Shutdown order is intentional:
 

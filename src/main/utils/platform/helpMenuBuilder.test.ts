@@ -76,9 +76,12 @@ vi.mock('./packageInfo.js', () => ({
 }));
 
 import { buildHelpSubMenu, relaunchApp, resetAppAndRestart } from './helpMenuBuilder';
-import { app, shell } from 'electron';
+import { app, dialog, shell } from 'electron';
 import store from '../../config';
 import { openNewGitHubIssue } from './platformHelpers';
+import { getMenuAction } from '../../features/menuActionRegistry.js';
+import environment from '../../../environment.js';
+import path from 'path';
 
 interface FakeWindow {
   webContents: {
@@ -222,6 +225,83 @@ describe('helpMenuBuilder', () => {
       expect(version).toBeDefined();
       expect(version?.enabled).toBe(false);
       expect(version?.label).toContain('1.0.0');
+    });
+
+    it('appends a dev suffix when running in development', () => {
+      const env = environment as { isDev: boolean };
+      const previous = env.isDev;
+      env.isDev = true;
+      const menu = buildHelpSubMenu(makeFakeWindow() as unknown as BrowserWindow);
+      const items = menu.submenu as MenuItemConstructorOptions[];
+      const version = items.find((i) => typeof i.label === 'string' && i.label.includes('Version'));
+      expect(version?.label).toBe('Version 1.0.0-(dev)');
+      env.isDev = previous;
+    });
+
+    it('skips unregistered Help actions without throwing', () => {
+      vi.mocked(getMenuAction)
+        .mockReturnValueOnce(undefined)
+        .mockReturnValueOnce(undefined)
+        .mockReturnValueOnce(undefined);
+      const window = makeFakeWindow();
+      const menu = buildHelpSubMenu(window as unknown as BrowserWindow);
+      const items = menu.submenu as MenuItemConstructorOptions[];
+      const troubleshooting = items.find((i) => i.label === 'Troubleshooting');
+      const sub = troubleshooting?.submenu as MenuItemConstructorOptions[];
+
+      expect(() => {
+        items.find((i) => i.label === 'Check For Updates')?.click?.(
+          {} as never,
+          undefined as never,
+          {} as never
+        );
+        sub.find((i) => i.label === 'Toggle External Links Guard')?.click?.(
+          {} as never,
+          undefined as never,
+          {} as never
+        );
+        items.find((i) => i.label === 'About')?.click?.({} as never, undefined as never, {} as never);
+      }).not.toThrow();
+      expect(mockCheckUpdatesHandler).not.toHaveBeenCalled();
+      expect(mockToggleGuardHandler).not.toHaveBeenCalled();
+      expect(mockAboutHandler).not.toHaveBeenCalled();
+    });
+
+    it('Show Logs uses userData/logs off darwin', () => {
+      const original = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      const menu = buildHelpSubMenu(makeFakeWindow() as unknown as BrowserWindow);
+      const items = menu.submenu as MenuItemConstructorOptions[];
+      const troubleshooting = items.find((i) => i.label === 'Troubleshooting');
+      const sub = troubleshooting?.submenu as MenuItemConstructorOptions[];
+      sub.find((i) => i.label === 'Show Logs in File Manager')?.click?.(
+        {} as never,
+        undefined as never,
+        {} as never
+      );
+      expect(shell.showItemInFolder).toHaveBeenCalledWith(path.join('/mock/logs', 'logs'));
+      Object.defineProperty(process, 'platform', { value: original });
+    });
+
+    it('Reset and Relaunch only clears data when the user confirms', async () => {
+      const window = makeFakeWindow();
+      const menu = buildHelpSubMenu(window as unknown as BrowserWindow);
+      const items = menu.submenu as MenuItemConstructorOptions[];
+      const troubleshooting = items.find((i) => i.label === 'Troubleshooting');
+      const sub = troubleshooting?.submenu as MenuItemConstructorOptions[];
+      const reset = sub.find((i) => i.label === 'Reset and Relaunch App');
+
+      vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 1 } as Electron.MessageBoxReturnValue);
+      reset?.click?.({} as never, undefined as never, {} as never);
+      await Promise.resolve();
+      expect(store.clear).not.toHaveBeenCalled();
+
+      vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 0 } as Electron.MessageBoxReturnValue);
+      reset?.click?.({} as never, undefined as never, {} as never);
+      await vi.waitFor(() => {
+        expect(store.clear).toHaveBeenCalled();
+        expect(app.relaunch).toHaveBeenCalled();
+      });
     });
   });
 });

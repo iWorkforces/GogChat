@@ -49,4 +49,4 @@ Prefer `defineIPC({ kind: 'on' | 'reply' | 'invoke' })` for new handlers. `creat
 - No raw `ipcMain` registrations without validation and catch handling.
 - No dedup for mutating or non-idempotent operations. Online checks must not use `deduplicate: true` — two senders need isolated probes.
 - No raw `ipcRenderer` exposure from preload.
-- `defineIPC.ts` is coverage-excluded in `vitest.config.ts` today; do not treat exclusion as “no tests needed” when changing the factory.
+- `defineIPC.ts` is included in Vitest coverage. `defineIPC.test.ts` covers on/reply/invoke, sender-scoped rate limits, silent drops, channel and payload dedup, and IPCError rethrow from invoke.

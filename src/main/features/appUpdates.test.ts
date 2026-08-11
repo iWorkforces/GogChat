@@ -73,9 +73,11 @@ import appUpdates, {
 } from './appUpdates';
 import * as appUpdatesModule from './appUpdates';
 import { setUpdateNotification, checkForUpdates } from 'electron-update-notifier';
+import { app } from 'electron';
 import { configGet } from '../config.js';
 import { presentUpdateDialog, isUpdateSessionDismissed } from '../utils/platform/updateWindow.js';
 import { openExternal } from '../utils/security/shellWrapper.js';
+import { getPackageInfo } from '../utils/platform/packageInfo.js';
 
 const STABLE_V9 = {
   tag_name: 'v9.0.0',
@@ -138,6 +140,14 @@ describe('appUpdates helpers', () => {
     );
     expect(githubRepoSlug('iWorkforces/GogChat')).toBe('iWorkforces/GogChat');
     expect(githubRepoSlug('https://example.com/not-github')).toBeNull();
+    expect(githubRepoSlug('')).toBeNull();
+    expect(githubRepoSlug('   ')).toBeNull();
+    expect(githubRepoSlug('https://www.github.com/iWorkforces/GogChat')).toBe(
+      'iWorkforces/GogChat'
+    );
+    expect(githubRepoSlug('github.com/iWorkforces/GogChat')).toBe('iWorkforces/GogChat');
+    expect(githubRepoSlug('https://github.com/only-owner')).toBeNull();
+    expect(githubRepoSlug('http://[')).toBeNull();
   });
 
   it('isVersionNewer compares dotted segments', () => {
@@ -145,6 +155,9 @@ describe('appUpdates helpers', () => {
     expect(isVersionNewer('v4.0.0', '3.18.5')).toBe(true);
     expect(isVersionNewer('3.0.0', '3.0.0')).toBe(false);
     expect(isVersionNewer('2.9.9', '3.0.0')).toBe(false);
+    expect(isVersionNewer('3.0.0-beta', '3.0.0')).toBe(false);
+    expect(isVersionNewer('3.0.1+build', '3.0.0')).toBe(true);
+    expect(isVersionNewer('3.a.1', '3.0.0')).toBe(true);
   });
 });
 
@@ -205,6 +218,17 @@ describe('stable GitHub release parser', () => {
     expect(parse({ ...STABLE_V9, tag_name: 9 })).toBeNull();
     expect(parse(null)).toBeNull();
     expect(parse('v9.0.0')).toBeNull();
+    expect(parse({ ...STABLE_V9, html_url: '' })).toBeNull();
+    expect(parse({ ...STABLE_V9, html_url: `https://github.com/${'x'.repeat(2049)}` })).toBeNull();
+    expect(parse({ ...STABLE_V9, html_url: 'https://[bad' })).toBeNull();
+    expect(parse({ ...STABLE_V9, body: 12 })).toEqual({
+      tag_name: 'v9.0.0',
+      html_url: STABLE_V9.html_url,
+    });
+    expect(parse({ ...STABLE_V9, body: undefined })).toEqual({
+      tag_name: 'v9.0.0',
+      html_url: STABLE_V9.html_url,
+    });
   });
 
   it('selects the first valid stable API entry and skips drafts, prereleases, and malformed rows', () => {
@@ -499,6 +523,94 @@ describe('checkForUpdatesManual', () => {
       );
       expect(vi.mocked(presentUpdateDialog).mock.calls.length, scenario.name).toBeGreaterThan(1);
     }
+  });
+
+  it('returns immediately when a manual check is already in flight', async () => {
+    let release!: (value: { ok: boolean; json: () => Promise<unknown> }) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          })
+      )
+    );
+
+    const first = checkForUpdatesManual();
+    await vi.waitFor(() => expect(presentUpdateDialog).toHaveBeenCalled());
+    const calls = vi.mocked(presentUpdateDialog).mock.calls.length;
+    await checkForUpdatesManual();
+    expect(vi.mocked(presentUpdateDialog).mock.calls.length).toBe(calls);
+    release({ ok: true, json: async () => [STABLE_V9] });
+    await first;
+  });
+
+  it('explains that updates are packaged-only when not packaged and not testing', async () => {
+    const previousPackaged = app.isPackaged;
+    const previousTesting = process.env['TESTING'];
+    app.isPackaged = false;
+    delete process.env['TESTING'];
+    try {
+      await checkForUpdatesManual();
+      expect(presentUpdateDialog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Updates are only available in packaged installs',
+          phase: 'result',
+        })
+      );
+      expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    } finally {
+      app.isPackaged = previousPackaged;
+      if (previousTesting === undefined) {
+        delete process.env['TESTING'];
+      } else {
+        process.env['TESTING'] = previousTesting;
+      }
+    }
+  });
+
+  it('shows a repository error when package metadata has no GitHub slug', async () => {
+    vi.mocked(getPackageInfo).mockReturnValueOnce({
+      repository: '',
+      productName: 'GogChat',
+    } as never);
+    await checkForUpdatesManual();
+    expect(presentUpdateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        detail: 'Repository URL is missing or invalid in package metadata.',
+      })
+    );
+  });
+
+  it('does not open a second error dialog when the user dismissed during a failed fetch', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network')));
+    vi.mocked(isUpdateSessionDismissed).mockReturnValue(true);
+    await checkForUpdatesManual();
+    expect(presentUpdateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'checking' })
+    );
+    expect(presentUpdateDialog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error' })
+    );
+  });
+
+  it('omits empty release notes from the download detail', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [{ ...STABLE_V9, body: '   ' }],
+      })
+    );
+    await checkForUpdatesManual();
+    expect(presentUpdateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'New release available',
+        detail: expect.not.stringMatching(/\n\n/),
+      })
+    );
   });
 
   it('does not change the background notifier schedule', () => {

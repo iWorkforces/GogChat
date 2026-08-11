@@ -512,3 +512,16 @@ describe('ErrorHandler', () => {
     });
   });
 });
+
+describe('destroyErrorHandler', () => {
+  it('resets the singleton', async () => {
+    const { initializeErrorHandler, destroyErrorHandler, getErrorHandler } =
+      await import('./errorHandler.js');
+    initializeErrorHandler({ gracefulShutdown: false });
+    expect(() => {
+      destroyErrorHandler();
+      destroyErrorHandler();
+    }).not.toThrow();
+    expect(getErrorHandler()).toBeTruthy();
+  });
+});
