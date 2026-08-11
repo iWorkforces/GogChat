@@ -29,16 +29,18 @@ describe('release workflow publish-once contract', () => {
     expect(workflow).toContain('branches:\n      - main');
   });
 
-  it('has exactly one tag-owning prepare job and no tag creation in platform jobs', () => {
+  it('has a read-only exact-SHA prepare job and no tag creation in platform jobs', () => {
     const workflow = readReleaseWorkflow();
     const prepareJob = workflowJob(workflow, 'prepare-release');
     const buildMacJob = workflowJob(workflow, 'build-mac');
     const buildWindowsJob = workflowJob(workflow, 'build-windows');
 
-    expect(workflow.match(/git push origin/g) ?? []).toHaveLength(1);
-    expect(prepareJob).toContain('git push origin "$VERSION"');
+    expect(prepareJob).toContain('node scripts/release-eligibility.js');
+    expect(prepareJob).toContain('source_sha');
     expect(prepareJob).toContain('tag_name');
     expect(prepareJob).toContain('should_release');
+    expect(prepareJob).toContain('persist-credentials: false');
+    expect(prepareJob).not.toMatch(/git tag|git push origin/);
     expect(buildMacJob).not.toMatch(/git tag|git push origin/);
     expect(buildWindowsJob).not.toMatch(/git tag|git push origin/);
   });
@@ -46,19 +48,24 @@ describe('release workflow publish-once contract', () => {
   it('keeps write-capable repository tokens out of build and verify jobs', () => {
     const workflow = readReleaseWorkflow();
     const prepareJob = workflowJob(workflow, 'prepare-release');
+    const qualifyJob = workflowJob(workflow, 'qualify-release');
     const buildMacJob = workflowJob(workflow, 'build-mac');
     const buildWindowsJob = workflowJob(workflow, 'build-windows');
     const verifyJob = workflowJob(workflow, 'verify-release-artifacts');
+    const createTagJob = workflowJob(workflow, 'create-release-tag');
     const publishJob = workflowJob(workflow, 'publish-release');
 
     expect(workflow).toContain(`permissions:
   contents: read`);
     expect(prepareJob).toContain(`permissions:
+      contents: read`);
+    expect(prepareJob).not.toContain('contents: write');
+    expect(createTagJob).toContain(`permissions:
       contents: write`);
     expect(publishJob).toContain(`permissions:
       contents: write`);
 
-    for (const job of [buildMacJob, buildWindowsJob, verifyJob]) {
+    for (const job of [prepareJob, qualifyJob, buildMacJob, buildWindowsJob, verifyJob]) {
       expect(job).toContain(`permissions:
       contents: read`);
       expect(job).toContain('persist-credentials: false');
@@ -214,12 +221,154 @@ describe('release workflow publish-once contract', () => {
     expect(verifyJob).not.toContain('WINDOWS_CERTIFICATE_FILE');
 
     expect(workflow.match(/softprops\/action-gh-release@/g) ?? []).toHaveLength(1);
-    expect(publishJob).toContain('needs: [prepare-release, verify-release-artifacts]');
+    expect(publishJob).toContain(
+      'needs: [prepare-release, verify-release-artifacts, create-release-tag]'
+    );
     expect(publishJob).toContain(
       'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1'
     );
     expect(publishJob).toContain('tag_name: ${{ needs.prepare-release.outputs.tag_name }}');
     expect(publishJob).toContain('make_latest: true');
     expect(publishJob).toContain('verified-release-assets/*');
+  });
+});
+
+const QUALIFY_COMMANDS = [
+  'node ./node_modules/@typescript/native/bin/tsc -b',
+  'bun scripts/check-doc-claims.js',
+  'bash ./scripts/lint.sh',
+  'node --require ./tests/polyfill-crypto.cjs ./node_modules/vitest/vitest.mjs run --coverage',
+  'bunx madge --circular --extensions ts src/',
+  'bun scripts/build-rsbuild.js',
+  'bunx playwright test --project=e2e',
+  'bunx playwright test --project=integration',
+  'bunx playwright test --project=performance',
+  'bunx playwright test --project=preload-artifact',
+  'node scripts/headless-startup.js',
+  'node scripts/check-perf-budget.js performance-metrics.json',
+];
+
+function parseNeeds(job) {
+  const list = job.match(/needs:\s*\[([^\]]+)\]/);
+  if (list) {
+    return list[1].split(',').map((item) => item.trim());
+  }
+  const single = job.match(/needs:\s*([a-z0-9-]+)/);
+  return single ? [single[1]] : [];
+}
+
+function jobWritesTag(job) {
+  return /release-tag\.js/.test(job) || (/git tag /.test(job) && /git push origin/.test(job));
+}
+
+export function simulateReleaseDag(failedJob) {
+  const workflow = readReleaseWorkflow();
+  const jobs = [
+    'prepare-release',
+    'qualify-release',
+    'build-mac',
+    'build-windows',
+    'verify-release-artifacts',
+    'create-release-tag',
+    'publish-release',
+  ];
+  const ran = new Set();
+  const skipped = new Set();
+  for (const name of jobs) {
+    const body = workflowJob(workflow, name);
+    const needs = parseNeeds(body);
+    const blocked = needs.some((need) => need === failedJob || skipped.has(need));
+    if (name === failedJob || blocked) {
+      skipped.add(name);
+    } else {
+      ran.add(name);
+    }
+  }
+  const tagWrites = [...ran].filter((name) => jobWritesTag(workflowJob(workflow, name)));
+  return { failedJob, ran: [...ran], skipped: [...skipped], tagWrites };
+}
+
+describe('release qualify-then-tag DAG', () => {
+  it('qualifies the exact source SHA before any package job', () => {
+    const workflow = readReleaseWorkflow();
+    const qualifyJob = workflowJob(workflow, 'qualify-release');
+    const buildMacJob = workflowJob(workflow, 'build-mac');
+    const buildWindowsJob = workflowJob(workflow, 'build-windows');
+
+    expect(parseNeeds(qualifyJob)).toEqual(['prepare-release']);
+    expect(parseNeeds(buildMacJob)).toEqual(['prepare-release', 'qualify-release']);
+    expect(parseNeeds(buildWindowsJob)).toEqual(['prepare-release', 'qualify-release']);
+    expect(qualifyJob).toContain('ref: ${{ needs.prepare-release.outputs.source_sha }}');
+    expect(buildMacJob).toContain('ref: ${{ needs.prepare-release.outputs.source_sha }}');
+    expect(buildWindowsJob).toContain('ref: ${{ needs.prepare-release.outputs.source_sha }}');
+
+    let previous = -1;
+    for (const command of QUALIFY_COMMANDS) {
+      const index = qualifyJob.indexOf(command);
+      expect(index, `missing qualify command: ${command}`).toBeGreaterThan(previous);
+      previous = index;
+    }
+    expect(qualifyJob).toContain("GOGCHAT_PERF_RUNS: '5'");
+    expect(qualifyJob).toContain("HEADLESS_TIMEOUT_MS: '90000'");
+  });
+
+  it('makes create-release-tag the sole tag writer after aggregate verification', () => {
+    const workflow = readReleaseWorkflow();
+    const createTagJob = workflowJob(workflow, 'create-release-tag');
+    const verifyJob = workflowJob(workflow, 'verify-release-artifacts');
+    const publishJob = workflowJob(workflow, 'publish-release');
+    const prepareJob = workflowJob(workflow, 'prepare-release');
+    const qualifyJob = workflowJob(workflow, 'qualify-release');
+    const buildMacJob = workflowJob(workflow, 'build-mac');
+    const buildWindowsJob = workflowJob(workflow, 'build-windows');
+
+    expect(parseNeeds(createTagJob)).toEqual(['prepare-release', 'verify-release-artifacts']);
+    expect(parseNeeds(publishJob)).toEqual([
+      'prepare-release',
+      'verify-release-artifacts',
+      'create-release-tag',
+    ]);
+    expect(jobWritesTag(createTagJob)).toBe(true);
+    expect(createTagJob).toContain('node scripts/release-tag.js');
+    expect(createTagJob).toContain(
+      'group: create-release-tag-${{ needs.prepare-release.outputs.tag_name }}'
+    );
+    expect(createTagJob).toContain('cancel-in-progress: false');
+    expect(createTagJob).toContain('ref: ${{ needs.prepare-release.outputs.source_sha }}');
+    expect(workflow.match(/softprops\/action-gh-release@/g) ?? []).toHaveLength(1);
+
+    for (const job of [
+      prepareJob,
+      qualifyJob,
+      buildMacJob,
+      buildWindowsJob,
+      verifyJob,
+      publishJob,
+    ]) {
+      expect(jobWritesTag(job)).toBe(false);
+    }
+  });
+
+  it('makes tag and publish unreachable when any predecessor fails', () => {
+    const matrix = [
+      'qualify-release',
+      'build-mac',
+      'build-windows',
+      'verify-release-artifacts',
+      'create-release-tag',
+    ].map((failedJob) => simulateReleaseDag(failedJob));
+
+    for (const result of matrix) {
+      expect(result.tagWrites, result.failedJob).toEqual([]);
+      expect(result.skipped).toContain('publish-release');
+    }
+    expect(simulateReleaseDag('qualify-release').skipped).toEqual(
+      expect.arrayContaining([
+        'build-mac',
+        'build-windows',
+        'create-release-tag',
+        'publish-release',
+      ])
+    );
   });
 });

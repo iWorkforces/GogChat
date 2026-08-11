@@ -31,6 +31,41 @@ export interface HydrationHook {
 }
 
 /**
+ * Required on the factory-created branch. The manager owns registration,
+ * activity/throttle listeners, and the single WebContents-created notify.
+ * Must not be invoked for existing or hydrated windows.
+ */
+export type RegisterNewAccountWindow = (window: BrowserWindow, accountIndex: AccountIndex) => void;
+
+/**
+ * Hydrate restores the snapshot URL via the factory. Callers that requested a
+ * different Chat URL (deep link, cross-account open) still need that URL
+ * applied — but never interrupt a bootstrap Google auth page.
+ */
+function applyRequestedUrlAfterHydrate(
+  window: BrowserWindow,
+  url: string,
+  accountIndex: AccountIndex
+): void {
+  let currentUrl = '';
+  try {
+    currentUrl = window.webContents.getURL();
+  } catch (error: unknown) {
+    log.warn(`[AccountRouter] getURL failed after hydrate for account ${accountIndex}:`, error);
+  }
+  if (_isBootstrap(accountIndex) && isGoogleAuthUrl(currentUrl)) {
+    log.info(
+      `[AccountRouter] Skipping post-hydrate loadURL for account ${accountIndex} — bootstrap window is mid-auth (${currentUrl})`
+    );
+    return;
+  }
+  if (currentUrl === url) {
+    return;
+  }
+  void window.loadURL(url);
+}
+
+/**
  * Route a createAccountWindow request: reuse existing, skip if mid-auth, or create new.
  *
  * @param registry - The window registry to query/update
@@ -47,7 +82,8 @@ export function routeAccountWindow(
   windowFactory: WindowFactory | undefined,
   url: string,
   accountIndex: AccountIndex,
-  hydrationHook?: HydrationHook
+  hydrationHook?: HydrationHook,
+  onNewWindow?: RegisterNewAccountWindow
 ): BrowserWindow {
   // Auto-hydrate path (T12/M3): if the account is currently dehydrated, the
   // hook recreates the window against the same persist:account-N partition.
@@ -57,6 +93,7 @@ export function routeAccountWindow(
   if (hydrationHook && hydrationHook.isDehydrated(accountIndex)) {
     const hydrated = hydrationHook.hydrate(accountIndex);
     if (hydrated) {
+      applyRequestedUrlAfterHydrate(hydrated, url, accountIndex);
       return hydrated;
     }
     // Hook reported dehydrated but failed to produce a window — fall through
@@ -91,10 +128,23 @@ export function routeAccountWindow(
   if (!windowFactory) {
     throw new Error('[AccountRouter] No WindowFactory injected — cannot create window');
   }
+  if (!onNewWindow) {
+    throw new Error(
+      '[AccountRouter] New-window registration callback is required for factory-created windows'
+    );
+  }
+
   const partition = toPartition(accountIndex);
   const window = windowFactory.createWindow(url, partition);
 
-  registry.registerWindow(window, accountIndex);
+  try {
+    onNewWindow(window, accountIndex);
+  } catch (error: unknown) {
+    if (!window.isDestroyed()) {
+      window.destroy();
+    }
+    throw error;
+  }
 
   log.info(`[AccountRouter] Created account window ${accountIndex} with partition: ${partition}`);
 

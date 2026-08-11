@@ -35,7 +35,12 @@ vi.mock('electron-log', () => ({
   },
 }));
 
-import { getPackageInfo, clearPackageInfoCache, isPackageInfoLoaded } from './packageInfo';
+import {
+  getPackageInfo,
+  clearPackageInfoCache,
+  destroyPackageInfo,
+  isPackageInfoLoaded,
+} from './packageInfo';
 
 describe('PackageInfo', () => {
   beforeEach(() => {
@@ -130,6 +135,13 @@ describe('PackageInfo', () => {
       expect(isPackageInfoLoaded()).toBe(true);
 
       clearPackageInfoCache();
+      expect(isPackageInfoLoaded()).toBe(false);
+    });
+
+    it('destroyPackageInfo aliases cache clear', () => {
+      getPackageInfo();
+      expect(isPackageInfoLoaded()).toBe(true);
+      destroyPackageInfo();
       expect(isPackageInfoLoaded()).toBe(false);
     });
   });

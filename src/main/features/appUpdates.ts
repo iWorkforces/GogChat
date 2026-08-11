@@ -14,7 +14,6 @@ import {
   isUpdateSessionDismissed,
   presentUpdateDialog,
 } from '../utils/platform/updateWindow.js';
-import { asType } from '../../shared/typeUtils.js';
 import { validateExternalURL } from '../../shared/urlValidators.js';
 import { openExternal } from '../utils/security/shellWrapper.js';
 import { registerMenuAction } from './menuActionRegistry.js';
@@ -23,10 +22,86 @@ let interval: ReturnType<typeof setInterval> | null = null;
 /** Single-flight guard for manual check sessions. */
 let manualGate = false;
 
-interface GithubRelease {
+/** Test-only: release the single-flight guard after a hung or aborted case. */
+export function resetManualUpdateGateForTests(): void {
+  manualGate = false;
+}
+
+/** Deadline for the user-initiated GitHub releases fetch. */
+export const MANUAL_UPDATE_FETCH_TIMEOUT_MS = 10_000;
+
+export interface StableGithubRelease {
   tag_name: string;
-  body?: string;
   html_url: string;
+  body?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isGithubReleaseHtmlUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 2048) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname;
+    if (parsed.protocol !== 'https:') {
+      return false;
+    }
+    if (host !== 'github.com' && host !== 'www.github.com') {
+      return false;
+    }
+    return /^\/[^/]+\/[^/]+\/releases\//.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Parse one GitHub Releases API object from untrusted JSON.
+ * Requires a non-empty tag, an HTTPS html_url, and explicit stable flags.
+ */
+export function parseStableGithubRelease(value: unknown): StableGithubRelease | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  if (value['draft'] !== false || value['prerelease'] !== false) {
+    return null;
+  }
+  const tagName = value['tag_name'];
+  if (typeof tagName !== 'string' || tagName.trim().length === 0) {
+    return null;
+  }
+  const htmlUrl = value['html_url'];
+  if (!isGithubReleaseHtmlUrl(htmlUrl)) {
+    return null;
+  }
+
+  const release: StableGithubRelease = {
+    tag_name: tagName,
+    html_url: htmlUrl,
+  };
+  const body = value['body'];
+  if (typeof body === 'string') {
+    release.body = body;
+  }
+  return release;
+}
+
+/** First valid stable entry in a GitHub Releases API array. */
+export function selectFirstStableGithubRelease(payload: unknown): StableGithubRelease | null {
+  if (!Array.isArray(payload)) {
+    return null;
+  }
+  for (const entry of payload) {
+    const parsed = parseStableGithubRelease(entry);
+    if (parsed) {
+      return parsed;
+    }
+  }
+  return null;
 }
 
 /** Extract `owner/repo` from a GitHub repository URL or `owner/repo` string. */
@@ -81,25 +156,19 @@ export function isVersionNewer(latest: string, current: string): boolean {
   return false;
 }
 
-async function fetchLatestRelease(repo: string): Promise<GithubRelease | null> {
+async function fetchLatestRelease(repo: string): Promise<StableGithubRelease | null> {
   const response = await fetch(`https://api.github.com/repos/${repo}/releases`, {
     headers: {
       Accept: 'application/vnd.github+json',
       'User-Agent': `GogChat/${app.getVersion()}`,
     },
+    signal: AbortSignal.timeout(MANUAL_UPDATE_FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(`GitHub releases HTTP ${response.status}`);
   }
-  const releases = asType<GithubRelease[]>(await response.json());
-  if (!Array.isArray(releases) || releases.length === 0) {
-    return null;
-  }
-  const first = releases[0];
-  if (!first || typeof first.tag_name !== 'string' || typeof first.html_url !== 'string') {
-    return null;
-  }
-  return first;
+  const payload: unknown = await response.json();
+  return selectFirstStableGithubRelease(payload);
 }
 
 async function openReleasePage(url: string): Promise<void> {
@@ -124,7 +193,7 @@ export async function checkForUpdatesManual(): Promise<void> {
   try {
     beginUpdateDialogSession();
 
-    if (!app.isPackaged) {
+    if (!app.isPackaged && process.env['TESTING'] !== 'true') {
       await presentUpdateDialog({
         type: 'info',
         title: 'GogChat Updates',
@@ -161,7 +230,7 @@ export async function checkForUpdatesManual(): Promise<void> {
       return;
     }
 
-    let latest: GithubRelease | null;
+    let latest: StableGithubRelease | null;
     try {
       latest = await fetchLatestRelease(repo);
     } catch (err: unknown) {
@@ -184,10 +253,11 @@ export async function checkForUpdatesManual(): Promise<void> {
 
     if (!latest) {
       await presentUpdateDialog({
-        type: 'info',
+        type: 'error',
         title: 'GogChat Updates',
-        message: `GogChat is up to date (v${app.getVersion()})`,
-        detail: 'No releases were found on GitHub.',
+        message: 'No stable release found',
+        detail:
+          'GitHub returned no published stable releases. This does not mean the installed build is up to date.',
         buttons: [],
         phase: 'result',
       });
@@ -269,3 +339,10 @@ registerMenuAction('checkForUpdates', {
     void checkForUpdatesManual();
   },
 });
+
+if (process.env['TESTING'] === 'true') {
+  const testGlobal = globalThis as typeof globalThis & {
+    __gogchatCheckForUpdatesManual?: typeof checkForUpdatesManual;
+  };
+  testGlobal.__gogchatCheckForUpdatesManual = checkForUpdatesManual;
+}

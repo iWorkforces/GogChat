@@ -42,10 +42,7 @@ import {
   readAccountWindowState as _getAccountWindowState,
 } from './accountWindowsStore.js';
 import { createTrackedTimeout } from '../lifecycle/resourceCleanup.js';
-import {
-  getAccountViewManager,
-  resetAccountViewManagerSingleton,
-} from './accountViewManager.js';
+import { getAccountViewManager, resetAccountViewManagerSingleton } from './accountViewManager.js';
 import {
   notifyAccountWebContentsCreated,
   notifyAccountWebContentsDestroyed,
@@ -411,21 +408,47 @@ export class AccountWindowManager implements IAccountWindowManager {
       isDehydrated: (i) => this.isDehydrated(i),
       hydrate: (i) => this.hydrateAccount(i),
     };
-    const window = routeAccountWindow(
+    return routeAccountWindow(
       this.registry,
       this.windowFactory,
       url,
       accountIndex,
-      hydrationHook
+      hydrationHook,
+      (created, createdIndex) => {
+        this.registerNewlyCreatedWindow(created, createdIndex);
+      }
     );
-    if (window && !window.isDestroyed() && window.webContents && !window.webContents.isDestroyed()) {
-      notifyAccountWebContentsCreated({
-        accountIndex,
-        webContents: window.webContents,
-        backend: 'browser-window',
-      });
+  }
+
+  /**
+   * Factory-created windows only. Register, attach activity/throttle listeners,
+   * and emit exactly one WebContents-created notification. On failure, detach
+   * partial state so the router can destroy the window.
+   */
+  private registerNewlyCreatedWindow(window: BrowserWindow, accountIndex: AccountIndex): void {
+    try {
+      this.registerWindow(window, accountIndex);
+      if (
+        window &&
+        !window.isDestroyed() &&
+        window.webContents &&
+        !window.webContents.isDestroyed()
+      ) {
+        notifyAccountWebContentsCreated({
+          accountIndex,
+          webContents: window.webContents,
+          backend: 'browser-window',
+        });
+      }
+    } catch (error: unknown) {
+      this.detachActivityListeners(window);
+      this.cancelDehydrate(accountIndex);
+      if (this.registry.getAccountWindow(accountIndex) === window) {
+        this.registry.unregisterAccount(accountIndex);
+      }
+      notifyAccountWebContentsDestroyed(accountIndex);
+      throw error;
     }
-    return window;
   }
 
   // ─── Bootstrap window tracking ───────────────────────────────────────────
@@ -540,25 +563,39 @@ export class AccountWindowManager implements IAccountWindowManager {
     const window = this.windowFactory.createWindow(snapshot.url, partition);
     // Clear sidecar BEFORE registering so getAccountWindow (which checks the
     // sidecar) returns the new window during downstream `registerWindow`
-    // observers.
+    // observers. Restored on any post-create failure so the account stays parked.
     this.dehydratedAccounts.delete(accountIndex);
-    this.registry.registerWindow(window, accountIndex);
-    this.attachActivityListeners(window, accountIndex);
-    // Restore presentation state. setBounds first, then maximize, so that the
-    // pre-maximize bounds are remembered for later unmaximize.
-    window.setBounds(snapshot.bounds);
-    if (snapshot.isMaximized) {
-      window.maximize();
-    }
-    // Navigation is owned solely by the factory (windowWrapper calls loadURL
-    // on create). A second loadURL here would double-navigate restored accounts.
-    // Snapshot URL is factory input only — do not re-dispatch navigation.
-    if (window.webContents && !window.webContents.isDestroyed()) {
-      notifyAccountWebContentsCreated({
-        accountIndex,
-        webContents: window.webContents,
-        backend: 'browser-window',
-      });
+    try {
+      this.registry.registerWindow(window, accountIndex);
+      this.attachActivityListeners(window, accountIndex);
+      // Restore presentation state. setBounds first, then maximize, so that the
+      // pre-maximize bounds are remembered for later unmaximize.
+      window.setBounds(snapshot.bounds);
+      if (snapshot.isMaximized) {
+        window.maximize();
+      }
+      // Navigation is owned solely by the factory (windowWrapper calls loadURL
+      // on create). A second loadURL here would double-navigate restored accounts.
+      // Snapshot URL is factory input only — do not re-dispatch navigation.
+      // Callers that need a *requested* URL apply it after hydrate (router).
+      if (window.webContents && !window.webContents.isDestroyed()) {
+        notifyAccountWebContentsCreated({
+          accountIndex,
+          webContents: window.webContents,
+          backend: 'browser-window',
+        });
+      }
+    } catch (error: unknown) {
+      this.detachActivityListeners(window);
+      if (this.registry.getAccountWindow(accountIndex) === window) {
+        this.registry.unregisterAccount(accountIndex);
+      }
+      notifyAccountWebContentsDestroyed(accountIndex);
+      if (!window.isDestroyed()) {
+        window.destroy();
+      }
+      this.dehydratedAccounts.set(accountIndex, snapshot);
+      throw error;
     }
     log.info(
       `[AccountWindowManager] Hydrated account ${accountIndex} (partition=${partition}, url=${snapshot.url})`
@@ -621,6 +658,15 @@ let accountManagerSingleton: IAccountWindowManager | null = null;
  * manager. Both satisfy {@link IAccountWindowManager}, so all consumers are
  * agnostic to the choice.
  */
+/**
+ * Return the live singleton without constructing one. Shutdown diagnostics
+ * must use this after accounts are torn down — {@link getAccountWindowManager}
+ * would recreate an empty manager.
+ */
+export function peekAccountWindowManager(): IAccountWindowManager | null {
+  return accountManagerSingleton;
+}
+
 export function getAccountWindowManager(factory?: WindowFactory): IAccountWindowManager {
   if (!accountManagerSingleton) {
     let useViews = false;
@@ -698,4 +744,13 @@ export function createAccountWindow(url: string, accountIndex: AccountIndex): Br
 export function getAccountForWebContents(webContentsId: WebContentsId): AccountIndex | null {
   if (!accountManagerSingleton) return null;
   return accountManagerSingleton.getAccountForWebContents(webContentsId);
+}
+
+if (process.env['TESTING'] === 'true') {
+  const testGlobal = globalThis as typeof globalThis & {
+    __gogchatGetAccountWindowManager?: typeof getAccountWindowManager;
+    __gogchatPeekAccountWindowManager?: typeof peekAccountWindowManager;
+  };
+  testGlobal.__gogchatGetAccountWindowManager = getAccountWindowManager;
+  testGlobal.__gogchatPeekAccountWindowManager = peekAccountWindowManager;
 }

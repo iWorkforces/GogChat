@@ -6,6 +6,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+vi.mock('electron', () => ({
+  ipcRenderer: { send: vi.fn(), on: vi.fn(), removeListener: vi.fn() },
+}));
 import { SELECTORS } from '../shared/constants.js';
 
 // Capture event listeners registered on window
@@ -102,7 +106,8 @@ describe('unreadCount', () => {
   };
 
   it('registers DOMContentLoaded, visibilitychange, and beforeunload listeners', async () => {
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     const types = windowListeners.map((l) => l.type);
     expect(types).toContain('DOMContentLoaded');
     expect(types).toContain('visibilitychange');
@@ -110,7 +115,8 @@ describe('unreadCount', () => {
   });
 
   it('attaches a body-level observer with childList+subtree only (no characterData)', async () => {
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     const body = findBodyObserver();
@@ -134,7 +140,8 @@ describe('unreadCount', () => {
       return [] as unknown as NodeListOf<Element>;
     });
 
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     const containerObservers = findContainerObservers();
@@ -149,7 +156,8 @@ describe('unreadCount', () => {
   });
 
   it('sends unread count 0 on initial observation when no badges found', async () => {
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
     expect(mockSendUnreadCount).toHaveBeenCalledWith(0);
   });
@@ -175,7 +183,8 @@ describe('unreadCount', () => {
       container2,
     ] as unknown as NodeListOf<Element>);
 
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     expect(mockSendUnreadCount).toHaveBeenCalledWith(8);
@@ -194,14 +203,16 @@ describe('unreadCount', () => {
       container,
     ] as unknown as NodeListOf<Element>);
 
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     expect(mockSendUnreadCount).toHaveBeenCalledWith(2);
   });
 
   it('does not send when count has not changed', async () => {
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     expect(mockSendUnreadCount).toHaveBeenCalledTimes(1);
@@ -239,7 +250,8 @@ describe('unreadCount', () => {
       return [] as unknown as NodeListOf<Element>;
     });
 
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     // Initial emit: count=0
@@ -265,7 +277,8 @@ describe('unreadCount', () => {
   });
 
   it('does not emit when unrelated body subtree mutations fire and DOM is unchanged', async () => {
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     // Initial: count=0
@@ -304,7 +317,8 @@ describe('unreadCount', () => {
       return [] as unknown as NodeListOf<Element>;
     });
 
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     expect(mockSendUnreadCount).toHaveBeenLastCalledWith(4);
@@ -366,7 +380,8 @@ describe('unreadCount', () => {
       return [] as unknown as NodeListOf<Element>;
     });
 
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     // Trigger a scoped mutation to start the debounce timer
@@ -397,7 +412,8 @@ describe('unreadCount', () => {
       container,
     ] as unknown as NodeListOf<Element>);
 
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     expect(mockSendUnreadCount).toHaveBeenCalledWith(4);
@@ -410,7 +426,8 @@ describe('unreadCount', () => {
       writable: true,
     });
 
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     expect(mockSendUnreadCount).not.toHaveBeenCalled();
@@ -429,7 +446,8 @@ describe('unreadCount', () => {
       container,
     ] as unknown as NodeListOf<Element>);
 
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     expect(mockSendUnreadCount).toHaveBeenCalledWith(0);
@@ -448,14 +466,16 @@ describe('unreadCount', () => {
       container,
     ] as unknown as NodeListOf<Element>);
 
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     expect(mockSendUnreadCount).toHaveBeenCalledWith(0);
   });
 
   it('disconnects previous observers when initObserver is called again', async () => {
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
     fireDOMContentLoaded();
 
     const firstBody = findBodyObserver();
@@ -476,7 +496,8 @@ describe('unreadCount', () => {
       throw new Error('invalid selector');
     });
 
-    await import('./unreadCount');
+    const { installUnreadCount } = await import('./unreadCount');
+    installUnreadCount();
 
     // Should not throw on init
     expect(() => fireDOMContentLoaded()).not.toThrow();

@@ -5,9 +5,33 @@
  * navigates once to the app URL via location.replace.
  */
 
+import { ipcRenderer } from 'electron';
+import { IPC_CHANNELS } from '../shared/constants.js';
 import urls from '../urls.js';
 
 let unsubscribe: (() => void) | null = null;
+let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+let deadlineFailed = false;
+export const ONLINE_CHECK_DEADLINE_MS = 6_000;
+
+function clearOnlineDeadline(): void {
+  if (deadlineTimer !== null) {
+    clearTimeout(deadlineTimer);
+    deadlineTimer = null;
+  }
+}
+
+function armOnlineDeadline(): void {
+  clearOnlineDeadline();
+  deadlineFailed = false;
+  deadlineTimer = setTimeout(() => {
+    deadlineTimer = null;
+    if (!deadlineFailed) {
+      deadlineFailed = true;
+      window.dispatchEvent(new Event(ONLINE_CHECK_FAILED_EVENT));
+    }
+  }, ONLINE_CHECK_DEADLINE_MS);
+}
 
 /**
  * DOM-only signal that a connectivity check finished with a false reply.
@@ -22,6 +46,8 @@ export const ONLINE_CHECK_FAILED_EVENT = 'app:onlineCheckFailed';
  * Exported for unit tests.
  */
 export const handleOnlineStatus = (online: boolean): void => {
+  clearOnlineDeadline();
+  deadlineFailed = true;
   if (online) {
     // Back online - redirect to GogChat exactly once
     window.location.replace(urls.appUrl);
@@ -37,28 +63,38 @@ export const handleOnlineStatus = (online: boolean): void => {
  * Exported for unit tests.
  */
 export const handleCheckOnline = (): void => {
+  armOnlineDeadline();
   if (window.gogchat?.checkIfOnline) {
     window.gogchat.checkIfOnline();
+    return;
   }
+  ipcRenderer.send(IPC_CHANNELS.CHECK_IF_ONLINE);
 };
 
-// Use secure API exposed via contextBridge
-window.addEventListener('DOMContentLoaded', () => {
-  // Listen to global event from offline.html
-  window.addEventListener('app:checkIfOnline', handleCheckOnline);
+export function installOffline(): void {
+  window.addEventListener('DOMContentLoaded', () => {
+    window.addEventListener('app:checkIfOnline', handleCheckOnline);
 
-  // Listen to online status from main process
-  if (window.gogchat?.onOnlineStatus) {
-    unsubscribe = window.gogchat.onOnlineStatus(handleOnlineStatus);
-  }
-});
+    if (window.gogchat?.onOnlineStatus) {
+      unsubscribe = window.gogchat.onOnlineStatus(handleOnlineStatus);
+    } else {
+      const listener = (_event: Electron.IpcRendererEvent, online: boolean) => {
+        handleOnlineStatus(online);
+      };
+      ipcRenderer.on(IPC_CHANNELS.ONLINE_STATUS, listener);
+      unsubscribe = () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.ONLINE_STATUS, listener);
+      };
+    }
+  });
 
-// Clean up listeners when page unloads
-window.addEventListener('beforeunload', () => {
-  window.removeEventListener('app:checkIfOnline', handleCheckOnline);
+  window.addEventListener('beforeunload', () => {
+    window.removeEventListener('app:checkIfOnline', handleCheckOnline);
+    clearOnlineDeadline();
 
-  if (unsubscribe) {
-    unsubscribe();
-    unsubscribe = null;
-  }
-});
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
+  });
+}

@@ -2,7 +2,7 @@
 
 **Parent:** `../AGENTS.md`
 
-`src/main` is the Electron main process: startup orchestration, feature execution, BrowserWindow/WebContentsView account backends, app-level security, IPC handlers, and macOS integration. Arch-specific packaging (arm64/x64 DMGs) is not owned here; see `mac/AGENTS.md` and `scripts/AGENTS.md`. Product version and dual-backend multi-account contracts are summarized in root `AGENTS.md` (v3.19.0).
+`src/main` is the Electron main process: startup orchestration, feature execution, BrowserWindow/WebContentsView account backends, app-level security, IPC handlers, and macOS integration. Arch-specific packaging (arm64/x64 DMGs) is not owned here; see `mac/AGENTS.md` and `scripts/AGENTS.md`. Product version and dual-backend multi-account contracts are summarized in root `AGENTS.md` (v3.20.0). `userAgent` is authored in `initializers/ui.spec.ts` with `phase: 'critical'`.
 
 ## Entry and startup
 
@@ -17,16 +17,16 @@
 
 ## Module map
 
-| Area | Path | Local guide |
-| --- | --- | --- |
-| Feature modules | `features/` | `features/AGENTS.md` |
-| Startup/shutdown/specs | `initializers/` | `initializers/AGENTS.md` |
-| Account backends | `utils/account/` | `utils/account/AGENTS.md` |
+| Area                       | Path               | Local guide                 |
+| -------------------------- | ------------------ | --------------------------- |
+| Feature modules            | `features/`        | `features/AGENTS.md`        |
+| Startup/shutdown/specs     | `initializers/`    | `initializers/AGENTS.md`    |
+| Account backends           | `utils/account/`   | `utils/account/AGENTS.md`   |
 | Lifecycle/resource cleanup | `utils/lifecycle/` | `utils/lifecycle/AGENTS.md` |
-| IPC helpers | `utils/ipc/` | `utils/ipc/AGENTS.md` |
-| Security utilities | `utils/security/` | `utils/security/AGENTS.md` |
-| Platform/menu/badges | `utils/platform/` | `utils/platform/AGENTS.md` |
-| Config cache/schema access | `utils/config/` | `utils/config/AGENTS.md` |
+| IPC helpers                | `utils/ipc/`       | `utils/ipc/AGENTS.md`       |
+| Security utilities         | `utils/security/`  | `utils/security/AGENTS.md`  |
+| Platform/menu/badges       | `utils/platform/`  | `utils/platform/AGENTS.md`  |
+| Config cache/schema access | `utils/config/`    | `utils/config/AGENTS.md`    |
 
 ## Main-process rules
 
@@ -62,7 +62,7 @@
 - Preserve `persist:account-N` partitions and Google auth page handling.
 - Use `accountNavigation` (`loadAccountURL` / `getAccountURL` / `sendToAccount`) and never navigate the WCV host shell.
 - Multi-account feature attach (e.g. externalLinks) goes through `accountWebContentsHooks` — managers must notify create/destroy on live WC paths including BW dehydrate/hydrate.
-- BrowserWindow hydration: factory owns the single restored `loadURL`; manager must not double-navigate.
+- BrowserWindow hydration: factory owns the snapshot `loadURL`; manager must not double-navigate. The router may apply a different requested URL after hydrate (not mid-auth). `peekAccountWindowManager()` never constructs a singleton.
 - Observability: implement/use `enumerateAccountWebContents()`; do not sample host-only under WebContentsView.
 - Sparse iteration: `listAccountIndices()` / `hasAccount()` (includes dehydrated-parked) / `isAccountVisible()` — not dense `0..count-1`.
 - BrowserWindow remains the default backend; WebContentsView stays opt-in (`app.useWebContentsView`) until measured policy evidence exists.

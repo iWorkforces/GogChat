@@ -207,6 +207,14 @@ describe('externalLinks feature', () => {
     it('routes existing secondary accounts via loadAccountURL (not host loadURL)', async () => {
       mockHasAccount.mockReturnValue(true);
       mockGetAccountURL.mockReturnValue('https://chat.google.com/u/1/');
+      const order: string[] = [];
+      mockFocusAccount.mockImplementation(() => {
+        order.push('focus');
+      });
+      mockLoadAccountURL.mockImplementation(() => {
+        order.push('load');
+        return true;
+      });
       const win = makeFakeWindow('https://chat.google.com/u/0/');
       const feature = await import('./externalLinks.js');
       feature.installExternalLinkGuards(
@@ -226,6 +234,8 @@ describe('externalLinks feature', () => {
         'https://chat.google.com/u/1/room/abc'
       );
       expect(mockFocusAccount).toHaveBeenCalledWith(1);
+      expect(order[0]).toBe('focus');
+      expect(order).toContain('load');
       expect(win.loadURL).not.toHaveBeenCalled();
     });
 

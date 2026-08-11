@@ -35,14 +35,55 @@ vi.mock('../shared/constants.js', () => ({
   },
 }));
 
-// Side-effect modules — stub out to keep test hermetic
-vi.mock('./disableWebAuthn.js', () => ({}));
-vi.mock('./faviconChanged.js', () => ({}));
-vi.mock('./offline.js', () => ({}));
-vi.mock('./passkeyMonitor.js', () => ({}));
-vi.mock('./searchShortcut.js', () => ({}));
-vi.mock('./unreadCount.js', () => ({}));
-vi.mock('./notificationBridge.js', () => ({}));
+const installerMocks = vi.hoisted(() => {
+  const order: string[] = [];
+  return {
+    order,
+    installDisableWebAuthn: vi.fn(() => {
+      order.push('disableWebAuthn');
+    }),
+    installFaviconChanged: vi.fn(() => {
+      order.push('faviconChanged');
+    }),
+    installOffline: vi.fn(() => {
+      order.push('offline');
+    }),
+    installPasskeyMonitor: vi.fn(() => {
+      order.push('passkeyMonitor');
+    }),
+    installSearchShortcut: vi.fn(() => {
+      order.push('searchShortcut');
+    }),
+    installUnreadCount: vi.fn(() => {
+      order.push('unreadCount');
+    }),
+    installNotificationBridge: vi.fn(() => {
+      order.push('notificationBridge');
+    }),
+  };
+});
+
+vi.mock('./disableWebAuthn.js', () => ({
+  installDisableWebAuthn: installerMocks.installDisableWebAuthn,
+}));
+vi.mock('./faviconChanged.js', () => ({
+  installFaviconChanged: installerMocks.installFaviconChanged,
+}));
+vi.mock('./offline.js', () => ({
+  installOffline: installerMocks.installOffline,
+}));
+vi.mock('./passkeyMonitor.js', () => ({
+  installPasskeyMonitor: installerMocks.installPasskeyMonitor,
+}));
+vi.mock('./searchShortcut.js', () => ({
+  installSearchShortcut: installerMocks.installSearchShortcut,
+}));
+vi.mock('./unreadCount.js', () => ({
+  installUnreadCount: installerMocks.installUnreadCount,
+}));
+vi.mock('./notificationBridge.js', () => ({
+  installNotificationBridge: installerMocks.installNotificationBridge,
+}));
 
 import { contextBridge, ipcRenderer } from 'electron';
 import { validateUnreadCount, validatePasskeyFailureData } from '../shared/dataValidators.js';
@@ -67,6 +108,7 @@ describe('preload/index.ts', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    installerMocks.order.length = 0;
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -75,6 +117,28 @@ describe('preload/index.ts', () => {
       await loadPreload();
       expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
       expect(contextBridge.exposeInMainWorld).toHaveBeenCalledWith('gogchat', expect.any(Object));
+    });
+
+    it('installs WebAuthn disable, then exposes the bridge, then remaining features in order', async () => {
+      const exposeMock = contextBridge.exposeInMainWorld as unknown as ReturnType<typeof vi.fn>;
+      exposeMock.mockImplementation(() => {
+        installerMocks.order.push('expose');
+      });
+
+      await loadPreload();
+
+      expect(installerMocks.order).toEqual([
+        'disableWebAuthn',
+        'expose',
+        'faviconChanged',
+        'offline',
+        'passkeyMonitor',
+        'searchShortcut',
+        'unreadCount',
+        'notificationBridge',
+      ]);
+      expect(installerMocks.installDisableWebAuthn).toHaveBeenCalledTimes(1);
+      expect(installerMocks.installNotificationBridge).toHaveBeenCalledTimes(1);
     });
 
     it('exposes exactly the 7 documented API methods', async () => {

@@ -1008,4 +1008,17 @@ describe('ResourceCleanup', () => {
       expect(target.addEventListener).not.toHaveBeenCalled();
     });
   });
+
+  it('destroyCleanupManager is idempotent and fires a tracked timeout first', async () => {
+    const { createTrackedTimeout, getCleanupManager, destroyCleanupManager } =
+      await import('./resourceCleanup.js');
+    const callback = vi.fn();
+    const handle = createTrackedTimeout(callback, 60_000, 'coverage-timeout');
+    getCleanupManager().untrackTimeout(handle);
+    getCleanupManager().untrackTimeout(handle);
+    destroyCleanupManager();
+    destroyCleanupManager();
+    expect(callback).not.toHaveBeenCalled();
+    expect(getCleanupManager()).not.toBeNull();
+  });
 });

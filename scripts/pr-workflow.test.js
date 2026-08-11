@@ -1,0 +1,192 @@
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { describe, expect, it } from 'vitest';
+
+const PROJECT_ROOT = path.resolve(import.meta.dirname, '..');
+const PR_WORKFLOW_PATH = path.join(PROJECT_ROOT, '.github/workflows/pr-check.yml');
+const PLAYWRIGHT_PROJECTS = ['e2e', 'integration', 'performance', 'preload-artifact'];
+
+const LITERAL = {
+  install: 'bun install --frozen-lockfile',
+  electron: 'node scripts/install-electron-binary.js',
+  typecheck: 'node ./node_modules/@typescript/native/bin/tsc -b',
+  docClaims: 'bun scripts/check-doc-claims.js',
+  lint: 'bash ./scripts/lint.sh',
+  coverage:
+    'node --require ./tests/polyfill-crypto.cjs ./node_modules/vitest/vitest.mjs run --coverage',
+  madge: 'bunx madge --circular --extensions ts src/',
+  build: 'bun scripts/build-rsbuild.js',
+  headless: 'node scripts/headless-startup.js',
+  budget: 'node scripts/check-perf-budget.js performance-metrics.json',
+};
+
+function readPrWorkflow() {
+  return fs.readFileSync(PR_WORKFLOW_PATH, 'utf-8');
+}
+
+function workflowJob(workflow, jobName) {
+  const lines = workflow.split('\n');
+  const startIndex = lines.findIndex((line) => line === `  ${jobName}:`);
+  expect(startIndex).toBeGreaterThanOrEqual(0);
+  const nextJobIndex = lines.findIndex(
+    (line, index) => index > startIndex && /^ {2}[a-zA-Z0-9_-]+:$/.test(line)
+  );
+  const endIndex = nextJobIndex === -1 ? lines.length : nextJobIndex;
+  return lines.slice(startIndex, endIndex).join('\n');
+}
+
+function indexOfCommand(job, command) {
+  const index = job.indexOf(command);
+  expect(index, `missing command: ${command}`).toBeGreaterThanOrEqual(0);
+  return index;
+}
+
+describe('PR check workflow contract', () => {
+  it('installs a frozen lockfile and the Electron binary before any gate', () => {
+    const job = workflowJob(readPrWorkflow(), 'check');
+    const installAt = indexOfCommand(job, LITERAL.install);
+    const electronAt = indexOfCommand(job, LITERAL.electron);
+    const typecheckAt = indexOfCommand(job, LITERAL.typecheck);
+
+    expect(installAt).toBeLessThan(electronAt);
+    expect(electronAt).toBeLessThan(typecheckAt);
+  });
+
+  it('runs the required gates in order with literal commands, not package aliases', () => {
+    const job = workflowJob(readPrWorkflow(), 'check');
+
+    const order = [
+      LITERAL.typecheck,
+      LITERAL.docClaims,
+      LITERAL.lint,
+      LITERAL.coverage,
+      LITERAL.madge,
+      LITERAL.build,
+      'bunx playwright test --project=e2e',
+      'bunx playwright test --project=integration',
+      'bunx playwright test --project=performance',
+      'bunx playwright test --project=preload-artifact',
+      LITERAL.headless,
+      LITERAL.budget,
+    ];
+
+    let previous = -1;
+    for (const command of order) {
+      const index = indexOfCommand(job, command);
+      expect(index, `out of order: ${command}`).toBeGreaterThan(previous);
+      previous = index;
+    }
+
+    expect(job).not.toContain('bun run typecheck');
+    expect(job).not.toContain('bun run check:doc-claims');
+    expect(job).not.toContain('bun run lint');
+    expect(job).not.toContain('bun run lint:all');
+    expect(job).not.toContain('bun run test:coverage');
+    expect(job).not.toContain('bun run build:prod');
+    expect(job).not.toContain('bun run test\n');
+    expect(job).not.toMatch(/bun run test$/m);
+  });
+
+  it('does not duplicate unit execution and names the exact headless/budget commands', () => {
+    const job = workflowJob(readPrWorkflow(), 'check');
+
+    expect(job.match(/vitest\.mjs run --coverage/g) ?? []).toHaveLength(1);
+    expect(job.match(/vitest\.mjs/g) ?? []).toHaveLength(1);
+    expect(job).toContain("GOGCHAT_PERF_RUNS: '5'");
+    expect(job).toContain("HEADLESS_TIMEOUT_MS: '90000'");
+    expect(job).toContain(LITERAL.headless);
+    expect(job).toContain(LITERAL.budget);
+    expect(job).not.toMatch(/GOOGLE|gogchat-auth|client_secret|refresh_token/i);
+  });
+
+  it('uploads metrics and log evidence even when a later gate fails', () => {
+    const job = workflowJob(readPrWorkflow(), 'check');
+    const uploadAt = job.indexOf('if: always()');
+    expect(uploadAt).toBeGreaterThan(indexOfCommand(job, LITERAL.budget));
+    expect(job).toContain('actions/upload-artifact@');
+    expect(job).toContain('performance-metrics.json');
+    expect(job).toContain('.perf-history.json');
+    expect(job).toContain('coverage-output.txt');
+    expect(job).toContain('playwright-e2e.log');
+    expect(job).toContain('playwright-integration.log');
+    expect(job).toContain('playwright-performance.log');
+  });
+
+  it('tees Playwright e2e output and annotates the last failure excerpt', () => {
+    const job = workflowJob(readPrWorkflow(), 'check');
+    const e2eAt = indexOfCommand(job, 'bunx playwright test --project=e2e');
+    expect(job).toContain('set -o pipefail');
+    expect(job).toContain('tee playwright-e2e.log');
+    expect(job).toContain('PIPESTATUS');
+    expect(job).toContain('::error file=tests/e2e/user-workflows.test.ts::');
+    expect(e2eAt).toBeLessThan(job.indexOf('::error file=tests/e2e/user-workflows.test.ts::'));
+  });
+
+  it('tees Playwright integration output and annotates the last failure excerpt', () => {
+    const job = workflowJob(readPrWorkflow(), 'check');
+    const integrationAt = indexOfCommand(job, 'bunx playwright test --project=integration');
+    expect(job).toContain('tee playwright-integration.log');
+    expect(job).toContain('::error file=tests/integration/app-launch.test.ts::');
+    expect(integrationAt).toBeLessThan(
+      job.indexOf('::error file=tests/integration/app-launch.test.ts::')
+    );
+  });
+
+  it('tees Playwright performance output and annotates the last failure excerpt', () => {
+    const job = workflowJob(readPrWorkflow(), 'check');
+    const perfAt = indexOfCommand(job, 'bunx playwright test --project=performance');
+    expect(job).toContain('tee playwright-performance.log');
+    expect(job).toContain('::error file=tests/performance/performance-regression.test.ts::');
+    expect(perfAt).toBeLessThan(
+      job.indexOf('::error file=tests/performance/performance-regression.test.ts::')
+    );
+  });
+
+  it('uploads Playwright traces and reports when a Playwright step fails', () => {
+    const job = workflowJob(readPrWorkflow(), 'check');
+    const e2eAt = indexOfCommand(job, 'bunx playwright test --project=e2e');
+    const preloadAt = indexOfCommand(job, 'bunx playwright test --project=preload-artifact');
+    const failureUploadAt = job.indexOf('if: failure()');
+    const headlessAt = indexOfCommand(job, LITERAL.headless);
+
+    expect(failureUploadAt).toBeGreaterThan(e2eAt);
+    expect(failureUploadAt).toBeGreaterThan(preloadAt);
+    expect(failureUploadAt).toBeLessThan(headlessAt);
+    expect(job).toContain('test-results/');
+    expect(job).toContain('playwright-report/');
+    expect(job).toContain('retention-days: 7');
+  });
+
+  it('lists every Playwright project once and no extra project names', () => {
+    const output = execFileSync('bunx', ['playwright', 'test', '--list'], {
+      cwd: PROJECT_ROOT,
+      encoding: 'utf-8',
+    });
+
+    for (const project of PLAYWRIGHT_PROJECTS) {
+      expect(output).toContain(`[${project}]`);
+    }
+
+    const entries = [...output.matchAll(/\[([^\]]+)\] › ([^\n]+)/g)].map((match) => ({
+      project: match[1],
+      rest: match[2],
+    }));
+    const uniqueProjects = [...new Set(entries.map((entry) => entry.project))].sort();
+    expect(uniqueProjects).toEqual([...PLAYWRIGHT_PROJECTS].sort());
+    expect(entries.length).toBeGreaterThan(uniqueProjects.length);
+
+    const owner = new Map();
+    for (const entry of entries) {
+      const file = entry.rest.split(':')[0] ?? entry.rest;
+      const previous = owner.get(file);
+      if (previous && previous !== entry.project) {
+        throw new Error(
+          `duplicate project ownership for ${file}: ${previous} and ${entry.project}`
+        );
+      }
+      owner.set(file, entry.project);
+    }
+  });
+});

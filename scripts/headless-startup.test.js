@@ -48,6 +48,32 @@ function makeValidRun(overrides = {}) {
   };
 }
 
+/** Build renderer snapshots. `creationTime` is omitted when not provided. */
+function makeRendererSnapshots(identities) {
+  return identities.map((id, i) => {
+    const snap = {
+      timestamp: 10 + i,
+      pid: id.pid,
+      type: 'renderer',
+      memory: { residentSet: 1, peakResidentSet: 1, private: 0 },
+      cpuPercent: 0,
+    };
+    if (Object.prototype.hasOwnProperty.call(id, 'creationTime')) {
+      snap.creationTime = id.creationTime;
+    }
+    return snap;
+  });
+}
+
+function identitiesWithCount(count, pidBase, options = {}) {
+  const withCreationTime = options.withCreationTime !== false;
+  return Array.from({ length: count }, (_, i) => {
+    const id = { pid: pidBase + i };
+    if (withCreationTime) id.creationTime = 1000 + i;
+    return id;
+  });
+}
+
 describe('headless-startup median aggregation', () => {
   it('computes medians for odd and even numeric samples', () => {
     expect(median([5, 1, 3, 2, 4])).toBe(3);
@@ -119,6 +145,129 @@ describe('headless-startup median aggregation', () => {
 
   it('marks aggregate incomplete when invalid runs were excluded', () => {
     const merged = mergeMedian([makeValidRun()], { requestedRuns: 2, invalidRuns: 1 });
+    expect(merged.aggregation.complete).toBe(false);
+    expect(merged.aggregation.invalidRuns).toBe(1);
+  });
+});
+
+describe('representative rendererSnapshots selection', () => {
+  it('selects upper-median count [4,4,4,4,1] -> 4 from a complete valid run, not the last run', () => {
+    const snapSets = [
+      makeRendererSnapshots(identitiesWithCount(4, 10)),
+      makeRendererSnapshots(identitiesWithCount(4, 20)),
+      makeRendererSnapshots(identitiesWithCount(4, 30)),
+      makeRendererSnapshots(identitiesWithCount(4, 40)),
+      makeRendererSnapshots(identitiesWithCount(1, 50)),
+    ];
+    const runs = snapSets.map((rendererSnapshots, i) =>
+      makeValidRun({ timestamp: `run-${i}`, rendererSnapshots })
+    );
+    const merged = mergeMedian(runs, { requestedRuns: 5, invalidRuns: 0 });
+    // Sorted by count then original index: (1@4), (4@0), (4@1), (4@2), (4@3).
+    // floor(5/2) = 2 → original index 1.
+    expect(merged.rendererSnapshots).toEqual(snapSets[1]);
+    expect(merged.rendererSnapshots).not.toEqual(snapSets[4]);
+    expect(merged.aggregation.complete).toBe(true);
+  });
+
+  it('uses the even-count upper median (floor(n/2)), not the last run', () => {
+    const snapSets = [
+      makeRendererSnapshots(identitiesWithCount(1, 10)),
+      makeRendererSnapshots(identitiesWithCount(2, 20)),
+      makeRendererSnapshots(identitiesWithCount(4, 30)),
+      makeRendererSnapshots(identitiesWithCount(8, 40)),
+    ];
+    const runs = snapSets.map((rendererSnapshots, i) =>
+      makeValidRun({ timestamp: `run-${i}`, rendererSnapshots })
+    );
+    const merged = mergeMedian(runs, { requestedRuns: 4, invalidRuns: 0 });
+    // Sorted counts [1,2,4,8]; floor(4/2) = 2 → count 4 (original index 2).
+    expect(merged.rendererSnapshots).toEqual(snapSets[2]);
+    expect(merged.rendererSnapshots).not.toEqual(snapSets[3]);
+  });
+
+  it('breaks equal-count ties by original index (deterministic, not last)', () => {
+    const snapSets = [
+      makeRendererSnapshots(identitiesWithCount(4, 10)),
+      makeRendererSnapshots(identitiesWithCount(4, 20)),
+      makeRendererSnapshots(identitiesWithCount(4, 30)),
+      makeRendererSnapshots(identitiesWithCount(4, 40)),
+    ];
+    const runs = snapSets.map((rendererSnapshots, i) =>
+      makeValidRun({ timestamp: `run-${i}`, rendererSnapshots })
+    );
+    const merged = mergeMedian(runs, { requestedRuns: 4, invalidRuns: 0 });
+    // All counts 4; stable order is original index; floor(4/2) = 2.
+    expect(merged.rendererSnapshots).toEqual(snapSets[2]);
+    expect(merged.rendererSnapshots).not.toEqual(snapSets[3]);
+  });
+
+  it('counts unique renderer identity by (pid, creationTime) so PID reuse is not collapsed', () => {
+    const reusedPidFour = makeRendererSnapshots([
+      { pid: 100, creationTime: 1 },
+      { pid: 100, creationTime: 2 },
+      { pid: 100, creationTime: 3 },
+      { pid: 100, creationTime: 4 },
+    ]);
+    const reusedPidOne = makeRendererSnapshots([
+      { pid: 100, creationTime: 9 },
+      { pid: 100, creationTime: 9 },
+      { pid: 100, creationTime: 9 },
+      { pid: 100, creationTime: 9 },
+    ]);
+    const snapSets = [reusedPidFour, reusedPidFour, reusedPidFour, reusedPidFour, reusedPidOne];
+    const runs = snapSets.map((rendererSnapshots, i) =>
+      makeValidRun({ timestamp: `run-${i}`, rendererSnapshots })
+    );
+    const merged = mergeMedian(runs, { requestedRuns: 5, invalidRuns: 0 });
+    // Counts [4,4,4,4,1]; same pick as the odd-count case → first 4-identity run
+    // after the low-count row (original index 1). Last run is 1 identity.
+    expect(merged.rendererSnapshots).toEqual(snapSets[1]);
+    expect(merged.rendererSnapshots).not.toEqual(snapSets[4]);
+    const uniqueKeys = new Set(merged.rendererSnapshots.map((s) => `${s.pid}:${s.creationTime}`));
+    expect(uniqueKeys.size).toBe(4);
+  });
+
+  it('falls back to PID identity when creationTime is missing', () => {
+    const fourPids = makeRendererSnapshots(identitiesWithCount(4, 10, { withCreationTime: false }));
+    const onePidRepeated = makeRendererSnapshots([
+      { pid: 50 },
+      { pid: 50 },
+      { pid: 50 },
+      { pid: 50 },
+    ]);
+    const snapSets = [fourPids, fourPids, fourPids, fourPids, onePidRepeated];
+    const runs = snapSets.map((rendererSnapshots, i) =>
+      makeValidRun({ timestamp: `run-${i}`, rendererSnapshots })
+    );
+    const merged = mergeMedian(runs, { requestedRuns: 5, invalidRuns: 0 });
+    expect(merged.rendererSnapshots).toEqual(snapSets[1]);
+    expect(merged.rendererSnapshots).not.toEqual(snapSets[4]);
+    const uniquePids = new Set(merged.rendererSnapshots.map((s) => s.pid));
+    expect(uniquePids.size).toBe(4);
+  });
+
+  it('never copies representative snapshots from an incomplete run and fails completeness', () => {
+    const validSnaps = makeRendererSnapshots(identitiesWithCount(1, 10));
+    const incompleteSnaps = makeRendererSnapshots(identitiesWithCount(5, 80));
+    const valid = makeValidRun({ timestamp: 'valid-0', rendererSnapshots: validSnaps });
+    const incomplete = makeValidRun({
+      timestamp: 'incomplete-last',
+      rendererSnapshots: incompleteSnaps,
+      capture: {
+        complete: false,
+        valid: false,
+        requiredMarkers: [...REQUIRED_STARTUP_MARKERS],
+        missingMarkers: [],
+        rendererSampleCount: incompleteSnaps.length,
+        reason: 'export before capture producers finished',
+      },
+    });
+    const merged = mergeMedian([valid, incomplete], { requestedRuns: 2, invalidRuns: 1 });
+    // If the incomplete last run were eligible, even-count upper median would
+    // pick it (counts [1,5], floor(2/2)=1). It must not contribute snapshots.
+    expect(merged.rendererSnapshots).toEqual(validSnaps);
+    expect(merged.rendererSnapshots).not.toEqual(incompleteSnaps);
     expect(merged.aggregation.complete).toBe(false);
     expect(merged.aggregation.invalidRuns).toBe(1);
   });

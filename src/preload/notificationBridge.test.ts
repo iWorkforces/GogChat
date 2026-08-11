@@ -31,7 +31,8 @@ describe('notificationBridge', () => {
   });
 
   it('forwards page-world Notification construction to native notification IPC', async () => {
-    await import('./notificationBridge.js');
+    const { installNotificationBridge } = await import('./notificationBridge.js');
+    installNotificationBridge();
 
     window.dispatchEvent(
       new window.CustomEvent('__gogchatNotificationShow', {
@@ -53,7 +54,8 @@ describe('notificationBridge', () => {
   });
 
   it('installs the page-world Notification bridge through webFrame', async () => {
-    await import('./notificationBridge.js');
+    const { installNotificationBridge } = await import('./notificationBridge.js');
+    installNotificationBridge();
 
     expect(mockExecuteJavaScript).toHaveBeenCalledWith(
       expect.stringContaining('GogChatNotification')
@@ -66,7 +68,8 @@ describe('notificationBridge', () => {
       throw new Error('Invalid notification');
     });
 
-    await import('./notificationBridge.js');
+    const { installNotificationBridge } = await import('./notificationBridge.js');
+    installNotificationBridge();
 
     window.dispatchEvent(
       new window.CustomEvent('__gogchatNotificationShow', {

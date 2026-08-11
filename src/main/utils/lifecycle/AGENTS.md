@@ -6,7 +6,7 @@ This directory owns runtime lifecycle mechanics: feature execution, shared featu
 
 ## Core files
 
-- `featureRunner.ts` runs generated phase batches.
+- `featureRunner.ts` runs generated phase batches (`required !== true` is non-fatal; `platforms` is filtered; `ipcChannels` is documentation only).
 - `featureConfigTypes.ts` defines feature init/cleanup contracts.
 - `featureContextStore.ts` stores account manager/window context after bootstrap.
 - `resourceCleanup.ts` owns tracked timers/listeners/cleanup tasks.
@@ -14,8 +14,10 @@ This directory owns runtime lifecycle mechanics: feature execution, shared featu
 - `performanceTypes.ts` - shared schema version, MB/ms units, required startup markers, snapshot types.
 - `performanceMonitor.ts` - markers, main-heap snapshots, renderer/GPU/utility sampling, IPC/memory latency rings.
 - `performanceExport.ts` - versioned JSON export with capture completeness metadata.
-- `performanceFinalizer.ts` - one-shot final export after deferred + document load + renderer sample.
-- `errors.ts` maps lifecycle failures to typed app errors.
+- `performanceFinalizer.ts` - one-shot final export after deferred + document load + renderer sample. Not re-exported from `index.ts`.
+- `configProfiler.ts` - optional store-read profiling used by `cacheWarmer.runDevPostDeferred`; must not write metrics JSON. Tests use a mocked monotonic `performance.now` (100_000-iteration case asserts exact call count and elapsed).
+- `cdpMetrics.ts` - local per-account FIFO JSON (`userData/cdp-metrics-account-N.json`, `MAX_RECORDS_PER_ACCOUNT = 1000`, no network). Consumed by `features/cdpTelemetry`. Best-effort; do not treat as load-bearing. Measure-first before any product edit.
+- `errorHandler.ts` / `errorUtils.ts` / `logger.ts` / `errors.ts` - process error handler, pure error helpers, electron-log wrapper, typed app errors.
 - `cleanupTypes.ts` exists to break import cycles; keep it lightweight.
 
 ## Performance contract

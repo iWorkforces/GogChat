@@ -12,6 +12,7 @@ export default defineConfig({
       'tests/integration/**',
       'tests/e2e/**',
       'tests/performance/**',
+      'tests/artifact/**',
     ],
     coverage: {
       provider: 'v8',
@@ -20,22 +21,22 @@ export default defineConfig({
       exclude: [
         'src/**/*.test.ts',
         'src/**/*.spec.ts',
-        'src/preload/**',
         'src/offline/**',
+        // Separate contextIsolation:false isolate; not the production index entry.
+        'src/preload/overrideNotifications.ts',
         'src/shared/types.ts',
         'src/shared/types/**',
         // Barrel re-exports (no runtime logic to cover)
         'src/**/index.ts',
         // Main process entry points / orchestrators (require full Electron environment)
+        'src/main/generated/**',
         'src/main/index.ts',
         'src/main/windowWrapper.ts',
-        'src/main/initializers/registerAppReady.ts',
         'src/main/initializers/shutdownDiagnostics.ts',
         // Complex features requiring extensive Electron mocking
         'src/main/features/appMenu.ts',
         'src/main/features/badgeIcon.ts',
         'src/main/features/externalLinks.ts',
-        'src/main/features/inOnline.ts',
         'src/main/features/handleNotification.ts',
         'src/main/features/windowState.ts',
         'src/main/features/trayIcon.ts',
@@ -45,7 +46,6 @@ export default defineConfig({
         'src/main/features/userAgent.ts',
         'src/main/features/closeToTray.ts',
         'src/main/features/singleInstance.ts',
-        'src/main/features/appUpdates.ts',
         'src/main/features/reportExceptions.ts',
         'src/main/features/cdpTelemetry.ts',
         // Files with 0% coverage due to V8 instrumentation limitations or pure types
@@ -56,7 +56,6 @@ export default defineConfig({
         'src/main/utils/lifecycle/cdpMetrics.ts',
         // Thin glue / dual-path factories with extensive Electron surface area;
         // covered indirectly via ipcHelper and platform integration tests.
-        'src/main/utils/ipc/defineIPC.ts',
         'src/main/utils/platform/trayIconState.ts',
         'src/shared/validators.ts',
       ],

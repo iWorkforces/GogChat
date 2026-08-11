@@ -9,6 +9,13 @@ import { IPC_CHANNELS } from '../shared/constants.js';
 import { validateUnreadCount, validatePasskeyFailureData } from '../shared/dataValidators.js';
 import { validateFaviconURL } from '../shared/urlValidators.js';
 import type { GogChatBridgeAPI } from '../shared/types/bridge.js';
+import { installDisableWebAuthn } from './disableWebAuthn.js';
+import { installFaviconChanged } from './faviconChanged.js';
+import { installOffline } from './offline.js';
+import { installPasskeyMonitor } from './passkeyMonitor.js';
+import { installSearchShortcut } from './searchShortcut.js';
+import { installUnreadCount } from './unreadCount.js';
+import { installNotificationBridge } from './notificationBridge.js';
 
 /**
  * Expose secure API to renderer process via window.gogchat
@@ -73,18 +80,11 @@ const api: GogChatBridgeAPI = {
   },
 };
 
-// Expose API to renderer
+installDisableWebAuthn();
 contextBridge.exposeInMainWorld('gogchat', api);
-
-// Disable WebAuthn/U2F FIRST - must run before any Google auth scripts
-import './disableWebAuthn.js';
-
-// Now load feature-specific preload scripts
-// These will use the window.gogchat API we just exposed
-import './faviconChanged.js';
-import './offline.js';
-import './passkeyMonitor.js';
-import './searchShortcut.js';
-import './unreadCount.js';
-import './notificationBridge.js';
-// Note: overrideNotifications needs special handling - loaded separately
+installFaviconChanged();
+installOffline();
+installPasskeyMonitor();
+installSearchShortcut();
+installUnreadCount();
+installNotificationBridge();

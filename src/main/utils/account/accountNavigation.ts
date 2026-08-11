@@ -21,7 +21,9 @@ export function loadAccountURL(
 ): boolean {
   const webContents = manager.getAccountWebContents(accountIndex);
   if (!webContents || webContents.isDestroyed()) {
-    log.debug(`[AccountNavigation] loadAccountURL: no live WebContents for account ${accountIndex}`);
+    log.debug(
+      `[AccountNavigation] loadAccountURL: no live WebContents for account ${accountIndex}`
+    );
     return false;
   }
 

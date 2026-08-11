@@ -14,9 +14,7 @@ import { createAccountWebPreferences } from './utils/account/accountWebPreferenc
 installBenignWarningFilter();
 
 export default (url: string, partition?: string): BrowserWindow => {
-  const webPrefs = createAccountWebPreferences(
-    partition !== undefined ? { partition } : {}
-  );
+  const webPrefs = createAccountWebPreferences(partition !== undefined ? { partition } : {});
   const window = new BrowserWindow({
     webPreferences: webPrefs,
     icon: getIconCache().getIcon('resources/icons/normal/256.png'),

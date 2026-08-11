@@ -446,8 +446,7 @@ describe('windowWrapper', () => {
       expect(ensureNotificationPermission).not.toHaveBeenCalled();
 
       const ready0 = win0.once.mock.calls.find((call) => call[0] === 'ready-to-show')?.[1] as
-        | (() => void)
-        | undefined;
+        (() => void) | undefined;
       expect(ready0).toBeDefined();
       ready0?.();
       expect(ensureNotificationPermission).toHaveBeenCalledTimes(1);
@@ -458,8 +457,7 @@ describe('windowWrapper', () => {
         once: ReturnType<typeof vi.fn>;
       };
       const ready1 = win1.once.mock.calls.find((call) => call[0] === 'ready-to-show')?.[1] as
-        | (() => void)
-        | undefined;
+        (() => void) | undefined;
       ready1?.();
       expect(ensureNotificationPermission).toHaveBeenCalledTimes(2);
       expect(ensureNotificationPermission).toHaveBeenLastCalledWith({ parentWindow: win1 });

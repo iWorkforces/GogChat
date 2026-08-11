@@ -11,7 +11,7 @@
 - Preload answers false online checks with `app:onlineCheckFailed`; this page re-enables the retry control without reloading the document.
 - Keep the script self-contained/IIFE-friendly.
 - `setInterval` is intentionally untracked here because this is not main-process code.
-- `MAX_AUTO_ATTEMPT_COUNT` caps automatic retries; do not add infinite retry loops.
+- `MAX_AUTO_ATTEMPT_COUNT` (100) caps automatic retries on a 60s `setInterval`; do not add infinite retry loops. The script is an IIFE and must not import `src/shared`.
 
 ## Recovery UX contract
 

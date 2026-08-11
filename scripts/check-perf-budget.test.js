@@ -10,6 +10,7 @@ import {
   PERF_EXPORT_SCHEMA_VERSION,
   BUDGETS,
 } from './check-perf-budget.js';
+import { mergeMedian } from './headless-startup.js';
 
 const REQUIRED_MARKERS = [
   'app-start',
@@ -154,6 +155,76 @@ describe('evaluateBudgets', () => {
     expect(names).not.toContain('windowFirstPaint');
     expect(names).toContain('contentDocumentLoaded');
     expect(names).not.toContain('contentFirstPaint');
+  });
+
+  it('counts unique renderer identity by (pid, creationTime) when creationTime exists', () => {
+    const metrics = makeValidMetrics({
+      rendererSnapshots: [1, 2, 3, 4, 5].map((creationTime) => ({
+        timestamp: creationTime,
+        pid: 10,
+        creationTime,
+        type: 'renderer',
+        memory: { residentSet: 10, peakResidentSet: 12, private: 0 },
+        cpuPercent: 1,
+      })),
+    });
+    const { results } = evaluateBudgets(metrics, { silent: true });
+    const rendererCount = results.find((r) => r.name === 'rendererCount');
+    expect(rendererCount.actual).toBe(5);
+    expect(rendererCount.status).toBe('FAIL');
+  });
+
+  it('falls back to PID when renderer snapshots omit creationTime', () => {
+    const metrics = makeValidMetrics({
+      rendererSnapshots: [1, 2, 3].map((timestamp) => ({
+        timestamp,
+        pid: 10,
+        type: 'renderer',
+        memory: { residentSet: 10, peakResidentSet: 12, private: 0 },
+        cpuPercent: 1,
+      })),
+    });
+    const { results } = evaluateBudgets(metrics, { silent: true });
+    const rendererCount = results.find((r) => r.name === 'rendererCount');
+    expect(rendererCount.actual).toBe(1);
+    expect(rendererCount.status).toBe('PASS');
+  });
+
+  it('cannot false-pass rendererCount from a final low-count run', () => {
+    const highCount = Array.from({ length: 5 }, (_, i) => ({
+      timestamp: 500 + i,
+      pid: 10 + i,
+      creationTime: 10_000 + i,
+      type: 'renderer',
+      memory: { residentSet: 10, peakResidentSet: 12, private: 0 },
+      cpuPercent: 1,
+    }));
+    const lowCount = [
+      {
+        timestamp: 500,
+        pid: 99,
+        creationTime: 99_000,
+        type: 'renderer',
+        memory: { residentSet: 10, peakResidentSet: 12, private: 0 },
+        cpuPercent: 1,
+      },
+    ];
+    const runs = [
+      makeValidMetrics({ timestamp: 'run-0', rendererSnapshots: highCount }),
+      makeValidMetrics({ timestamp: 'run-1', rendererSnapshots: highCount }),
+      makeValidMetrics({ timestamp: 'run-2', rendererSnapshots: highCount }),
+      makeValidMetrics({ timestamp: 'run-3', rendererSnapshots: highCount }),
+      makeValidMetrics({ timestamp: 'run-4', rendererSnapshots: lowCount }),
+    ];
+    const merged = mergeMedian(runs, { requestedRuns: 5, invalidRuns: 0 });
+    const { results, failed } = evaluateBudgets(merged, { silent: true });
+    const rendererCount = results.find((r) => r.name === 'rendererCount');
+    // Representative is a 5-identity run (budget 4). Last-run copy would be 1 and PASS.
+    expect(merged.rendererSnapshots).toEqual(highCount);
+    expect(merged.rendererSnapshots).not.toEqual(lowCount);
+    expect(rendererCount.actual).toBe(5);
+    expect(rendererCount.status).toBe('FAIL');
+    expect(failed).toBeGreaterThan(0);
   });
 });
 

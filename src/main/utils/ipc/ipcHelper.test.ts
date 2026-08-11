@@ -1675,3 +1675,13 @@ describe('ipcHelper', () => {
     });
   });
 });
+
+describe('destroyIPCManager', () => {
+  it('destroys shared IPC singletons idempotently', async () => {
+    const { destroyIPCManager } = await import('./ipcHelper.js');
+    expect(() => {
+      destroyIPCManager();
+      destroyIPCManager();
+    }).not.toThrow();
+  });
+});

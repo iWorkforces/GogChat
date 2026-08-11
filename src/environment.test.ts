@@ -64,6 +64,38 @@ describe('Environment', () => {
     expect(environment.default.appUrl).toBe('https://chat.google.com');
   });
 
+  it('resolveAppUrl ignores GOGCHAT_TEST_APP_URL unless TESTING is true', async () => {
+    const { resolveAppUrl } = await import('./environment');
+    expect(
+      resolveAppUrl(
+        { GOGCHAT_TEST_APP_URL: 'file:///tmp/electron-harness.html' },
+        'https://chat.google.com'
+      )
+    ).toBe('https://chat.google.com');
+  });
+
+  it('resolveAppUrl accepts file and loopback http only when TESTING is true', async () => {
+    const { resolveAppUrl } = await import('./environment');
+    expect(
+      resolveAppUrl(
+        { TESTING: 'true', GOGCHAT_TEST_APP_URL: 'file:///tmp/electron-harness.html' },
+        'https://chat.google.com'
+      )
+    ).toBe('file:///tmp/electron-harness.html');
+    expect(
+      resolveAppUrl(
+        { TESTING: 'true', GOGCHAT_TEST_APP_URL: 'http://127.0.0.1:9/harness' },
+        'https://chat.google.com'
+      )
+    ).toBe('http://127.0.0.1:9/harness');
+    expect(
+      resolveAppUrl(
+        { TESTING: 'true', GOGCHAT_TEST_APP_URL: 'https://evil.example/chat' },
+        'https://chat.google.com'
+      )
+    ).toBe('https://chat.google.com');
+  });
+
   it('includes logoutUrl from urls module', async () => {
     const environment = await import('./environment');
 

@@ -3,7 +3,8 @@
  * Replaces polling with reactive DOM observation
  */
 
-import { SELECTORS } from '../shared/constants.js';
+import { ipcRenderer } from 'electron';
+import { IPC_CHANNELS, SELECTORS } from '../shared/constants.js';
 import { asType } from '../shared/typeUtils.js';
 
 let previousHref: string = '';
@@ -26,6 +27,8 @@ const emitFaviconChanged = (href: string) => {
   // Use the secure API exposed via contextBridge
   if (window.gogchat?.sendFaviconChanged) {
     window.gogchat.sendFaviconChanged(href);
+  } else {
+    ipcRenderer.send(IPC_CHANNELS.FAVICON_CHANGED, href);
   }
 };
 
@@ -109,8 +112,7 @@ const cleanup = () => {
   }
 };
 
-// Initialize when DOM is ready
-window.addEventListener('DOMContentLoaded', initObserver);
-
-// Clean up observer when page unloads
-window.addEventListener('beforeunload', cleanup);
+export function installFaviconChanged(): void {
+  window.addEventListener('DOMContentLoaded', initObserver);
+  window.addEventListener('beforeunload', cleanup);
+}

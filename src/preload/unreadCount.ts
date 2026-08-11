@@ -11,7 +11,8 @@
  * A lightweight body-level childList watcher detects container insertion/removal.
  */
 
-import { SELECTORS } from '../shared/constants.js';
+import { ipcRenderer } from 'electron';
+import { IPC_CHANNELS, SELECTORS } from '../shared/constants.js';
 
 let previousCount = -1;
 let bodyObserver: MutationObserver | null = null;
@@ -86,6 +87,8 @@ const emitCount = () => {
 
   if (window.gogchat?.sendUnreadCount) {
     window.gogchat.sendUnreadCount(count);
+  } else {
+    ipcRenderer.send(IPC_CHANNELS.UNREAD_COUNT, count);
   }
 };
 
@@ -219,13 +222,14 @@ const cleanup = () => {
   containerObservers.clear();
 };
 
-window.addEventListener('visibilitychange', () => {
-  console.info(
-    `[UnreadCount] visibility-change hidden=${document.hidden} visibility=${document.visibilityState}`
-  );
-  emitCount();
-});
+export function installUnreadCount(): void {
+  window.addEventListener('visibilitychange', () => {
+    console.info(
+      `[UnreadCount] visibility-change hidden=${document.hidden} visibility=${document.visibilityState}`
+    );
+    emitCount();
+  });
 
-window.addEventListener('DOMContentLoaded', initObserver);
-
-window.addEventListener('beforeunload', cleanup);
+  window.addEventListener('DOMContentLoaded', initObserver);
+  window.addEventListener('beforeunload', cleanup);
+}
