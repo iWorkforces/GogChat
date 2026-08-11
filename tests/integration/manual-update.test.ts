@@ -10,8 +10,12 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { _electron as electron, expect, test } from '@playwright/test';
-import { closeElectronApp } from '../helpers/electron-test';
+import { expect, test } from '@playwright/test';
+import {
+  closeElectronApp,
+  launchElectronAppWithWindow,
+  type LaunchedElectronApp,
+} from '../helpers/electron-test';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '../..');
 const APP_PATH = path.join(PROJECT_ROOT, 'lib/main/index.js');
@@ -40,7 +44,7 @@ type ManualUpdateProbe = {
 };
 
 async function probeManualUpdate(
-  app: Awaited<ReturnType<typeof electron.launch>>,
+  app: LaunchedElectronApp,
   kind: FixtureKind
 ): Promise<ManualUpdateProbe> {
   return app.evaluate(
@@ -333,7 +337,7 @@ test.describe('manual update liveness', () => {
   test('imports the built feature, bounds fetch, and only opens a validated stable URL', async () => {
     test.setTimeout(180_000);
     const userData = await mkdtemp(path.join(tmpdir(), 'gogchat-manual-update-'));
-    let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
+    let app: LaunchedElectronApp | undefined;
     const teardown: string[] = [];
 
     try {
@@ -342,8 +346,10 @@ test.describe('manual update liveness', () => {
       expect(builtFeature.includes('AbortSignal.timeout')).toBe(true);
       expect(builtFeature.includes('__gogchatCheckForUpdatesManual')).toBe(true);
 
-      app = await electron.launch({
-        args: [APP_PATH, `--user-data-dir=${userData}`],
+      const launched = await launchElectronAppWithWindow({
+        appPath: APP_PATH,
+        cwd: PROJECT_ROOT,
+        userDataDir: userData,
         env: {
           ...process.env,
           NODE_ENV: 'test',
@@ -351,7 +357,7 @@ test.describe('manual update liveness', () => {
           GOGCHAT_DISABLE_PRECONNECT: '1',
         },
       });
-      await app.firstWindow();
+      app = launched.app;
       const hookReady = await app.evaluate(async () => {
         const started = Date.now();
         while (Date.now() - started < 20_000) {

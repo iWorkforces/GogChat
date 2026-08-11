@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { _electron as electron, expect, test } from '@playwright/test';
+import { closeElectronApp } from '../../helpers/electron-test';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '../../..');
 const PRELOAD_PATH = path.join(PROJECT_ROOT, 'lib/preload/index.js');
@@ -108,7 +109,7 @@ test.describe('built CJS preload entry', () => {
         },
       });
 
-      const page = await app.firstWindow();
+      const page = await app.firstWindow({ timeout: 25_000 });
       await page.waitForLoadState('domcontentloaded');
 
       await page.waitForFunction(() => navigator.credentials === undefined);
@@ -204,7 +205,7 @@ test.describe('built CJS preload entry', () => {
       );
     } finally {
       if (app) {
-        await app.close();
+        await closeElectronApp(app);
       }
       await rm(userData, { recursive: true, force: true });
     }

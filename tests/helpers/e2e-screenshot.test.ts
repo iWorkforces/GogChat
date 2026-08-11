@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   E2E_SCREENSHOT_TIMEOUT_MS,
   ELECTRON_CLOSE_TIMEOUT_MS,
+  ELECTRON_FIRST_WINDOW_TIMEOUT_MS,
+  ELECTRON_LAUNCH_ATTEMPTS,
   closeElectronApp,
   isCiScreenshotDisabled,
   isEvaluateGarbageCollectedError,
@@ -142,6 +144,10 @@ describe('Electron fixture evaluate safety', () => {
     expect(source).toContain('closeElectronApp');
     expect(source).toContain('wrapEvaluateWithGcRetry');
     expect(source).toContain('peekElectronChildProcess');
+    expect(source).toContain('launchElectronAppWithWindow');
+    expect(source).not.toMatch(/return child\.exitCode !== null \|\| child\.killed/);
+    expect(ELECTRON_LAUNCH_ATTEMPTS).toBeGreaterThanOrEqual(2);
+    expect(ELECTRON_FIRST_WINDOW_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
     expect(source).not.toMatch(/BrowserWindow\.getAllWindows\(\)\[0\]\?\.show\(\)/);
   });
 
@@ -211,6 +217,28 @@ describe('Electron fixture evaluate safety', () => {
     expect(child.kill).toHaveBeenCalledWith('SIGKILL');
   });
 
+  it('waits for child exit after SIGKILL even when killed is already true', async () => {
+    const child = {
+      exitCode: null as number | null,
+      killed: false,
+      once: vi.fn(),
+      kill: vi.fn(() => {
+        child.killed = true;
+        return true;
+      }),
+    };
+    const app = {
+      process: () => child,
+      close: async () => undefined,
+    };
+    const started = Date.now();
+    await expect(closeElectronApp(app, 10)).resolves.toBeUndefined();
+    expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+    expect(child.once).toHaveBeenCalledWith('exit', expect.any(Function));
+    expect(Date.now() - started).toBeGreaterThanOrEqual(800);
+    expect(Date.now() - started).toBeLessThan(2_500);
+  });
+
   it('retries evaluate once after Playwright GC', async () => {
     const evaluate = vi
       .fn()
@@ -222,6 +250,17 @@ describe('Electron fixture evaluate safety', () => {
     wrapEvaluateWithGcRetry(app);
     await expect(app.evaluate()).resolves.toEqual({ ok: true });
     expect(evaluate).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds manual-update firstWindow and uses the shared close helper', () => {
+    const source = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../integration/manual-update.test.ts'),
+      'utf8'
+    );
+    expect(source).toContain('launchElectronAppWithWindow');
+    expect(source).toContain('closeElectronApp');
+    expect(source).not.toMatch(/await app\.firstWindow\(\s*\)/);
+    expect(source).not.toMatch(/await app\.close\(\)/);
   });
 });
 

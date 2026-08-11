@@ -79,28 +79,12 @@ export const test = base.extend<ElectronTestFixtures>({
       if (!extraElectronEnv['GOGCHAT_TEST_HANG_SHUTDOWN']) {
         delete env['GOGCHAT_TEST_HANG_SHUTDOWN'];
       }
-      let app;
-      try {
-        app = await electron.launch({
-          cwd: projectRoot,
-          args: [appPath, `--user-data-dir=${userDataDir}`],
-          env,
-          timeout: 45_000,
-        });
-      } catch (error: unknown) {
-        throw new Error(
-          `Electron fixture: electron.launch failed (${appPath}): ${formatUnknownError(error)}`
-        );
-      }
-
-      try {
-        await app.firstWindow({ timeout: 45_000 });
-      } catch (error: unknown) {
-        await closeElectronApp(app);
-        throw new Error(
-          `Electron fixture: firstWindow timed out or failed — BrowserWindow never appeared: ${formatUnknownError(error)}`
-        );
-      }
+      const { app } = await launchElectronAppWithWindow({
+        appPath,
+        cwd: projectRoot,
+        userDataDir,
+        env,
+      });
 
       // Product windows start show:false and only show() on ready-to-show.
       // Unauthenticated Chat often never paints on macos-latest, so that
@@ -134,6 +118,7 @@ export function isEvaluateGarbageCollectedError(error: unknown): boolean {
 }
 
 type ElectronChildProcess = {
+  pid?: number;
   exitCode: number | null;
   killed: boolean;
   once: (event: 'exit', listener: () => void) => void;
@@ -143,6 +128,8 @@ type ElectronChildProcess = {
 /** Playwright `close()` can hang after Chat load. Teardown must not wait forever. */
 export const ELECTRON_CLOSE_TIMEOUT_MS = 3_000;
 export const ELECTRON_KILL_WAIT_MS = 1_000;
+export const ELECTRON_FIRST_WINDOW_TIMEOUT_MS = 25_000;
+export const ELECTRON_LAUNCH_ATTEMPTS = 2;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -152,7 +139,9 @@ function sleep(ms: number): Promise<void> {
 
 function isChildGone(child: ElectronChildProcess): boolean {
   try {
-    return child.exitCode !== null || child.killed;
+    // `killed` is set when kill() is *called*, not when the process has exited.
+    // Treating it as gone skipped the exit wait and the next launch lost firstWindow.
+    return child.exitCode !== null;
   } catch {
     return true;
   }
@@ -160,6 +149,14 @@ function isChildGone(child: ElectronChildProcess): boolean {
 
 function killElectronChild(child: ElectronChildProcess): void {
   try {
+    const pid = child.pid;
+    if (typeof pid === 'number' && pid > 0) {
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch {
+        // Child is not a process-group leader.
+      }
+    }
     child.kill?.('SIGKILL');
   } catch {
     // already gone
@@ -212,6 +209,44 @@ export function wrapEvaluateWithGcRetry<
   return app;
 }
 
+export type LaunchedElectronApp = {
+  firstWindow: (opts?: { timeout?: number }) => Promise<unknown>;
+  close: () => Promise<unknown>;
+  process?: () => ElectronChildProcess;
+  evaluate: (pageFunction: (...args: never[]) => unknown, arg?: unknown) => Promise<unknown>;
+};
+
+export async function launchElectronAppWithWindow(options: {
+  appPath: string;
+  cwd?: string;
+  userDataDir: string;
+  env: NodeJS.ProcessEnv;
+}): Promise<{ app: LaunchedElectronApp }> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= ELECTRON_LAUNCH_ATTEMPTS; attempt++) {
+    const attemptUserData = `${options.userDataDir}-a${attempt}`;
+    let app: LaunchedElectronApp | undefined;
+    try {
+      app = await electron.launch({
+        ...(options.cwd ? { cwd: options.cwd } : {}),
+        args: [options.appPath, `--user-data-dir=${attemptUserData}`],
+        env: options.env,
+        timeout: 45_000,
+      });
+      await app.firstWindow({ timeout: ELECTRON_FIRST_WINDOW_TIMEOUT_MS });
+      return { app };
+    } catch (error) {
+      lastError = error;
+      if (app) {
+        await closeElectronApp(app);
+      }
+    }
+  }
+  throw new Error(
+    `Electron fixture: firstWindow timed out or failed — BrowserWindow never appeared after ${ELECTRON_LAUNCH_ATTEMPTS} attempts: ${formatUnknownError(lastError)}`
+  );
+}
+
 export async function closeElectronApp(
   app: {
     close: () => Promise<unknown>;
@@ -224,19 +259,21 @@ export async function closeElectronApp(
   if (!child || isChildGone(child)) {
     return;
   }
-  killElectronChild(child);
-  if (isChildGone(child)) {
-    return;
-  }
   try {
-    await Promise.race([
-      new Promise<void>((resolve) => {
+    const exited = new Promise<void>((resolve) => {
+      try {
         child.once('exit', () => {
           resolve();
         });
-      }),
-      sleep(ELECTRON_KILL_WAIT_MS),
-    ]);
+      } catch {
+        resolve();
+      }
+    });
+    killElectronChild(child);
+    if (isChildGone(child)) {
+      return;
+    }
+    await Promise.race([exited, sleep(ELECTRON_KILL_WAIT_MS)]);
   } catch {
     // Bounded-shutdown already exited; the Playwright handle can die mid-wait.
   }
