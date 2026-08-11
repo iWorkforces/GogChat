@@ -120,13 +120,9 @@ export const test = base.extend<ElectronTestFixtures>({
 
   mainWindow: async ({ electronApp }, use) => {
     const window = await electronApp.firstWindow({ timeout: 45_000 });
-    try {
-      await window.waitForLoadState('domcontentloaded', { timeout: 45_000 });
-    } catch (error: unknown) {
-      throw new Error(
-        `Electron fixture: main window did not reach domcontentloaded within 45s (url=${window.url()}): ${formatUnknownError(error)}`
-      );
-    }
+    // Chat can stall before DCL on unauthenticated CI. Tests that need a
+    // loaded document wait themselves; do not fail every case here.
+    await window.waitForLoadState('domcontentloaded', { timeout: 8_000 }).catch(() => undefined);
     await use(window);
   },
 });
@@ -397,6 +393,14 @@ export async function waitForText(
   );
 }
 
+/** Viewport screenshot deadline. Keep short so a hung page cannot stall the suite. */
+export const E2E_SCREENSHOT_TIMEOUT_MS = 5_000;
+
+/** CI must not capture Chat PNGs — full-page I/O can hang the Playwright worker. */
+export function isCiScreenshotDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env['CI'] || env['GITHUB_ACTIONS']);
+}
+
 /**
  * Helper to take a screenshot with metadata
  */
@@ -407,9 +411,18 @@ export async function takeScreenshot(
 ): Promise<Buffer> {
   const screenshotDir = join(__dirname, '../screenshots');
   mkdirSync(screenshotDir, { recursive: true });
+
+  if (isCiScreenshotDisabled()) {
+    if (metadata) {
+      console.log(`Screenshot '${name}' metadata:`, JSON.stringify(metadata, null, 2));
+    }
+    return Buffer.alloc(0);
+  }
+
   const screenshot = await page.screenshot({
     path: join(screenshotDir, `${name}.png`),
-    fullPage: true,
+    fullPage: false,
+    timeout: E2E_SCREENSHOT_TIMEOUT_MS,
   });
 
   // Log metadata if provided

@@ -55,7 +55,17 @@ jobs:
         run: bun scripts/build-rsbuild.js
 
       - name: 'Playwright: e2e'
-        run: bunx playwright test --project=e2e
+        run: |
+          set +e
+          set -o pipefail
+          bunx playwright test --project=e2e 2>&1 | tee playwright-e2e.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            excerpt="$(tail -n 15 playwright-e2e.log | tr '\r\n' '  ' | cut -c1-1200)"
+            echo "::error file=tests/e2e/user-workflows.test.ts::${excerpt}"
+            exit "$status"
+          fi
 
       - name: 'Playwright: integration'
         run: bunx playwright test --project=integration
@@ -100,5 +110,6 @@ jobs:
             performance-metrics.json
             .perf-history.json
             coverage-output.txt
+            playwright-e2e.log
           if-no-files-found: ignore
           retention-days: 14

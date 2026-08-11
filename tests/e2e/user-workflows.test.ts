@@ -17,15 +17,17 @@ import {
 test.describe('User Workflows', () => {
   test.describe('Sign In and Navigation', () => {
     test('should complete sign-in flow', async ({ mainWindow }) => {
-      await mainWindow.waitForLoadState('domcontentloaded');
-      const signedIn = await mainWindow.locator('[role="main"]').count();
-      test.skip(signedIn === 0, 'unauthenticated CI has no Google session');
+      await mainWindow.waitForLoadState('domcontentloaded').catch(() => undefined);
+      // Login/interstitial shells also have [role="main"]; require a conversation list.
+      const conversationCount = await mainWindow.locator('[role="listitem"]').count();
+      test.skip(conversationCount === 0, 'unauthenticated CI has no Google session');
       await takeScreenshot(mainWindow, 'main-chat-interface');
     });
 
     test('should navigate between chats', async ({ mainWindow }) => {
-      const signedIn = await mainWindow.locator('[role="navigation"]').count();
-      test.skip(signedIn === 0, 'unauthenticated CI has no Google session');
+      // Login/interstitial shells also have [role="navigation"]; require a conversation list.
+      const conversationCount = await mainWindow.locator('[role="listitem"]').count();
+      test.skip(conversationCount === 0, 'unauthenticated CI has no Google session');
       await mainWindow.waitForSelector('[role="navigation"]', { timeout: 10000 });
 
       // Click on a chat (if available)

@@ -109,6 +109,17 @@ describe('PR check workflow contract', () => {
     expect(job).toContain('performance-metrics.json');
     expect(job).toContain('.perf-history.json');
     expect(job).toContain('coverage-output.txt');
+    expect(job).toContain('playwright-e2e.log');
+  });
+
+  it('tees Playwright e2e output and annotates the last failure excerpt', () => {
+    const job = workflowJob(readPrWorkflow(), 'check');
+    const e2eAt = indexOfCommand(job, 'bunx playwright test --project=e2e');
+    expect(job).toContain('set -o pipefail');
+    expect(job).toContain('tee playwright-e2e.log');
+    expect(job).toContain('PIPESTATUS');
+    expect(job).toContain('::error file=tests/e2e/user-workflows.test.ts::');
+    expect(e2eAt).toBeLessThan(job.indexOf('::error file=tests/e2e/user-workflows.test.ts::'));
   });
 
   it('uploads Playwright traces and reports when a Playwright step fails', () => {
