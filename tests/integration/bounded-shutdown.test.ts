@@ -2,6 +2,8 @@
  * Process-level proof that a hung cleanup cannot stall quit past 8s.
  */
 
+process.env['GOGCHAT_TEST_HANG_SHUTDOWN'] = 'feature';
+
 import { expect, test } from '../helpers/electron-test';
 
 const OVERALL_MS = 8_000;
@@ -18,7 +20,6 @@ test.describe('bounded shutdown', () => {
     });
 
     await electronApp.evaluate(({ app }) => {
-      process.env['GOGCHAT_TEST_HANG_SHUTDOWN'] = 'feature';
       app.quit();
     });
 
