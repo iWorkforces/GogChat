@@ -3,11 +3,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  E2E_SCREENSHOT_TIMEOUT_MS,
-  isCiScreenshotDisabled,
-  takeScreenshot,
-} from './electron-test';
+import { E2E_SCREENSHOT_TIMEOUT_MS, isCiScreenshotDisabled, takeScreenshot } from './electron-test';
 
 const E2E_WORKFLOW = path.resolve(import.meta.dirname, '../e2e/user-workflows.test.ts');
 
@@ -61,8 +57,10 @@ describe('e2e screenshot and auth skip helpers', () => {
     const source = fs.readFileSync(E2E_WORKFLOW, 'utf8');
     expect(source).not.toMatch(/locator\('\[[^\]]*role="main"[^\]]*\]'\)\.count\(\)/);
     expect(source).not.toMatch(/locator\('\[[^\]]*role="navigation"[^\]]*\]'\)\.count\(\)/);
-    expect(source).toContain("locator('[role=\"listitem\"]').count()");
-    expect(source).toContain("test.skip(conversationCount === 0, 'unauthenticated CI has no Google session')");
+    expect(source).toContain('locator(\'[role="listitem"]\').count()');
+    expect(source).toContain(
+      "test.skip(conversationCount === 0, 'unauthenticated CI has no Google session')"
+    );
   });
 });
 
