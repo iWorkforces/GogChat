@@ -29,16 +29,18 @@ describe('release workflow publish-once contract', () => {
     expect(workflow).toContain('branches:\n      - main');
   });
 
-  it('has exactly one tag-owning prepare job and no tag creation in platform jobs', () => {
+  it('has a read-only exact-SHA prepare job and no tag creation in platform jobs', () => {
     const workflow = readReleaseWorkflow();
     const prepareJob = workflowJob(workflow, 'prepare-release');
     const buildMacJob = workflowJob(workflow, 'build-mac');
     const buildWindowsJob = workflowJob(workflow, 'build-windows');
 
-    expect(workflow.match(/git push origin/g) ?? []).toHaveLength(1);
-    expect(prepareJob).toContain('git push origin "$VERSION"');
+    expect(prepareJob).toContain('node scripts/release-eligibility.js');
+    expect(prepareJob).toContain('source_sha');
     expect(prepareJob).toContain('tag_name');
     expect(prepareJob).toContain('should_release');
+    expect(prepareJob).toContain('persist-credentials: false');
+    expect(prepareJob).not.toMatch(/git tag|git push origin/);
     expect(buildMacJob).not.toMatch(/git tag|git push origin/);
     expect(buildWindowsJob).not.toMatch(/git tag|git push origin/);
   });
@@ -54,11 +56,12 @@ describe('release workflow publish-once contract', () => {
     expect(workflow).toContain(`permissions:
   contents: read`);
     expect(prepareJob).toContain(`permissions:
-      contents: write`);
+      contents: read`);
+    expect(prepareJob).not.toContain('contents: write');
     expect(publishJob).toContain(`permissions:
       contents: write`);
 
-    for (const job of [buildMacJob, buildWindowsJob, verifyJob]) {
+    for (const job of [prepareJob, buildMacJob, buildWindowsJob, verifyJob]) {
       expect(job).toContain(`permissions:
       contents: read`);
       expect(job).toContain('persist-credentials: false');

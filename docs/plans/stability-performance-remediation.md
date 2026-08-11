@@ -293,7 +293,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `unspecified-high` - new empirical harness around an existing product surface.
   - Commit: Y | `test(perf): add CDP persistence measurement harness`.
 
-- [ ] 21. Measure current CDP persistence at 1, 100, and 1000 records
+- [x] 21. Measure current CDP persistence at 1, 100, and 1000 records
   - What to do: run Todo 20's harness with 20 independent samples per size on an otherwise idle machine. Record OS/arch/Electron/Node/Bun, per-sample duration and event-loop delay, p50/p95, file bytes, final record count, JSON validity, FIFO ordering, and cap behavior. Repeat once if any cell is incomplete; never merge incomplete cells.
   - Must NOT do: do not modify source/config, discard slow valid samples, compare unlike environments, or manufacture a control/treatment pair.
   - Parallelization: Wave 5 | Blocked by: 20 | Blocks: 22.
@@ -303,7 +303,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `unspecified-high` - controlled local performance measurement.
   - Commit: N - measurement evidence only.
 
-- [ ] 22. Produce a machine-derived CDP `NO CHANGE` decision
+- [x] 22. Produce a machine-derived CDP `NO CHANGE` decision
   - What to do: validate Todo 21 evidence, write a deterministic decision receipt stating `NO CHANGE` because this approved plan has no control/treatment optimization candidate, and verify `GIT_MASTER=1 git diff -- src/main/features/cdpTelemetry.ts src/main/utils/lifecycle/cdpMetrics.ts` is empty. Record any material latency as an input to a separate future plan, not a hidden implementation.
   - Must NOT do: do not claim improvement, modify product/config, reinterpret baseline timing as paired benefit, or approve a treatment without a new plan.
   - Parallelization: Wave 5 | Blocked by: 21 | Blocks: 23-25.
@@ -313,7 +313,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `quick` - deterministic evidence classification and scope check.
   - Commit: N - evidence-only decision.
 
-- [ ] 23. Make release eligibility read-only and exact-SHA bound
+- [x] 23. Make release eligibility read-only and exact-SHA bound
   - What to do: RED-first add a dependency-free `scripts/release-eligibility.js` plus tests using a temporary bare Git remote. It computes candidate version tag and immutable source SHA, classifies absent/same-SHA/wrong-SHA tags, never writes, and emits GitHub outputs. Replace prepare job shell mutation with this helper and read-only permissions. Tag-triggered runs validate then set non-publishing/no-mutation outcome.
   - Must NOT do: do not create/delete/move a real tag, grant write permission to prepare/build jobs, depend on mutable branch checkout, or claim tag-event publication.
   - Parallelization: Wave 6 | Blocked by: 15, 18, 19, 22 | Blocks: 24.
