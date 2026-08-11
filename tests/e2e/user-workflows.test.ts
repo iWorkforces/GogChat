@@ -12,6 +12,7 @@ import {
   takeScreenshot,
   isChatUrl,
   isGoogleSurfaceUrl,
+  isHarnessUrl,
   waitForLoadStateBounded,
   waitForMainWindowVisible,
 } from '../helpers/electron-test';
@@ -151,9 +152,12 @@ test.describe('User Workflows', () => {
       // Should reload GogChat
       await waitForLoadStateBounded(mainWindow, 'networkidle', 8_000);
       const url = await mainWindow.url();
-      expect(isChatUrl(url) || url.startsWith('chrome-error://') || url.includes('offline')).toBe(
-        true
-      );
+      expect(
+        isHarnessUrl(url) ||
+          isChatUrl(url) ||
+          url.startsWith('chrome-error://') ||
+          url.includes('offline')
+      ).toBe(true);
     });
   });
 
@@ -252,7 +256,7 @@ test.describe('User Workflows', () => {
       // Should not navigate away from GogChat
       await mainWindow.waitForTimeout(1000);
       const url = await mainWindow.url();
-      expect(isChatUrl(url) || url.includes('google.com')).toBe(true);
+      expect(isHarnessUrl(url) || isChatUrl(url) || url.includes('google.com')).toBe(true);
 
       // Clean up
       await mainWindow.evaluate(() => {

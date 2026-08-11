@@ -36,6 +36,7 @@ const __dirname = import.meta.dirname;
 import { join } from 'path';
 import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 
 /**
  * Test fixtures for Electron testing
@@ -216,12 +217,23 @@ export type LaunchedElectronApp = {
   evaluate: (pageFunction: (...args: never[]) => unknown, arg?: unknown) => Promise<unknown>;
 };
 
+export function electronHarnessFileUrl(): string {
+  return pathToFileURL(join(__dirname, '../fixtures/electron-harness.html')).href;
+}
+
 export async function launchElectronAppWithWindow(options: {
   appPath: string;
   cwd?: string;
   userDataDir: string;
   env: NodeJS.ProcessEnv;
 }): Promise<{ app: LaunchedElectronApp }> {
+  const env: NodeJS.ProcessEnv = { ...options.env };
+  // Default Playwright Electron launches at a local harness so CI does not
+  // depend on live Google Chat paint, sockets, or DOM size. Opt into Chat
+  // with GOGCHAT_TEST_APP_URL='' (product URL) or an explicit file/http URL.
+  if (env['TESTING'] === 'true' && env['GOGCHAT_TEST_APP_URL'] === undefined) {
+    env['GOGCHAT_TEST_APP_URL'] = electronHarnessFileUrl();
+  }
   let lastError: unknown;
   for (let attempt = 1; attempt <= ELECTRON_LAUNCH_ATTEMPTS; attempt++) {
     const attemptUserData = `${options.userDataDir}-a${attempt}`;
@@ -230,7 +242,7 @@ export async function launchElectronAppWithWindow(options: {
       app = await electron.launch({
         ...(options.cwd ? { cwd: options.cwd } : {}),
         args: [options.appPath, `--user-data-dir=${attemptUserData}`],
-        env: options.env,
+        env,
         timeout: 45_000,
       });
       await app.firstWindow({ timeout: ELECTRON_FIRST_WINDOW_TIMEOUT_MS });
@@ -412,6 +424,14 @@ export function isChatUrl(url: string): boolean {
 /** Unauthenticated CI often lands on accounts.google.com instead of Chat. */
 export function isGoogleSurfaceUrl(url: string): boolean {
   return isChatUrl(url) || url.includes('google.com');
+}
+
+export function isHarnessUrl(url: string): boolean {
+  return url.startsWith('file:') && url.includes('electron-harness.html');
+}
+
+export function isTestDocumentUrl(url: string): boolean {
+  return isHarnessUrl(url) || isGoogleSurfaceUrl(url);
 }
 
 /**

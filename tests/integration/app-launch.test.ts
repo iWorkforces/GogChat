@@ -9,7 +9,7 @@ import {
   getAppInfo,
   checkSecuritySettings,
   getMainBounds,
-  isGoogleSurfaceUrl,
+  isTestDocumentUrl,
   waitForLoadStateBounded,
   waitForMainWindowVisible,
 } from '../helpers/electron-test';
@@ -44,8 +44,8 @@ test.describe('App Launch', () => {
   test('should load GogChat URL', async ({ mainWindow }) => {
     await waitForLoadStateBounded(mainWindow, 'domcontentloaded', 8_000);
     const url = await mainWindow.url();
-    // Unauthenticated CI may stay on Chat or bounce to accounts.google.com.
-    expect(isGoogleSurfaceUrl(url)).toBe(true);
+    // Default Playwright launches use the local harness, not live Chat.
+    expect(isTestDocumentUrl(url)).toBe(true);
   });
 
   test('should create system tray icon', async ({ electronApp }) => {

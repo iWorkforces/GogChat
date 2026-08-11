@@ -23,7 +23,7 @@
 
 ## Root modules
 
-- `environment.ts` is main-process only because it imports Electron. Do not load it in a renderer.
+- `environment.ts` is main-process only because it imports Electron. Do not load it in a renderer. `resolveAppUrl` may substitute `GOGCHAT_TEST_APP_URL` only when `TESTING=true` and only for `file:` / loopback `http:`.
 - `urls.ts` is the shared frozen definition object for application and logout URLs.
 
 ## Import rules

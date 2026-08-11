@@ -9,6 +9,8 @@ import {
   ELECTRON_FIRST_WINDOW_TIMEOUT_MS,
   ELECTRON_LAUNCH_ATTEMPTS,
   closeElectronApp,
+  electronHarnessFileUrl,
+  isHarnessUrl,
   isCiScreenshotDisabled,
   isEvaluateGarbageCollectedError,
   isMainWindowVisible,
@@ -93,7 +95,8 @@ describe('e2e screenshot and auth skip helpers', () => {
       'utf8'
     );
     expect(integrationLaunch).not.toMatch(/waitForLoadState\(\s*'networkidle'\s*\)/);
-    expect(integrationLaunch).toContain('isGoogleSurfaceUrl');
+    expect(integrationLaunch).toContain('isTestDocumentUrl');
+    expect(integrationLaunch).not.toContain('isGoogleSurfaceUrl');
     expect(multiAccount).not.toContain('toBe(800)');
     expect(multiAccount).not.toContain('toBe(600)');
     expect(performance).not.toMatch(/waitForLoadState\(\s*'networkidle'\s*\)/);
@@ -149,6 +152,8 @@ describe('Electron fixture evaluate safety', () => {
     expect(source).toContain('wrapEvaluateWithGcRetry');
     expect(source).toContain('peekElectronChildProcess');
     expect(source).toContain('launchElectronAppWithWindow');
+    expect(source).toContain('electronHarnessFileUrl');
+    expect(source).toContain("env['GOGCHAT_TEST_APP_URL']");
     expect(source).not.toMatch(/return child\.exitCode !== null \|\| child\.killed/);
     expect(ELECTRON_LAUNCH_ATTEMPTS).toBeGreaterThanOrEqual(2);
     expect(ELECTRON_FIRST_WINDOW_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
@@ -265,6 +270,13 @@ describe('Electron fixture evaluate safety', () => {
     wrapEvaluateWithGcRetry(app);
     await expect(app.evaluate()).resolves.toEqual({ ok: true });
     expect(evaluate).toHaveBeenCalledTimes(2);
+  });
+
+  it('points default Playwright launches at the local Electron harness', () => {
+    const url = electronHarnessFileUrl();
+    expect(url.startsWith('file:')).toBe(true);
+    expect(isHarnessUrl(url)).toBe(true);
+    expect(fs.existsSync(new URL(url))).toBe(true);
   });
 
   it('bounds manual-update firstWindow and uses the shared close helper', () => {
