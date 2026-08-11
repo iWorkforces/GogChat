@@ -40,13 +40,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isHttpsReleaseUrl(value: unknown): value is string {
+function isGithubReleaseHtmlUrl(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > 2048) {
     return false;
   }
   try {
     const parsed = new URL(value);
-    return parsed.protocol === 'https:' && parsed.hostname.length > 0;
+    const host = parsed.hostname;
+    if (parsed.protocol !== 'https:') {
+      return false;
+    }
+    if (host !== 'github.com' && host !== 'www.github.com') {
+      return false;
+    }
+    return /^\/[^/]+\/[^/]+\/releases\//.test(parsed.pathname);
   } catch {
     return false;
   }
@@ -68,7 +75,7 @@ export function parseStableGithubRelease(value: unknown): StableGithubRelease | 
     return null;
   }
   const htmlUrl = value['html_url'];
-  if (!isHttpsReleaseUrl(htmlUrl)) {
+  if (!isGithubReleaseHtmlUrl(htmlUrl)) {
     return null;
   }
 
@@ -246,10 +253,11 @@ export async function checkForUpdatesManual(): Promise<void> {
 
     if (!latest) {
       await presentUpdateDialog({
-        type: 'info',
+        type: 'error',
         title: 'GogChat Updates',
-        message: `GogChat is up to date (v${app.getVersion()})`,
-        detail: 'No releases were found on GitHub.',
+        message: 'No stable release found',
+        detail:
+          'GitHub returned no published stable releases. This does not mean the installed build is up to date.',
         buttons: [],
         phase: 'result',
       });

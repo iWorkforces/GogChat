@@ -3,7 +3,7 @@
  * Tests multi-account session management flows
  */
 
-import { test, expect, setMainSize } from '../helpers/electron-test';
+import { test, expect, setMainSize, evaluateWithRequire } from '../helpers/electron-test';
 import { IPC_CHANNELS } from '../../src/shared/constants';
 
 test.describe('Multi-Account Management', () => {
@@ -36,19 +36,35 @@ test.describe('Multi-Account Management', () => {
   });
 
   test('should register account window with accountWindowManager', async ({ electronApp }) => {
-    // Verify the account window manager is tracking windows
-    const managerState = await electronApp.evaluate(({ BrowserWindow }) => {
-      const windows = BrowserWindow.getAllWindows();
+    const managerState = await evaluateWithRequire(electronApp, (api) => {
+      if (typeof api.require !== 'function') {
+        throw new Error('evaluateWithRequire did not bind require');
+      }
+      const hooked = (
+        globalThis as {
+          __gogchatGetAccountWindowManager?: () => {
+            getAccountCount: () => number;
+            hasAccount: (index: number) => boolean;
+            listAccountIndices: () => number[];
+          };
+        }
+      ).__gogchatGetAccountWindowManager;
+      if (!hooked) {
+        return { hooked: false as const };
+      }
+      const manager = hooked();
       return {
-        accountCount: windows.length,
-        hasPrimaryAccount: windows.length > 0,
-        allWindowIds: windows.map((window) => window.id),
+        hooked: true as const,
+        accountCount: manager.getAccountCount(),
+        hasPrimaryAccount: manager.hasAccount(0),
+        indices: manager.listAccountIndices(),
       };
     });
 
+    test.skip(!managerState.hooked, 'TESTING hook for account manager is not installed');
     expect(managerState.accountCount).toBeGreaterThanOrEqual(1);
     expect(managerState.hasPrimaryAccount).toBe(true);
-    expect(managerState.allWindowIds.length).toBeGreaterThanOrEqual(1);
+    expect(managerState.indices).toContain(0);
   });
 
   test('should track window bounds per account', async ({ electronApp }) => {

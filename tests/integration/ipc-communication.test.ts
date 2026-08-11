@@ -39,9 +39,15 @@ test.describe('IPC Communication', () => {
       }
     }, IPC_CHANNELS);
 
-    // This would trigger favicon change handling
-    // Actual verification would depend on implementation
-    expect(true).toBe(true);
+    const hasBridge = await mainWindow.evaluate(() => {
+      const bridge = (window as unknown as { gogchat?: { sendFaviconChanged?: unknown } }).gogchat;
+      return typeof bridge?.sendFaviconChanged === 'function';
+    });
+    test.skip(!hasBridge, 'page-world bridge is not exposed on this document');
+    const stillAlive = await electronApp.evaluate(({ BrowserWindow }) => {
+      return BrowserWindow.getAllWindows().length > 0;
+    });
+    expect(stillAlive).toBe(true);
   });
 
   test('should handle notification clicks', async ({ electronApp, mainWindow }) => {
@@ -69,9 +75,15 @@ test.describe('IPC Communication', () => {
       }
     }, IPC_CHANNELS);
 
-    // Should receive response (actual status depends on network)
-    // This is a simplified test
-    expect(true).toBe(true);
+    const hasBridge = await mainWindow.evaluate(() => {
+      const bridge = (window as unknown as { gogchat?: { checkIfOnline?: unknown } }).gogchat;
+      return typeof bridge?.checkIfOnline === 'function';
+    });
+    test.skip(!hasBridge, 'page-world bridge is not exposed on this document');
+    const stillAlive = await electronApp.evaluate(({ BrowserWindow }) => {
+      return BrowserWindow.getAllWindows().length > 0;
+    });
+    expect(stillAlive).toBe(true);
   });
 
   test('should handle search shortcut', async ({ electronApp, mainWindow }) => {

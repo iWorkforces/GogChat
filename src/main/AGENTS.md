@@ -62,7 +62,7 @@
 - Preserve `persist:account-N` partitions and Google auth page handling.
 - Use `accountNavigation` (`loadAccountURL` / `getAccountURL` / `sendToAccount`) and never navigate the WCV host shell.
 - Multi-account feature attach (e.g. externalLinks) goes through `accountWebContentsHooks` — managers must notify create/destroy on live WC paths including BW dehydrate/hydrate.
-- BrowserWindow hydration: factory owns the single restored `loadURL`; manager must not double-navigate.
+- BrowserWindow hydration: factory owns the snapshot `loadURL`; manager must not double-navigate. The router may apply a different requested URL after hydrate (not mid-auth). `peekAccountWindowManager()` never constructs a singleton.
 - Observability: implement/use `enumerateAccountWebContents()`; do not sample host-only under WebContentsView.
 - Sparse iteration: `listAccountIndices()` / `hasAccount()` (includes dehydrated-parked) / `isAccountVisible()` — not dense `0..count-1`.
 - BrowserWindow remains the default backend; WebContentsView stays opt-in (`app.useWebContentsView`) until measured policy evidence exists.

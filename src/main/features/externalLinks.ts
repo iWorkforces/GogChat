@@ -100,6 +100,9 @@ function routeAccountUrl(window: BrowserWindow, url: string): boolean {
     watchBootstrapAccount(targetAccountIndex);
     log.debug(`[ExternalLinks] Marked new account ${targetAccountIndex} window as bootstrap`);
   } else {
+    // Hydrate first — dehydrated BW accounts have hasAccount=true but no live
+    // WebContents, so loadAccountURL is a no-op until focus/hydrate recreates it.
+    manager.focusAccount(targetAccountIndex);
     const currentUrl = getAccountURL(manager, targetAccountIndex);
     if (currentUrl !== url) {
       loadAccountURL(manager, targetAccountIndex, url);

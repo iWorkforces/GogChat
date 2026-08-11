@@ -46,13 +46,13 @@ Deferred phase (via `cacheWarmer.runDeferredPhase`) calls `notifyDeferredPhaseCo
 
 ## Shutdown
 
-Shutdown is deadline-bounded: 2,000 ms per stage and an independent 8,000 ms overall ceiling via injectable `AbortSignal.timeout` (`createProductionShutdownDeadlines`). A timed-out stage is abandoned, not cancelled; late rejection is logged; later stages still run in order; `app.exit()` is guarded once. `GOGCHAT_TEST_HANG_SHUTDOWN` may hang a named stage for process-level proof only. `registerShutdown.test.ts` also covers already-aborted stage/overall signals and each named hang-stage env.
+Shutdown is deadline-bounded: 2,000 ms per stage and an independent 8,000 ms overall ceiling via injectable `AbortSignal.timeout` (`createProductionShutdownDeadlines`). A timed-out stage is abandoned, not cancelled; late rejection is logged; later stages still run in order; `app.exit()` is guarded once. `GOGCHAT_TEST_HANG_SHUTDOWN` may hang a named stage for process-level proof only and must be injected via the Playwright `extraElectronEnv` fixture — never as a module-level `process.env` assignment that other launches inherit. `registerShutdown.test.ts` also covers already-aborted stage/overall signals and each named hang-stage env.
 
 Shutdown order is intentional:
 
 1. `cleanupAll(ctx)` in reverse initialization order.
-2. Destroy account window manager.
-3. Run shutdown diagnostics.
+2. Snapshot `peekAccountWindowManager()?.listAccountIndices()` then destroy the account window manager. Diagnostics must not call `getAccountWindowManager()` (that recreates an empty singleton).
+3. Run shutdown diagnostics with the snapshotted indices (`logShutdownDiagnostics({ accountIndices })`).
 4. Destroy singleton utilities.
 5. `app.exit()`.
 

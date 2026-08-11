@@ -8,7 +8,12 @@
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-import { classifyRemoteTag, inspectRemoteTag, parseArgs } from './release-eligibility.js';
+import {
+  classifyRemoteTag,
+  inspectRemoteTag,
+  parseArgs,
+  sanitizeReleaseTagName,
+} from './release-eligibility.js';
 
 export function planTagWrite({ remoteSha, sourceSha }) {
   const classification = classifyRemoteTag({ remoteSha, sourceSha });
@@ -34,7 +39,8 @@ export function planTagWrite({ remoteSha, sourceSha }) {
 }
 
 export function applyTagWrite({ cwd, remote, tagName, sourceSha }) {
-  const remoteSha = inspectRemoteTag(remote, tagName);
+  const safeName = sanitizeReleaseTagName(tagName);
+  const remoteSha = inspectRemoteTag(remote, safeName);
   const planned = planTagWrite({ remoteSha, sourceSha });
   if (!planned.ok) {
     const error = new Error(planned.reason);
@@ -46,11 +52,11 @@ export function applyTagWrite({ cwd, remote, tagName, sourceSha }) {
   }
 
   try {
-    execFileSync('git', ['tag', tagName, sourceSha], { cwd, encoding: 'utf8' });
-    execFileSync('git', ['push', remote, tagName], { cwd, encoding: 'utf8' });
+    execFileSync('git', ['tag', safeName, sourceSha], { cwd, encoding: 'utf8' });
+    execFileSync('git', ['push', remote, `refs/tags/${safeName}`], { cwd, encoding: 'utf8' });
     return { ...planned, remoteSha: sourceSha };
   } catch (error) {
-    const raced = inspectRemoteTag(remote, tagName);
+    const raced = inspectRemoteTag(remote, safeName);
     const recovery = planTagWrite({ remoteSha: raced, sourceSha });
     if (recovery.action === 'retry') {
       return { ...recovery, remoteSha: raced, raced: true };

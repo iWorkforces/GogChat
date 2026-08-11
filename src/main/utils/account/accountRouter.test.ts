@@ -298,6 +298,41 @@ describe('routeAccountWindow — auto-hydrate dehydrated accounts', () => {
     expect(mockFactory.createWindow).not.toHaveBeenCalled();
   });
 
+  it('applies the requested URL after hydrate when it differs from the restored snapshot', () => {
+    const hydrated = makeTypedWindow();
+    (hydrated as unknown as MockBrowserWindow).webContents.url = 'https://chat.google.com/u/1/';
+    const loadURLSpy = vi.spyOn(hydrated, 'loadURL');
+
+    routeAccountWindow(registry, mockFactory, 'https://chat.google.com/u/1/room/abc', 0, {
+      isDehydrated: () => true,
+      hydrate: () => {
+        registry.registerWindow(hydrated, 0);
+        return hydrated;
+      },
+    });
+
+    expect(loadURLSpy).toHaveBeenCalledWith('https://chat.google.com/u/1/room/abc');
+    expect(mockFactory.createWindow).not.toHaveBeenCalled();
+  });
+
+  it('does not interrupt a hydrated bootstrap window mid Google auth', () => {
+    const hydrated = makeTypedWindow();
+    (hydrated as unknown as MockBrowserWindow).webContents.url =
+      'https://accounts.google.com/signin/v2/identifier';
+    markAsBootstrap(0);
+    const loadURLSpy = vi.spyOn(hydrated, 'loadURL');
+
+    routeAccountWindow(registry, mockFactory, 'https://chat.google.com/u/0/', 0, {
+      isDehydrated: () => true,
+      hydrate: () => {
+        registry.registerWindow(hydrated, 0);
+        return hydrated;
+      },
+    });
+
+    expect(loadURLSpy).not.toHaveBeenCalled();
+  });
+
   it('does not call the hydration hook when the account is not dehydrated', () => {
     const win = makeTypedWindow();
     registry.registerWindow(win, 0);

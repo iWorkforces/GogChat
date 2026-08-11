@@ -284,6 +284,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   AccountWindowManager,
   getAccountWindowManager,
+  peekAccountWindowManager,
   destroyAccountWindowManager,
   flushAccountWindowsWrites,
   getMostRecentWindow as moduleGetMostRecentWindow,
@@ -645,8 +646,14 @@ describe('AccountWindowManager — createAccountWindow', () => {
     const w2 = m.createAccountWindow('https://second/', asAccountIndex(1));
     // Factory was called again — by hydrate, not by router fall-through
     expect(factory.createWindow.mock.calls.length).toBe(callsBeforeDehydrate + 1);
+    expect(factory.createWindow).toHaveBeenLastCalledWith(
+      'https://first/',
+      toPartition(asAccountIndex(1))
+    );
     expect(w2).not.toBe(w1);
     expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+    // Router applies the requested URL after snapshot restore.
+    expect((w2 as unknown as MockBWInstance).loadURL).toHaveBeenCalledWith('https://second/');
   });
 
   it('starts account 1 throttled and wires activity, dehydrate, and throttle listeners once', async () => {
@@ -906,6 +913,41 @@ describe('AccountWindowManager — dehydrate / hydrate', () => {
     hooks.clearAccountWebContentsHooksForTests();
   });
 
+  it('rolls back hydrate when post-create restore fails and keeps the snapshot', () => {
+    const factory = makeFactory();
+    const m = new AccountWindowManager(factory);
+    m.createAccountWindow('https://hello/', asAccountIndex(1));
+    m.dehydrateAccount(asAccountIndex(1));
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(true);
+
+    factory.createWindow.mockImplementation((url: string, partition: string) => {
+      const w = new h.MockBW({ webPreferences: { partition }, url });
+      void w.loadURL(url);
+      w.setBounds.mockImplementation(() => {
+        throw new Error('setBounds failed');
+      });
+      return w as unknown as Electron.BrowserWindow;
+    });
+
+    expect(() => m.hydrateAccount(asAccountIndex(1))).toThrow('setBounds failed');
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(true);
+    expect(m.getAccountWindow(asAccountIndex(1))).toBeNull();
+    expect(m.hasAccount(asAccountIndex(1))).toBe(true);
+
+    factory.createWindow.mockImplementation((url: string, partition: string) => {
+      const w = new h.MockBW({ webPreferences: { partition }, url });
+      void w.loadURL(url);
+      return w as unknown as Electron.BrowserWindow;
+    });
+    const recovered = m.hydrateAccount(asAccountIndex(1));
+    expect(recovered).not.toBeNull();
+    expect(m.isDehydrated(asAccountIndex(1))).toBe(false);
+    expect(factory.createWindow).toHaveBeenLastCalledWith(
+      'https://hello/',
+      toPartition(asAccountIndex(1))
+    );
+  });
+
   it('hydrateAccount dispatches exactly one loadURL via the factory (no manager re-nav)', () => {
     const factory = makeFactory();
     const m = new AccountWindowManager(factory);
@@ -1157,6 +1199,14 @@ describe('AccountWindowManager — singleton', () => {
     const m1 = getAccountWindowManager();
     const m2 = getAccountWindowManager();
     expect(m1).toBe(m2);
+  });
+
+  it('peekAccountWindowManager does not construct a manager', () => {
+    expect(peekAccountWindowManager()).toBeNull();
+    const created = getAccountWindowManager();
+    expect(peekAccountWindowManager()).toBe(created);
+    destroyAccountWindowManager();
+    expect(peekAccountWindowManager()).toBeNull();
   });
 
   it('routes to AccountWindowManager when app.useWebContentsView is false/absent', () => {

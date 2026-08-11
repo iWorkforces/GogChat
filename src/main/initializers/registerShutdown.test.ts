@@ -26,6 +26,9 @@ const mocks = vi.hoisted(() => {
     cleanupResources: vi.fn().mockResolvedValue(undefined),
     getSharedFeatureContext: vi.fn().mockReturnValue({}),
     destroyAccountWindowManager: vi.fn(),
+    peekAccountWindowManager: vi.fn(() => ({
+      listAccountIndices: () => [0, 1],
+    })),
     destroyAllSingletons: vi.fn(),
     logShutdownDiagnostics: vi.fn().mockResolvedValue(undefined),
   };
@@ -44,6 +47,7 @@ vi.mock('../utils/lifecycle/resourceCleanup.js', () => ({
 }));
 vi.mock('../utils/account/accountWindowManager.js', () => ({
   destroyAccountWindowManager: mocks.destroyAccountWindowManager,
+  peekAccountWindowManager: mocks.peekAccountWindowManager,
 }));
 vi.mock('./singletonDestroyers.js', () => ({ destroyAllSingletons: mocks.destroyAllSingletons }));
 vi.mock('./shutdownDiagnostics.js', () => ({
@@ -127,6 +131,8 @@ describe('registerShutdownHandler', () => {
       logDetails: true,
     });
     expect(order).toEqual(['features', 'global', 'accounts', 'diagnostics', 'singletons', 'exit']);
+    expect(mocks.peekAccountWindowManager).toHaveBeenCalled();
+    expect(mocks.logShutdownDiagnostics).toHaveBeenCalledWith({ accountIndices: [0, 1] });
   });
 
   it('continues through every remaining stage when feature cleanup rejects', async () => {

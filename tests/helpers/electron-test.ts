@@ -18,7 +18,9 @@ try {
   electron = playwright._electron;
 } catch (error) {
   // Playwright not installed, create dummy exports
-  console.warn('[Test Helper] @playwright/test not installed. Playwright-dependent tests will be skipped.');
+  console.warn(
+    '[Test Helper] @playwright/test not installed. Playwright-dependent tests will be skipped.'
+  );
   base = {
     describe: () => ({ skip: () => {} }),
     skip: () => {},
@@ -42,6 +44,7 @@ export interface ElectronTestFixtures {
   electronApp: ElectronApplication;
   mainWindow: Page;
   appPath: string;
+  extraElectronEnv: Record<string, string | undefined>;
 }
 
 /**
@@ -54,17 +57,26 @@ export const test = base.extend<ElectronTestFixtures>({
     await use(appPath);
   },
 
-  electronApp: async ({ appPath }, use) => {
+  extraElectronEnv: [{}, { option: true }],
+
+  electronApp: async ({ appPath, extraElectronEnv }, use) => {
     const projectRoot = join(__dirname, '../..');
     const userDataDir = mkdtempSync(join(tmpdir(), 'gogchat-pw-'));
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      NODE_ENV: 'test',
+      TESTING: 'true',
+      ...extraElectronEnv,
+    };
+    // Hang injection is opt-in per fixture. Never leak a parent-process flag
+    // into every Electron launch.
+    if (!extraElectronEnv['GOGCHAT_TEST_HANG_SHUTDOWN']) {
+      delete env['GOGCHAT_TEST_HANG_SHUTDOWN'];
+    }
     const app = await electron.launch({
       cwd: projectRoot,
       args: [appPath, `--user-data-dir=${userDataDir}`],
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        TESTING: 'true',
-      },
+      env,
     });
 
     await app.firstWindow();
@@ -80,7 +92,12 @@ export const test = base.extend<ElectronTestFixtures>({
 });
 
 type ElectronEvaluateApi = {
-  app: { getAppPath: () => string; getName: () => string; getVersion: () => string; isPackaged: boolean };
+  app: {
+    getAppPath: () => string;
+    getName: () => string;
+    getVersion: () => string;
+    isPackaged: boolean;
+  };
   BrowserWindow: {
     getAllWindows: () => Array<{
       id: number;
@@ -92,7 +109,10 @@ type ElectronEvaluateApi = {
       setBounds: (bounds: { x: number; y: number; width: number; height: number }) => void;
       hide: () => void;
       show: () => void;
-      webContents: { getWebPreferences: () => Record<string, unknown>; session: { storagePath?: string } };
+      webContents: {
+        getWebPreferences: () => Record<string, unknown>;
+        session: { storagePath?: string };
+      };
     }>;
   };
 };
@@ -127,13 +147,16 @@ export async function setMainSize(
   width: number,
   height: number
 ): Promise<void> {
-  await electronApp.evaluate(({ BrowserWindow }, size) => {
-    const window = BrowserWindow.getAllWindows()[0];
-    if (!window) {
-      throw new Error('No windows found');
-    }
-    window.setSize(size.width, size.height);
-  }, { width, height });
+  await electronApp.evaluate(
+    ({ BrowserWindow }, size) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      if (!window) {
+        throw new Error('No windows found');
+      }
+      window.setSize(size.width, size.height);
+    },
+    { width, height }
+  );
 }
 
 export async function isMainWindowVisible(electronApp: {
@@ -171,16 +194,19 @@ export async function waitForIPC(
       reject(new Error(`Timeout waiting for IPC message on channel: ${channel}`));
     }, timeout);
 
-    app.evaluate(({ ipcMain }, channel) => {
-      return new Promise((resolve) => {
-        ipcMain.once(channel, (event, data) => {
-          resolve(data);
+    app
+      .evaluate(({ ipcMain }, channel) => {
+        return new Promise((resolve) => {
+          ipcMain.once(channel, (event, data) => {
+            resolve(data);
+          });
         });
-      });
-    }, channel).then((data) => {
-      clearTimeout(timer);
-      resolve(data);
-    }).catch(reject);
+      }, channel)
+      .then((data) => {
+        clearTimeout(timer);
+        resolve(data);
+      })
+      .catch(reject);
   });
 }
 
@@ -192,12 +218,15 @@ export async function sendIPCFromMain(
   channel: string,
   data?: any
 ): Promise<void> {
-  await app.evaluate(({ BrowserWindow }, { channel, data }) => {
-    const windows = BrowserWindow.getAllWindows();
-    if (windows.length > 0) {
-      windows[0].webContents.send(channel, data);
-    }
-  }, { channel, data });
+  await app.evaluate(
+    ({ BrowserWindow }, { channel, data }) => {
+      const windows = BrowserWindow.getAllWindows();
+      if (windows.length > 0) {
+        windows[0].webContents.send(channel, data);
+      }
+    },
+    { channel, data }
+  );
 }
 
 /**
@@ -334,11 +363,7 @@ export async function cleanupTestData(app: ElectronApplication): Promise<void> {
     const path = require('path');
 
     // Clean test-specific files
-    const testFiles = [
-      'test-config.json',
-      'test-messages.db',
-      'test-cache.json',
-    ];
+    const testFiles = ['test-config.json', 'test-messages.db', 'test-cache.json'];
 
     for (const file of testFiles) {
       try {
@@ -381,10 +406,7 @@ export async function getMainProcessLogs(app: ElectronApplication): Promise<stri
  */
 export async function pressShortcut(page: Page, shortcut: string): Promise<void> {
   // Convert shortcut format (e.g., 'Cmd+F' to 'Meta+F')
-  const key = shortcut
-    .replace('Cmd', 'Meta')
-    .replace('Ctrl', 'Control')
-    .replace('Option', 'Alt');
+  const key = shortcut.replace('Cmd', 'Meta').replace('Ctrl', 'Control').replace('Option', 'Alt');
 
   await page.keyboard.press(key);
 }

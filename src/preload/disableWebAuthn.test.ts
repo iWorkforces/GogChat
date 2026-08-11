@@ -67,6 +67,28 @@ describe('disableWebAuthn', () => {
     logSpy.mockRestore();
   });
 
+  it('warns when page-world executeJavaScript rejects', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { webFrame } = await import('electron');
+    vi.mocked(webFrame.executeJavaScript).mockRejectedValueOnce(new Error('isolated world'));
+
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { credentials: { create: vi.fn() } },
+      writable: true,
+      configurable: true,
+    });
+
+    const { installDisableWebAuthn } = await import('./disableWebAuthn');
+    installDisableWebAuthn();
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[Preload] Page-world WebAuthn disable failed:',
+        expect.any(Error)
+      );
+    });
+    warnSpy.mockRestore();
+  });
+
   it('logs warning if disabling fails (credentials already non-configurable)', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 

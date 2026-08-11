@@ -221,6 +221,24 @@ describe('stable GitHub release parser', () => {
     expect(parse({ ...STABLE_V9, html_url: '' })).toBeNull();
     expect(parse({ ...STABLE_V9, html_url: `https://github.com/${'x'.repeat(2049)}` })).toBeNull();
     expect(parse({ ...STABLE_V9, html_url: 'https://[bad' })).toBeNull();
+    expect(
+      parse({
+        ...STABLE_V9,
+        html_url: 'https://evil.example/releases/tag/v9.0.0',
+      })
+    ).toBeNull();
+    expect(
+      parse({
+        ...STABLE_V9,
+        html_url: 'https://github.com.evil.example/releases/tag/v9.0.0',
+      })
+    ).toBeNull();
+    expect(
+      parse({
+        ...STABLE_V9,
+        html_url: 'https://github.com/iWorkforces/GogChat/issues/1',
+      })
+    ).toBeNull();
     expect(parse({ ...STABLE_V9, body: 12 })).toEqual({
       tag_name: 'v9.0.0',
       html_url: STABLE_V9.html_url,
@@ -319,6 +337,29 @@ describe('checkForUpdatesManual', () => {
     expect(presentUpdateDialog).toHaveBeenCalledWith(
       expect.objectContaining({
         phase: 'result',
+        message: expect.stringContaining('up to date'),
+      })
+    );
+  });
+
+  it('does not claim up to date when GitHub returns no stable release', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [],
+      })
+    );
+
+    await checkForUpdatesManual();
+    expect(presentUpdateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        message: 'No stable release found',
+      })
+    );
+    expect(presentUpdateDialog).not.toHaveBeenCalledWith(
+      expect.objectContaining({
         message: expect.stringContaining('up to date'),
       })
     );

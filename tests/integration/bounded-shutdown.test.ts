@@ -2,9 +2,9 @@
  * Process-level proof that a hung cleanup cannot stall quit past 8s.
  */
 
-process.env['GOGCHAT_TEST_HANG_SHUTDOWN'] = 'feature';
-
 import { expect, test } from '../helpers/electron-test';
+
+test.use({ extraElectronEnv: { GOGCHAT_TEST_HANG_SHUTDOWN: 'feature' } });
 
 const OVERALL_MS = 8_000;
 const HARNESS_SLACK_MS = 2_000;

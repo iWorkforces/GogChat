@@ -1,5 +1,6 @@
 import { ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/constants.js';
+import { validatePasskeyFailureData } from '../shared/dataValidators.js';
 
 /**
  * Monitors WebAuthn API calls for passkey authentication failures
@@ -35,7 +36,12 @@ function reportPasskeyFailure(errorName: string): void {
     return;
   }
   hasReportedFailure = true;
-  ipcRenderer.send(IPC_CHANNELS.PASSKEY_AUTH_FAILED, errorName);
+  try {
+    const validated = validatePasskeyFailureData(errorName);
+    ipcRenderer.send(IPC_CHANNELS.PASSKEY_AUTH_FAILED, validated);
+  } catch (error: unknown) {
+    console.warn('[Passkey Monitor] Invalid passkey failure payload:', error);
+  }
 }
 
 /**

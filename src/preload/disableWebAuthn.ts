@@ -53,6 +53,8 @@ function disableIsolatedNavigator(): void {
 export function installDisableWebAuthn(): void {
   disableIsolatedNavigator();
   if (webFrame && typeof webFrame.executeJavaScript === 'function') {
-    void webFrame.executeJavaScript(PAGE_WORLD_DISABLE_WEBAUTHN);
+    void webFrame.executeJavaScript(PAGE_WORLD_DISABLE_WEBAUTHN).catch((error: unknown) => {
+      console.warn('[Preload] Page-world WebAuthn disable failed:', error);
+    });
   }
 }

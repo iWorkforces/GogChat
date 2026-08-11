@@ -38,6 +38,34 @@ export interface HydrationHook {
 export type RegisterNewAccountWindow = (window: BrowserWindow, accountIndex: AccountIndex) => void;
 
 /**
+ * Hydrate restores the snapshot URL via the factory. Callers that requested a
+ * different Chat URL (deep link, cross-account open) still need that URL
+ * applied — but never interrupt a bootstrap Google auth page.
+ */
+function applyRequestedUrlAfterHydrate(
+  window: BrowserWindow,
+  url: string,
+  accountIndex: AccountIndex
+): void {
+  let currentUrl = '';
+  try {
+    currentUrl = window.webContents.getURL();
+  } catch (error: unknown) {
+    log.warn(`[AccountRouter] getURL failed after hydrate for account ${accountIndex}:`, error);
+  }
+  if (_isBootstrap(accountIndex) && isGoogleAuthUrl(currentUrl)) {
+    log.info(
+      `[AccountRouter] Skipping post-hydrate loadURL for account ${accountIndex} — bootstrap window is mid-auth (${currentUrl})`
+    );
+    return;
+  }
+  if (currentUrl === url) {
+    return;
+  }
+  void window.loadURL(url);
+}
+
+/**
  * Route a createAccountWindow request: reuse existing, skip if mid-auth, or create new.
  *
  * @param registry - The window registry to query/update
@@ -65,6 +93,7 @@ export function routeAccountWindow(
   if (hydrationHook && hydrationHook.isDehydrated(accountIndex)) {
     const hydrated = hydrationHook.hydrate(accountIndex);
     if (hydrated) {
+      applyRequestedUrlAfterHydrate(hydrated, url, accountIndex);
       return hydrated;
     }
     // Hook reported dehydrated but failed to produce a window — fall through

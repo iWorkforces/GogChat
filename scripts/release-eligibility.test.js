@@ -11,6 +11,7 @@ import {
   evaluateEligibility,
   inspectRemoteTag,
   main,
+  sanitizeReleaseTagName,
 } from './release-eligibility.js';
 
 const leftovers = [];
@@ -52,6 +53,14 @@ describe('release-eligibility', () => {
     expect(candidateTagFromVersion('v3.19.0')).toBe('v3.19.0');
   });
 
+  it('rejects unsafe tag names before touching git', () => {
+    expect(sanitizeReleaseTagName('v3.19.0')).toBe('v3.19.0');
+    expect(sanitizeReleaseTagName('v3.19.0-rc.1')).toBe('v3.19.0-rc.1');
+    expect(() => sanitizeReleaseTagName('v3.19.0;rm -rf /')).toThrow(/invalid release tag name/);
+    expect(() => sanitizeReleaseTagName('../v3.19.0')).toThrow(/invalid release tag name/);
+    expect(() => sanitizeReleaseTagName('refs/tags/v3.19.0')).toThrow(/invalid release tag name/);
+  });
+
   it('classifies absent, same-SHA, and wrong-SHA remote tags', () => {
     expect(classifyRemoteTag({ remoteSha: null, sourceSha: 'a'.repeat(40) })).toBe('absent');
     expect(classifyRemoteTag({ remoteSha: 'a'.repeat(40), sourceSha: 'a'.repeat(40) })).toBe(
@@ -76,6 +85,7 @@ describe('release-eligibility', () => {
     });
     expect(absent.classification).toBe('absent');
     expect(absent.eligible).toBe(true);
+    expect(absent.should_release).toBe(true);
     expect(absent.mutation).toBe(false);
 
     execFileSync('git', ['tag', 'v3.19.0', work.sha], { cwd: work.dir });
@@ -89,6 +99,7 @@ describe('release-eligibility', () => {
     });
     expect(same.classification).toBe('same-SHA');
     expect(same.retry).toBe(true);
+    expect(same.should_release).toBe(true);
 
     const wrong = evaluateEligibility({
       ref: 'refs/heads/main',
@@ -100,6 +111,7 @@ describe('release-eligibility', () => {
     expect(wrong.classification).toBe('wrong-SHA');
     expect(wrong.fail).toBe(true);
     expect(wrong.eligible).toBe(false);
+    expect(wrong.should_release).toBe(false);
 
     const tagEvent = evaluateEligibility({
       ref: 'refs/tags/v3.19.0',
@@ -111,6 +123,7 @@ describe('release-eligibility', () => {
     expect(tagEvent.classification).toBe('tag-trigger');
     expect(tagEvent.publish_intent).toBe(false);
     expect(tagEvent.mutation).toBe(false);
+    expect(tagEvent.should_release).toBe(false);
 
     const after = execFileSync('git', ['ls-remote', remote], { encoding: 'utf8' });
     expect(after).toBe(execFileSync('git', ['ls-remote', remote], { encoding: 'utf8' }));
@@ -130,5 +143,27 @@ describe('release-eligibility', () => {
       ]).classification
     ).toBe('absent');
     expect(execFileSync('git', ['ls-remote', remote], { encoding: 'utf8' })).toBe(after);
+  });
+
+  it('peels annotated tags to the commit SHA', () => {
+    const remote = makeBareRemote();
+    const work = makeWorktree(remote);
+    git(work.dir, ['tag', '-a', 'v3.19.0', '-m', 'annotated', work.sha]);
+    git(work.dir, ['push', 'origin', 'refs/tags/v3.19.0']);
+
+    const peeled = inspectRemoteTag(remote, 'v3.19.0');
+    expect(peeled).toBe(work.sha);
+    const raw = execFileSync(
+      'git',
+      ['ls-remote', '--tags', remote, 'refs/tags/v3.19.0', 'refs/tags/v3.19.0^{}'],
+      { encoding: 'utf8' }
+    );
+    expect(raw).toContain('^{}');
+    const tagObjectSha = raw
+      .split('\n')
+      .find((line) => line.includes('refs/tags/v3.19.0') && !line.includes('^{}'))
+      ?.split(/\s+/)[0];
+    expect(tagObjectSha).toBeTruthy();
+    expect(tagObjectSha).not.toBe(work.sha);
   });
 });

@@ -31,12 +31,35 @@ export function classifyRemoteTag({ remoteSha, sourceSha }) {
   return 'wrong-SHA';
 }
 
+export function sanitizeReleaseTagName(tagName) {
+  const trimmed = String(tagName ?? '').trim();
+  if (!/^v?[A-Za-z0-9][A-Za-z0-9._-]*$/.test(trimmed)) {
+    throw new Error(`invalid release tag name: ${trimmed}`);
+  }
+  return trimmed;
+}
+
 export function inspectRemoteTag(remote, tagName) {
-  const output = execFileSync('git', ['ls-remote', '--tags', remote, `refs/tags/${tagName}`], {
-    encoding: 'utf8',
-  }).trim();
+  const safeName = sanitizeReleaseTagName(tagName);
+  const output = execFileSync(
+    'git',
+    ['ls-remote', '--tags', remote, `refs/tags/${safeName}`, `refs/tags/${safeName}^{}`],
+    {
+      encoding: 'utf8',
+    }
+  ).trim();
   if (!output) return null;
-  return output.split(/\s+/)[0] ?? null;
+  let lightweight = null;
+  for (const line of output.split('\n')) {
+    const [sha, ref] = line.trim().split(/\s+/);
+    if (!sha) continue;
+    // Annotated tags emit the tag object plus a peeled `^{}` commit line.
+    if (ref && ref.endsWith('^{}')) {
+      return sha;
+    }
+    lightweight = sha;
+  }
+  return lightweight;
 }
 
 export function evaluateEligibility({ ref, refName, sourceSha, packageVersion, remoteTagSha }) {
@@ -121,9 +144,11 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     args['package-version'] ??
     JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')).version;
   const sourceSha = args['source-sha'];
-  const tagName = String(args.ref ?? '').startsWith('refs/tags/')
-    ? args['ref-name']
-    : candidateTagFromVersion(packageVersion);
+  const tagName = sanitizeReleaseTagName(
+    String(args.ref ?? '').startsWith('refs/tags/')
+      ? (args['ref-name'] ?? String(args.ref).slice('refs/tags/'.length))
+      : candidateTagFromVersion(packageVersion)
+  );
   const remoteTagSha = inspectRemoteTag(remote, tagName);
   const result = evaluateEligibility({
     ref: args.ref,

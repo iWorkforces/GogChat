@@ -74,6 +74,10 @@ vi.mock('electron-log', () => ({
   default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock('../lifecycle/resourceCleanup.js', () => ({
+  createTrackedTimeout: vi.fn((fn: () => void, ms: number) => setTimeout(fn, ms)),
+}));
+
 function getInstances(): MockBrowserWindow[] {
   return (globalThis as GlobalWithMock).__updateWindowMock?.instances ?? [];
 }
@@ -279,6 +283,26 @@ describe('updateWindow', () => {
     await expect(promise).resolves.toEqual({ response: 0 });
     expect(mod.isUpdateDialogOpen()).toBe(false);
     expect(mod.isUpdateSessionDismissed()).toBe(false);
+  });
+
+  it('abandons a hung checking loadURL after the load deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const { presentUpdateDialog, destroyUpdateWindow, UPDATE_CHECKING_LOAD_TIMEOUT_MS } =
+        await import('./updateWindow.js');
+      await presentUpdateDialog({ message: 'Checking for updates…', phase: 'checking' });
+      const win = getInstances()[0]!;
+      win.loadURL.mockReturnValueOnce(new Promise(() => undefined));
+      const resultPromise = presentUpdateDialog({
+        message: 'Checking for updates…',
+        phase: 'checking',
+      });
+      await vi.advanceTimersByTimeAsync(UPDATE_CHECKING_LOAD_TIMEOUT_MS);
+      await expect(resultPromise).resolves.toEqual({ response: -1 });
+      destroyUpdateWindow();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('logs and continues when loadURL rejects in checking phase', async () => {

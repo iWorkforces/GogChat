@@ -12,7 +12,11 @@ import log from 'electron-log';
 import { cleanupAll } from '../utils/lifecycle/featureRunner.js';
 import { getSharedFeatureContext } from '../utils/lifecycle/featureContextStore.js';
 import { getCleanupManager } from '../utils/lifecycle/resourceCleanup.js';
-import { destroyAccountWindowManager } from '../utils/account/accountWindowManager.js';
+import {
+  destroyAccountWindowManager,
+  peekAccountWindowManager,
+} from '../utils/account/accountWindowManager.js';
+import type { AccountIndex } from '../../shared/types/branded.js';
 import { destroyAllSingletons } from './singletonDestroyers.js';
 
 export const SHUTDOWN_STAGE_TIMEOUT_MS = 2_000;
@@ -114,6 +118,7 @@ export function registerShutdownHandler(
 
       const hangStage = process.env['GOGCHAT_TEST_HANG_SHUTDOWN'];
       const hang = (): Promise<void> => new Promise(() => undefined);
+      let diagnosticAccountIndices: readonly AccountIndex[] = [];
 
       log.info('[Main] Cleaning up feature resources...');
       await runShutdownStage(
@@ -130,7 +135,15 @@ export function registerShutdownHandler(
       );
       await runShutdownStage(
         'Account window manager cleanup',
-        hangStage === 'accounts' ? hang : destroyAccountWindowManager,
+        hangStage === 'accounts'
+          ? hang
+          : () => {
+              const manager = peekAccountWindowManager();
+              if (manager) {
+                diagnosticAccountIndices = manager.listAccountIndices();
+              }
+              destroyAccountWindowManager();
+            },
         deadlines.createStageSignal
       );
       await runShutdownStage(
@@ -140,7 +153,7 @@ export function registerShutdownHandler(
           : async () => {
               // Keep diagnostic log strings out of lib/main/index.js.
               const { logShutdownDiagnostics } = await import('./shutdownDiagnostics.js');
-              await logShutdownDiagnostics();
+              await logShutdownDiagnostics({ accountIndices: diagnosticAccountIndices });
             },
         deadlines.createStageSignal
       );

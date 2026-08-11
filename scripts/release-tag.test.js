@@ -21,7 +21,7 @@ function makeBareRemote() {
   return dir;
 }
 
-function makeWorktree(remote) {
+function makeWorktree(remote, { pushMain = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gogchat-tag-work-'));
   leftovers.push(dir);
   git(dir, ['init']);
@@ -31,7 +31,17 @@ function makeWorktree(remote) {
   git(dir, ['add', 'README']);
   git(dir, ['commit', '-m', 'init']);
   git(dir, ['remote', 'add', 'origin', remote]);
-  git(dir, ['push', 'origin', 'HEAD:main']);
+  if (pushMain) {
+    git(dir, ['push', 'origin', 'HEAD:main']);
+  }
+  return { dir, sha: git(dir, ['rev-parse', 'HEAD']) };
+}
+
+function cloneWorktree(sourceDir, remote) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gogchat-tag-clone-'));
+  leftovers.push(dir);
+  git(sourceDir, ['clone', '--local', sourceDir, dir]);
+  git(dir, ['remote', 'set-url', 'origin', remote]);
   return { dir, sha: git(dir, ['rev-parse', 'HEAD']) };
 }
 
@@ -85,10 +95,57 @@ describe('release-tag write planner', () => {
     expect(inspectRemoteTag(remote, 'v3.19.0')).toBe(work.sha);
   });
 
+  it('pushes refs/tags/ and refuses a later different-SHA writer', () => {
+    const remote = makeBareRemote();
+    const work = makeWorktree(remote);
+
+    applyTagWrite({
+      cwd: work.dir,
+      remote,
+      tagName: 'v3.19.0',
+      sourceSha: work.sha,
+    });
+
+    const remoteRefs = execFileSync('git', ['ls-remote', '--tags', remote], { encoding: 'utf8' });
+    expect(remoteRefs).toContain('refs/tags/v3.19.0');
+
+    fs.writeFileSync(path.join(work.dir, 'OTHER'), 'other');
+    git(work.dir, ['add', 'OTHER']);
+    git(work.dir, ['commit', '-m', 'other']);
+    const otherSha = git(work.dir, ['rev-parse', 'HEAD']);
+
+    expect(() =>
+      applyTagWrite({
+        cwd: work.dir,
+        remote,
+        tagName: 'v3.19.0',
+        sourceSha: otherSha,
+      })
+    ).toThrow(/wrong-SHA|refusing/);
+    expect(inspectRemoteTag(remote, 'v3.19.0')).toBe(work.sha);
+  });
+
+  it('rejects an unsafe tag name before writing', () => {
+    const remote = makeBareRemote();
+    const work = makeWorktree(remote);
+    expect(() =>
+      applyTagWrite({
+        cwd: work.dir,
+        remote,
+        tagName: 'v3.19.0;rm -rf /',
+        sourceSha: work.sha,
+      })
+    ).toThrow(/invalid release tag name/);
+    expect(execFileSync('git', ['ls-remote', '--tags', remote], { encoding: 'utf8' }).trim()).toBe(
+      ''
+    );
+  });
+
   it('lets one of two concurrent writers win without moving the tag', () => {
     const remote = makeBareRemote();
     const first = makeWorktree(remote);
-    const second = makeWorktree(remote);
+    const second = cloneWorktree(first.dir, remote);
+    expect(second.sha).toBe(first.sha);
 
     const results = [first, second].map((work) => {
       try {
