@@ -203,7 +203,7 @@ One evidence class cannot substitute for another:
 | Headless-performance | Unauthenticated startup metrics                                 | `GOGCHAT_PERF_RUNS=5 HEADLESS_TIMEOUT_MS=90000 node scripts/headless-startup.js` then `node scripts/check-perf-budget.js performance-metrics.json` |
 | Workflow             | CI DAG / tag / publish safety                                   | disposable-git fixtures + `scripts/release-workflow.test.js`                                                                                       |
 
-Playwright discovers four isolated projects under `tests/` (`e2e`, `integration`, `performance`, `preload-artifact`). Vitest still excludes those Playwright directories. PR Check runs typecheck, doc-claims, Vitest, coverage, madge, `build:prod`, headless, and budget — **not** `lint:all` and **not** Playwright.
+Playwright discovers four isolated projects under `tests/` (`e2e`, `integration`, `performance`, `preload-artifact`). Vitest still excludes those Playwright directories. PR Check runs frozen install, Electron binary, typecheck, doc-claims, lint, coverage, madge, production build, all four Playwright projects, five-run headless, and the budget gate, then always-uploads metrics/logs.
 
 ### Git and dirty-worktree safety
 

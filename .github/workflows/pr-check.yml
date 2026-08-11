@@ -14,7 +14,7 @@ jobs:
   check:
     name: Typecheck & Test
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -37,22 +37,34 @@ jobs:
         run: node scripts/install-electron-binary.js
 
       - name: Typecheck
-        run: bun run typecheck
+        run: node ./node_modules/@typescript/native/bin/tsc -b
 
       - name: Documentation claim audit
-        run: bun run check:doc-claims
+        run: bun scripts/check-doc-claims.js
 
-      - name: Test
-        run: bun run test
+      - name: Lint
+        run: bash ./scripts/lint.sh
 
       - name: Test with coverage
-        run: bun run test:coverage 2>&1 | tee coverage-output.txt
+        run: node --require ./tests/polyfill-crypto.cjs ./node_modules/vitest/vitest.mjs run --coverage 2>&1 | tee coverage-output.txt
 
       - name: 'Architecture: Circular deps'
         run: bunx madge --circular --extensions ts src/
 
       - name: 'Performance: Build production bundle'
-        run: bun run build:prod
+        run: bun scripts/build-rsbuild.js
+
+      - name: 'Playwright: e2e'
+        run: bunx playwright test --project=e2e
+
+      - name: 'Playwright: integration'
+        run: bunx playwright test --project=integration
+
+      - name: 'Playwright: performance'
+        run: bunx playwright test --project=performance
+
+      - name: 'Playwright: preload-artifact'
+        run: bunx playwright test --project=preload-artifact
 
       - name: 'Performance: Headless startup capture'
         run: node scripts/headless-startup.js
@@ -76,5 +88,6 @@ jobs:
           path: |
             performance-metrics.json
             .perf-history.json
+            coverage-output.txt
           if-no-files-found: ignore
           retention-days: 14

@@ -93,7 +93,7 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 
 ### Current CI (do not invent extra gates)
 
-- **PR Check** (`.github/workflows/pr-check.yml`): frozen install → Electron binary → typecheck → `check:doc-claims` → `bun run test` → `test:coverage` → madge → `build:prod` → five-run headless (`HEADLESS_TIMEOUT_MS=90000`) → budget → always-upload metrics. **Does not** run `lint:all` or Playwright. Lint lives in `scripts/hooks/pre-push` / local `bun run lint:all`.
+- **PR Check** (`.github/workflows/pr-check.yml`): frozen install → Electron binary → literal typecheck → `bun scripts/check-doc-claims.js` → `bash ./scripts/lint.sh` → literal Vitest coverage (no second unit run) → madge → `bun scripts/build-rsbuild.js` → Playwright `e2e`/`integration`/`performance`/`preload-artifact` → five-run headless (`GOGCHAT_PERF_RUNS=5 HEADLESS_TIMEOUT_MS=90000 node scripts/headless-startup.js`) → `node scripts/check-perf-budget.js performance-metrics.json` → always-upload metrics and `coverage-output.txt`. Contract: `scripts/pr-workflow.test.js`.
 - **Release** (`.github/workflows/release.yml`): `prepare-release` may create `v{version}` on `main` when the tag is absent (`contents: write`); then mac arm64/x64 + Windows x64/arm64 package jobs; aggregate verify; single publish. Workflow YAML is string-tested by `release-workflow.test.js` — cosmetic YAML edits break tests.
 - Typecheck uses `@typescript/native` (TS 7). The `typescript` package on disk is 6.x and is **not** the typecheck binary.
 

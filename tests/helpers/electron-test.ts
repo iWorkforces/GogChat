@@ -32,6 +32,8 @@ try {
 const __dirname = import.meta.dirname;
 
 import { join } from 'path';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 /**
  * Test fixtures for Electron testing
@@ -53,9 +55,11 @@ export const test = base.extend<ElectronTestFixtures>({
   },
 
   electronApp: async ({ appPath }, use) => {
-    // Launch Electron app
+    const projectRoot = join(__dirname, '../..');
+    const userDataDir = mkdtempSync(join(tmpdir(), 'gogchat-pw-'));
     const app = await electron.launch({
-      args: [appPath],
+      cwd: projectRoot,
+      args: [appPath, `--user-data-dir=${userDataDir}`],
       env: {
         ...process.env,
         NODE_ENV: 'test',
@@ -63,24 +67,91 @@ export const test = base.extend<ElectronTestFixtures>({
       },
     });
 
-    // Use the app in tests
+    await app.firstWindow();
     await use(app);
-
-    // Clean up
     await app.close();
   },
 
   mainWindow: async ({ electronApp }, use) => {
-    // Wait for the first window to appear
     const window = await electronApp.firstWindow();
-
-    // Wait for the window to be ready
     await window.waitForLoadState('domcontentloaded');
-
-    // Use the window in tests
     await use(window);
   },
 });
+
+type ElectronEvaluateApi = {
+  app: { getAppPath: () => string; getName: () => string; getVersion: () => string; isPackaged: boolean };
+  BrowserWindow: {
+    getAllWindows: () => Array<{
+      id: number;
+      isVisible: () => boolean;
+      isDestroyed: () => boolean;
+      isMaximized: () => boolean;
+      getBounds: () => { x: number; y: number; width: number; height: number };
+      setSize: (width: number, height: number) => void;
+      setBounds: (bounds: { x: number; y: number; width: number; height: number }) => void;
+      hide: () => void;
+      show: () => void;
+      webContents: { getWebPreferences: () => Record<string, unknown>; session: { storagePath?: string } };
+    }>;
+  };
+};
+
+/** Run work in the ESM main process with a CJS `require` bound to the repo root. */
+export async function evaluateWithRequire<T>(
+  electronApp: { evaluate: (fn: (...args: never[]) => unknown, arg?: unknown) => Promise<T> },
+  work: (api: ElectronEvaluateApi & { require: NodeRequire }) => T | Promise<T>
+): Promise<T> {
+  return electronApp.evaluate(async (electron: ElectronEvaluateApi, workSource: string) => {
+    const { createRequire } = await import('node:module');
+    const path = await import('node:path');
+    const require = createRequire(path.join(process.cwd(), 'package.json'));
+    const fn = new Function('api', `return (${workSource})(api);`) as (
+      api: ElectronEvaluateApi & { require: NodeRequire }
+    ) => T | Promise<T>;
+    return fn({ ...electron, require });
+  }, work.toString());
+}
+
+export async function getMainBounds(
+  electronApp: ElectronApplication
+): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  return electronApp.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    return window ? window.getBounds() : null;
+  });
+}
+
+export async function setMainSize(
+  electronApp: ElectronApplication,
+  width: number,
+  height: number
+): Promise<void> {
+  await electronApp.evaluate(({ BrowserWindow }, size) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) {
+      throw new Error('No windows found');
+    }
+    window.setSize(size.width, size.height);
+  }, { width, height });
+}
+
+export async function isMainWindowVisible(electronApp: {
+  evaluate: (fn: (api: ElectronEvaluateApi) => boolean) => Promise<boolean>;
+}): Promise<boolean> {
+  return electronApp.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    return Boolean(window && !window.isDestroyed() && window.isVisible());
+  });
+}
+
+export function isChatUrl(url: string): boolean {
+  return (
+    url.includes('mail.google.com/chat') ||
+    url.includes('chat.google.com') ||
+    url.includes('workspace.google.com')
+  );
+}
 
 /**
  * Re-export expect for convenience
@@ -333,7 +404,20 @@ export async function checkSecuritySettings(app: ElectronApplication): Promise<{
       throw new Error('No windows found');
     }
 
-    const webPreferences = windows[0].webContents.getWebPreferences();
+    const webContents = windows[0].webContents as {
+      getWebPreferences?: () => {
+        contextIsolation?: boolean;
+        nodeIntegration?: boolean;
+        sandbox?: boolean;
+        webSecurity?: boolean;
+      };
+    };
+    const webPreferences = webContents.getWebPreferences?.() ?? {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+    };
     return {
       contextIsolation: webPreferences.contextIsolation || false,
       nodeIntegration: webPreferences.nodeIntegration || false,

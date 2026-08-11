@@ -30,6 +30,7 @@ bun run check:doc-claims
 - Use `tests/mocks/electron.ts` for Electron mocks.
 - Reset with `electronMock.reset()` and `vi.clearAllMocks()` between cases.
 - Keep `tests/polyfill-crypto.cjs` loaded for crypto-dependent unit tests.
+- Electron 43 evaluate is ESM: do not call `require()` or `import()` inside `electronApp.evaluate`. Use `BrowserWindow` APIs, or import validators in the test process. `Page.isVisible()` needs a selector — use `isMainWindowVisible()`. Skip authenticated Chat UI when no session exists. Accept `workspace.google.com` as a Chat landing URL.
 
 ## What to test
 
@@ -72,7 +73,7 @@ bun run package:mac:artifacts
 
 CI remains unauthenticated. Authenticated first-interaction is credential-isolated; without credentials expect `[blocked: credentials unavailable]`.
 
-PR Check does **not** run Playwright or `lint:all`. Default `bun run test` is Vitest only. Electron Playwright cases need `bun run build:prod` first and import from `tests/helpers/electron-test.ts`.
+PR Check runs frozen install → Electron binary → literal typecheck / doc-claims / `scripts/lint.sh` / Vitest coverage / madge / production build / Playwright `e2e` `integration` `performance` `preload-artifact` / five-run headless / budget, then always-uploads metrics and coverage logs. Default `bun run test` is still Vitest only. Electron Playwright cases need a production build first and import from `tests/helpers/electron-test.ts`.
 
 ## Anti-patterns
 

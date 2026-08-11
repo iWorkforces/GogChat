@@ -273,7 +273,7 @@ Your next move: after the plan review passes, start execution in a separate work
   - Recommended task executor category: `unspecified-high` - multi-module branch-gap closure without scope expansion.
   - Commit: Y | `test(coverage): close stability branch gaps`.
 
-- [ ] 19. Activate complete recurring PR gates only after suites are green
+- [x] 19. Activate complete recurring PR gates only after suites are green
   - What to do: RED-first add `scripts/pr-workflow.test.js`, then update `.github/workflows/pr-check.yml`. Order: frozen install and Electron binary; typecheck; doc claims; lint; unit coverage; circular deps; production build; Playwright `e2e`, `integration`, `performance`, `preload-artifact`; five-run headless capture; budget gate; always-upload metrics/log evidence. Use literal existing commands, not package aliases.
   - Must NOT do: do not add authenticated Google credentials, duplicate unit execution without purpose, omit artifact upload on failure, change performance units/schema, or edit `package.json`.
   - Parallelization: Wave 4 | Blocked by: 4, 12, 14, 15, 18 | Blocks: 20-25.

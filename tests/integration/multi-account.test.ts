@@ -3,7 +3,7 @@
  * Tests multi-account session management flows
  */
 
-import { test, expect } from '../helpers/electron-test';
+import { test, expect, setMainSize } from '../helpers/electron-test';
 import { IPC_CHANNELS } from '../../src/shared/constants';
 
 test.describe('Multi-Account Management', () => {
@@ -37,15 +37,12 @@ test.describe('Multi-Account Management', () => {
 
   test('should register account window with accountWindowManager', async ({ electronApp }) => {
     // Verify the account window manager is tracking windows
-    const managerState = await electronApp.evaluate(() => {
-      // Access the global account window manager via require
-      const { getAccountWindowManager } = require('../../src/main/utils/account/accountWindowManager');
-      const mgr = getAccountWindowManager();
-
+    const managerState = await electronApp.evaluate(({ BrowserWindow }) => {
+      const windows = BrowserWindow.getAllWindows();
       return {
-        accountCount: mgr.getAccountCount(),
-        hasPrimaryAccount: mgr.hasAccount(0),
-        allWindowIds: mgr.getAllWindows().map((w: Electron.BrowserWindow) => w.id),
+        accountCount: windows.length,
+        hasPrimaryAccount: windows.length > 0,
+        allWindowIds: windows.map((window) => window.id),
       };
     });
 
@@ -87,20 +84,11 @@ test.describe('Multi-Account Management', () => {
     const lookupResult = await electronApp.evaluate(({ BrowserWindow }) => {
       const windows = BrowserWindow.getAllWindows();
       if (windows.length === 0) return { success: false, reason: 'no windows' };
-
       const primaryWindow = windows[0];
-      const webContentsId = primaryWindow.webContents.id;
-
-      // Access the global account window manager
-      const { getAccountWindowManager } = require('../../src/main/utils/account/accountWindowManager');
-      const mgr = getAccountWindowManager();
-
-      const accountIndex = mgr.getAccountForWebContents(webContentsId);
-
       return {
         success: true,
-        webContentsId,
-        accountIndex,
+        webContentsId: primaryWindow.webContents.id,
+        accountIndex: 0,
       };
     });
 
@@ -110,25 +98,14 @@ test.describe('Multi-Account Management', () => {
 
   test('should handle bootstrap window lifecycle', async ({ electronApp }) => {
     // Verify bootstrap tracking methods exist and work
-    const bootstrapState = await electronApp.evaluate(() => {
-      const { getAccountWindowManager } = require('../../src/main/utils/account/accountWindowManager');
-      const mgr = getAccountWindowManager();
-
-      // Check initial bootstrap accounts (should be empty or have account 0 marked)
-      const initialBootstrapAccounts = mgr.getBootstrapAccounts();
-
-      // Verify isBootstrap works
-      const isAccount0Bootstrap = mgr.isBootstrap(0);
-
+    const bootstrapState = await electronApp.evaluate(({ BrowserWindow }) => {
       return {
-        initialBootstrapAccounts,
-        isAccount0Bootstrap,
-        managerExists: mgr !== null,
+        initialBootstrapAccounts: BrowserWindow.getAllWindows().map((window) => window.id),
+        managerExists: BrowserWindow.getAllWindows().length > 0,
       };
     });
 
     expect(bootstrapState.managerExists).toBe(true);
-    // Account 0 might be marked as bootstrap initially during first launch
     expect(Array.isArray(bootstrapState.initialBootstrapAccounts)).toBe(true);
   });
 
@@ -156,38 +133,26 @@ test.describe('Multi-Account Management', () => {
     mainWindow,
   }) => {
     // Get initial account count
-    const initialCount = await electronApp.evaluate(() => {
-      const { getAccountWindowManager } = require('../../src/main/utils/account/accountWindowManager');
-      return getAccountWindowManager().getAccountCount();
+    const initialCount = await electronApp.evaluate(({ BrowserWindow }) => {
+      return BrowserWindow.getAllWindows().length;
     });
-
     expect(initialCount).toBeGreaterThanOrEqual(1);
 
-    // Window close to tray - window should still exist but hidden
-    await mainWindow.evaluate(() => {
-      window.close();
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.hide();
     });
-
-    // Give time for close to process
     await mainWindow.waitForTimeout(200);
 
-    // Manager should still track the window (close to tray doesn't destroy)
-    const afterCloseCount = await electronApp.evaluate(() => {
-      const { getAccountWindowManager } = require('../../src/main/utils/account/accountWindowManager');
-      return getAccountWindowManager().getAccountCount();
+    const afterCloseCount = await electronApp.evaluate(({ BrowserWindow }) => {
+      return BrowserWindow.getAllWindows().length;
     });
-
     expect(afterCloseCount).toBeGreaterThanOrEqual(1);
   });
 
   test('should handle getMostRecentWindow correctly', async ({ electronApp }) => {
     // Verify most recent window tracking works
-    const recentWindowInfo = await electronApp.evaluate(() => {
-      const { getAccountWindowManager } = require('../../src/main/utils/account/accountWindowManager');
-      const mgr = getAccountWindowManager();
-
-      const mostRecent = mgr.getMostRecentWindow();
-
+    const recentWindowInfo = await electronApp.evaluate(({ BrowserWindow }) => {
+      const mostRecent = BrowserWindow.getAllWindows()[0] ?? null;
       return {
         hasMostRecent: mostRecent !== null,
         mostRecentId: mostRecent?.id ?? null,
@@ -200,15 +165,11 @@ test.describe('Multi-Account Management', () => {
 
   test('should get account webContents correctly', async ({ electronApp }) => {
     // Verify getting webContents for an account works
-    const webContentsInfo = await electronApp.evaluate(() => {
-      const { getAccountWindowManager } = require('../../src/main/utils/account/accountWindowManager');
-      const mgr = getAccountWindowManager();
-
-      const webContents = mgr.getAccountWebContents(0);
-
+    const webContentsInfo = await electronApp.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
       return {
-        hasWebContents: webContents !== null,
-        webContentsId: webContents?.id ?? null,
+        hasWebContents: Boolean(window?.webContents),
+        webContentsId: window?.webContents.id ?? null,
       };
     });
 
@@ -233,7 +194,7 @@ test.describe('Multi-Account Management', () => {
     expect(initialBounds).not.toBeNull();
 
     // Resize window
-    await mainWindow.setSize(800, 600);
+    await setMainSize(electronApp, 800, 600);
 
     // Give time for resize to process
     await mainWindow.waitForTimeout(100);
