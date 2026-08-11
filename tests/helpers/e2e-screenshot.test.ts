@@ -149,7 +149,9 @@ describe('Electron fixture evaluate safety', () => {
       path.resolve(import.meta.dirname, '../integration/bounded-shutdown.test.ts'),
       'utf8'
     );
-    expect(shutdown).not.toMatch(/await electronApp\.evaluate\(\(\{ app \}\) => \{\s*app\.quit\(\)/);
+    expect(shutdown).not.toMatch(
+      /await electronApp\.evaluate\(\(\{ app \}\) => \{\s*app\.quit\(\)/
+    );
     expect(shutdown).toContain('void electronApp');
   });
 
