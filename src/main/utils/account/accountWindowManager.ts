@@ -21,6 +21,7 @@ import type {
 } from '../../../shared/types/window.js';
 import type { AccountIndex, WebContentsId } from '../../../shared/types/branded.js';
 import { asWebContentsId, toPartition } from '../../../shared/types/branded.js';
+import { asType } from '../../../shared/typeUtils.js';
 import {
   markAsBootstrap as _markAsBootstrap,
   isBootstrap as _isBootstrap,
@@ -747,10 +748,12 @@ export function getAccountForWebContents(webContentsId: WebContentsId): AccountI
 }
 
 if (process.env['TESTING'] === 'true') {
-  const testGlobal = globalThis as typeof globalThis & {
-    __gogchatGetAccountWindowManager?: typeof getAccountWindowManager;
-    __gogchatPeekAccountWindowManager?: typeof peekAccountWindowManager;
-  };
+  const testGlobal = asType<
+    typeof globalThis & {
+      __gogchatGetAccountWindowManager?: typeof getAccountWindowManager;
+      __gogchatPeekAccountWindowManager?: typeof peekAccountWindowManager;
+    }
+  >(globalThis);
   testGlobal.__gogchatGetAccountWindowManager = getAccountWindowManager;
   testGlobal.__gogchatPeekAccountWindowManager = peekAccountWindowManager;
 }

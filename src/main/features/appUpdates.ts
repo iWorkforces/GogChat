@@ -14,6 +14,7 @@ import {
   isUpdateSessionDismissed,
   presentUpdateDialog,
 } from '../utils/platform/updateWindow.js';
+import { asType } from '../../shared/typeUtils.js';
 import { validateExternalURL } from '../../shared/urlValidators.js';
 import { openExternal } from '../utils/security/shellWrapper.js';
 import { registerMenuAction } from './menuActionRegistry.js';
@@ -341,8 +342,8 @@ registerMenuAction('checkForUpdates', {
 });
 
 if (process.env['TESTING'] === 'true') {
-  const testGlobal = globalThis as typeof globalThis & {
-    __gogchatCheckForUpdatesManual?: typeof checkForUpdatesManual;
-  };
+  const testGlobal = asType<
+    typeof globalThis & { __gogchatCheckForUpdatesManual?: typeof checkForUpdatesManual }
+  >(globalThis);
   testGlobal.__gogchatCheckForUpdatesManual = checkForUpdatesManual;
 }

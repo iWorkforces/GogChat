@@ -162,7 +162,7 @@ function setAppMenu(window: BrowserWindow): void {
             const manager = getAccountWindowManager();
             const url = getAccountURL(manager, menuAccountIndex(window));
             if (url) {
-              clipboard.writeText(url);
+              void clipboard.writeText(url);
             }
           },
         },
