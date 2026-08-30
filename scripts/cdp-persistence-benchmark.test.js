@@ -41,7 +41,7 @@ function completeEvidence() {
       arch: 'arm64',
       electron: '43.0.0',
       node: '24.16.0',
-      bun: '1.3.14',
+      bun: '1.4.0',
     },
     cells,
   };
