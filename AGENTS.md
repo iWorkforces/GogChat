@@ -49,7 +49,7 @@ bun run package:win:signing-policy
 
 Runtime/toolchain constraints:
 
-- Node `>=24.16.0 <25.0.0`; Bun `>=1.3.0`; package manager pin `bun@1.3.14`.
+- Node `>=24.16.0 <25.0.0`; Bun `>=1.3.0`; package manager pin `bun@1.4.0`.
 - Electron `^43.2.0`.
 - TypeScript strict mode with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noUncheckedSideEffectImports`, `noUnusedLocals`, and `noUnusedParameters`.
 - Prettier: 100 columns, single quotes, semicolons, trailing commas ES5, LF.
