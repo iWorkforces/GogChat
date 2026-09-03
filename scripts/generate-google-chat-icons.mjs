@@ -103,6 +103,8 @@ const TRAY_GEOMETRY = {
   innerCut: 8,
 };
 
+const TRAY_ARTWORK_SCALE = 0.9;
+
 // Ensure icon subdirectories exist
 for (const dir of ['tray', 'normal', 'badge', 'offline', 'aura']) {
   const p = join(ICONS_DIR, dir);
@@ -352,6 +354,11 @@ function buildBadgeDot(scale, opts = {}) {
   <circle cx="${fmt(cx)}" cy="${fmt(cy)}" r="${fmt(innerRadius)}" fill="${COLORS.red}"/>`;
 }
 
+function trayArtworkTransform(s) {
+  const center = s / 2;
+  return `translate(${center} ${center}) scale(${TRAY_ARTWORK_SCALE}) translate(${-center} ${-center})`;
+}
+
 /**
  * Monochrome tray icon SVG for the macOS menu bar.
  * White speech bubble glyph with a transparent inner cutout.
@@ -363,10 +370,13 @@ function trayIconSvg(s) {
   const outerPath = buildOuterBubble(scale, TRAY_GEOMETRY.cornerRadius, TRAY_GEOMETRY);
   const innerPath = buildInnerCutout(scale, TRAY_GEOMETRY.innerRadius, TRAY_GEOMETRY);
   const maskPath = `${outerPath} ${innerPath}`;
+  const transform = trayArtworkTransform(s);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">
   <!-- Visible pixels are white; transparent pixels remain cut out. -->
-  <path d="${maskPath}" fill="${COLORS.white}" fill-rule="evenodd"/>
+  <g transform="${transform}">
+    <path d="${maskPath}" fill="${COLORS.white}" fill-rule="evenodd"/>
+  </g>
 </svg>`;
 }
 /**
@@ -382,6 +392,7 @@ function trayUnreadIconSvg(s) {
   const outerPath = buildOuterBubble(scale, TRAY_GEOMETRY.cornerRadius, TRAY_GEOMETRY);
   const innerPath = buildInnerCutout(scale, TRAY_GEOMETRY.innerRadius, TRAY_GEOMETRY);
   const maskPath = `${outerPath} ${innerPath}`;
+  const transform = trayArtworkTransform(s);
 
   // Unread dot: solid filled circle at upper-right of the bubble.
   // Coordinates in the 0–100 space matching TRAY_GEOMETRY.
@@ -394,9 +405,11 @@ function trayUnreadIconSvg(s) {
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">
   <!-- Visible pixels are white; transparent pixels remain cut out. -->
-  <path d="${maskPath}" fill="${COLORS.white}" fill-rule="evenodd"/>
-  <!-- Unread dot — solid white pixel data matching the tray glyph. -->
-  <circle cx="${fmt(dotCx)}" cy="${fmt(dotCy)}" r="${fmt(dotR)}" fill="${COLORS.white}"/>
+  <g transform="${transform}">
+    <path d="${maskPath}" fill="${COLORS.white}" fill-rule="evenodd"/>
+    <!-- Unread dot — solid white pixel data matching the tray glyph. -->
+    <circle cx="${fmt(dotCx)}" cy="${fmt(dotCy)}" r="${fmt(dotR)}" fill="${COLORS.white}"/>
+  </g>
 </svg>`;
 }
 
