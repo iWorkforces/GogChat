@@ -84,7 +84,7 @@ describe('release workflow publish-once contract', () => {
           - arch: arm64
           - arch: x64`);
     expect(buildMacJob).toContain('fail-fast: false');
-    expect(buildMacJob).toContain('bun-version: "1.4.0"');
+    expect(buildMacJob).toContain('bun-version: "1.4.1"');
     expect(buildMacJob).toContain("node-version: '24.16.0'");
     expect(buildMacJob).toContain('bun run package:mac:${{ matrix.arch }}');
     expect(buildMacJob).not.toContain('bun run package:mac:release');
