@@ -7,7 +7,6 @@
 import { type BrowserWindow, systemPreferences } from 'electron';
 import log from 'electron-log';
 import { checkAndRequestMediaAccess, showDeniedPermissionDialog } from './mediaAccess.js';
-import { asType } from '../../../shared/typeUtils.js';
 
 const ALLOWED_PERMISSIONS = ['notifications', 'mediaKeySystem', 'geolocation'] as const;
 
@@ -17,39 +16,58 @@ const TRUSTED_PERMISSION_ORIGINS = new Set([
   'https://mail.google.com',
 ]);
 
-interface PermissionOriginDetails {
-  readonly requestingUrl?: string;
-  readonly securityOrigin?: string;
-  // embeddingOrigin is intentionally ignored for allow decisions — a trusted
-  // embedder must not grant permissions to an untrusted requesting frame.
+function readDetail(details: unknown, property: string): unknown {
+  if (details === null || typeof details !== 'object') {
+    return undefined;
+  }
+
+  return Reflect.get(details, property);
 }
 
-function parseOrigin(value: string | undefined): string | null {
-  if (value === undefined || value.trim().length === 0) {
+type OriginTrust = 'absent' | 'trusted' | 'denied';
+
+function classifyOrigin(value: unknown): OriginTrust {
+  if (value === undefined || (typeof value === 'string' && value.trim().length === 0)) {
+    return 'absent';
+  }
+  if (typeof value !== 'string') {
+    return 'denied';
+  }
+
+  return TRUSTED_PERMISSION_ORIGINS.has(new URL(value).origin) ? 'trusted' : 'denied';
+}
+
+function readMediaTypes(details: unknown): readonly string[] | null {
+  const value = readDetail(details, 'mediaTypes');
+  if (!Array.isArray(value)) {
     return null;
   }
 
-  try {
-    return new URL(value).origin;
-  } catch (error: unknown) {
-    if (error instanceof TypeError) {
+  const mediaTypes: string[] = [];
+  for (const mediaType of value) {
+    if (typeof mediaType !== 'string') {
       return null;
     }
-    throw error;
+    mediaTypes.push(mediaType);
   }
+  return mediaTypes;
 }
 
-function isTrustedOrigin(value: string | undefined): boolean {
-  const origin = parseOrigin(value);
-  return origin !== null && TRUSTED_PERMISSION_ORIGINS.has(origin);
-}
+function createOneShotResponder(callback: (allowed: boolean) => void): (allowed: boolean) => void {
+  let settled = false;
 
-function readOriginDetails(details: unknown): PermissionOriginDetails {
-  if (details === null || typeof details !== 'object') {
-    return {};
-  }
+  return (allowed) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
 
-  return asType<PermissionOriginDetails>(details);
+    try {
+      callback(allowed);
+    } catch {
+      log.warn('[Security] Permission callback failed');
+    }
+  };
 }
 
 /**
@@ -61,19 +79,18 @@ function readOriginDetails(details: unknown): PermissionOriginDetails {
  *   3. details.securityOrigin → origin
  * NEVER use details.embeddingOrigin for allow decisions.
  */
-function isTrustedPermissionOrigin(
-  requestingOrigin: string | undefined,
-  details: unknown
-): boolean {
-  if (requestingOrigin !== undefined && requestingOrigin.trim().length > 0) {
-    return isTrustedOrigin(requestingOrigin);
+function isTrustedPermissionOrigin(requestingOrigin: unknown, details: unknown): boolean {
+  const requestingOriginTrust = classifyOrigin(requestingOrigin);
+  if (requestingOriginTrust !== 'absent') {
+    return requestingOriginTrust === 'trusted';
   }
 
-  const { requestingUrl, securityOrigin } = readOriginDetails(details);
-  if (requestingUrl !== undefined && requestingUrl.trim().length > 0) {
-    return isTrustedOrigin(requestingUrl);
+  const requestingUrlTrust = classifyOrigin(readDetail(details, 'requestingUrl'));
+  if (requestingUrlTrust !== 'absent') {
+    return requestingUrlTrust === 'trusted';
   }
-  return isTrustedOrigin(securityOrigin);
+
+  return classifyOrigin(readDetail(details, 'securityOrigin')) === 'trusted';
 }
 
 /**
@@ -84,31 +101,35 @@ function isTrustedPermissionOrigin(
 export function installPermissionRequestHandler(window: BrowserWindow): void {
   window.webContents.session.setPermissionRequestHandler(
     (_webContents, permission, callback, details) => {
+      const respond = createOneShotResponder(callback);
+
       void (async () => {
+        if (typeof permission !== 'string') {
+          log.warn('[Security] Permission denied: malformed permission');
+          respond(false);
+          return;
+        }
+
         if (!isTrustedPermissionOrigin(undefined, details)) {
-          log.warn(`[Security] Permission denied for untrusted origin: ${permission}`);
-          callback(false);
+          log.warn('[Security] Permission denied for untrusted origin');
+          respond(false);
           return;
         }
 
         if (permission === 'media') {
-          const mediaTypes: string[] = asType<{ mediaTypes?: string[] }>(details).mediaTypes ?? [];
+          const mediaTypes = readMediaTypes(details);
 
-          // Empty or missing mediaTypes must not auto-grant (KD6).
-          if (mediaTypes.length === 0) {
-            log.warn('[Security] Media permission denied: empty mediaTypes');
-            callback(false);
+          if (mediaTypes === null || mediaTypes.length === 0) {
+            log.warn('[Security] Media permission denied: malformed or empty mediaTypes');
+            respond(false);
             return;
           }
 
-          // Require at least one known media type — unknown-only lists must not grant.
           const hasVideo = mediaTypes.includes('video');
           const hasAudio = mediaTypes.includes('audio');
           if (!hasVideo && !hasAudio) {
-            log.warn(
-              `[Security] Media permission denied: no video/audio in mediaTypes (${mediaTypes.join(', ')})`
-            );
-            callback(false);
+            log.warn('[Security] Media permission denied: no video/audio media type');
+            respond(false);
             return;
           }
 
@@ -121,36 +142,34 @@ export function installPermissionRequestHandler(window: BrowserWindow): void {
           }
 
           if (!granted) {
-            // Show dialog for denied types (non-blocking — don't block callback)
-            if (
-              mediaTypes.includes('video') &&
-              systemPreferences.getMediaAccessStatus('camera') === 'denied'
-            ) {
-              void showDeniedPermissionDialog(window, 'camera');
+            if (hasVideo && systemPreferences.getMediaAccessStatus('camera') === 'denied') {
+              void Promise.resolve(showDeniedPermissionDialog(window, 'camera')).catch(() => {
+                log.warn('[Security] Camera permission guidance dialog failed');
+              });
             }
-            if (
-              mediaTypes.includes('audio') &&
-              systemPreferences.getMediaAccessStatus('microphone') === 'denied'
-            ) {
-              void showDeniedPermissionDialog(window, 'microphone');
+            if (hasAudio && systemPreferences.getMediaAccessStatus('microphone') === 'denied') {
+              void Promise.resolve(showDeniedPermissionDialog(window, 'microphone')).catch(() => {
+                log.warn('[Security] Microphone permission guidance dialog failed');
+              });
             }
           }
 
-          log.debug(
-            `[Security] Media permission ${granted ? 'granted' : 'denied'}: ${mediaTypes.join(', ')}`
-          );
-          callback(granted);
+          log.debug(`[Security] Media permission ${granted ? 'granted' : 'denied'}`);
+          respond(granted);
           return;
         }
 
-        if (asType<readonly string[]>(ALLOWED_PERMISSIONS).includes(permission)) {
-          log.debug(`[Security] Permission granted: ${permission}`);
-          callback(true);
+        if (ALLOWED_PERMISSIONS.some((allowedPermission) => allowedPermission === permission)) {
+          log.debug('[Security] Permission granted');
+          respond(true);
         } else {
-          log.warn(`[Security] Permission denied: ${permission}`);
-          callback(false);
+          log.warn('[Security] Permission denied');
+          respond(false);
         }
-      })();
+      })().catch(() => {
+        log.warn('[Security] Permission request failed closed');
+        respond(false);
+      });
     }
   );
 }
@@ -162,21 +181,30 @@ export function installPermissionRequestHandler(window: BrowserWindow): void {
 export function installPermissionCheckHandler(window: BrowserWindow): void {
   window.webContents.session.setPermissionCheckHandler(
     (_webContents, permission, requestingOrigin, details) => {
-      if (!isTrustedPermissionOrigin(requestingOrigin, details)) {
-        return false;
-      }
+      try {
+        if (
+          typeof permission !== 'string' ||
+          !isTrustedPermissionOrigin(requestingOrigin, details)
+        ) {
+          return false;
+        }
 
-      if (permission === 'media') {
-        const mediaType = asType<{ mediaType?: string }>(details).mediaType;
-        if (mediaType === 'video') {
-          return systemPreferences.getMediaAccessStatus('camera') === 'granted';
+        if (permission === 'media') {
+          const mediaType = readDetail(details, 'mediaType');
+          if (mediaType === 'video') {
+            return systemPreferences.getMediaAccessStatus('camera') === 'granted';
+          }
+          if (mediaType === 'audio') {
+            return systemPreferences.getMediaAccessStatus('microphone') === 'granted';
+          }
+          return false;
         }
-        if (mediaType === 'audio') {
-          return systemPreferences.getMediaAccessStatus('microphone') === 'granted';
-        }
+
+        return ALLOWED_PERMISSIONS.some((allowedPermission) => allowedPermission === permission);
+      } catch {
+        log.warn('[Security] Permission check failed closed');
         return false;
       }
-      return asType<readonly string[]>(ALLOWED_PERMISSIONS).includes(permission);
     }
   );
 }
