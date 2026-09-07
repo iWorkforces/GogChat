@@ -101,6 +101,20 @@ describe('preload offline recovery', () => {
     expect(locationReload).not.toHaveBeenCalled();
   });
 
+  it('resets the 6s deadline when a newer check starts mid-window', () => {
+    vi.useFakeTimers();
+    handleCheckOnline();
+    vi.advanceTimersByTime(ONLINE_CHECK_DEADLINE_MS / 2);
+    expect(failedEventCount).toBe(0);
+    handleCheckOnline();
+    vi.advanceTimersByTime(ONLINE_CHECK_DEADLINE_MS / 2);
+    expect(failedEventCount).toBe(0);
+    expect(locationReplace).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(ONLINE_CHECK_DEADLINE_MS / 2);
+    expect(failedEventCount).toBe(1);
+    expect(locationReload).not.toHaveBeenCalled();
+  });
+
   it('ignores a stale response after the 6s deadline', () => {
     vi.useFakeTimers();
     const attemptId = handleCheckOnline();

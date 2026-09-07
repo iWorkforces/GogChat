@@ -68,18 +68,47 @@ test.describe('IPC Communication', () => {
   });
 
   test('should handle online status checks', async ({ electronApp, mainWindow }) => {
-    // Request online status check
-    await mainWindow.evaluate((channels) => {
-      if ((window as any).gogchat) {
-        (window as any).gogchat.checkIfOnline();
+    const result = await mainWindow.evaluate(() => {
+      const bridge = (
+        window as unknown as {
+          gogchat?: {
+            checkIfOnline?: (attemptId: string) => void;
+            onOnlineStatus?: (
+              callback: (status: { attemptId: string; online: boolean }) => void
+            ) => () => void;
+          };
+        }
+      ).gogchat;
+      if (typeof bridge?.checkIfOnline !== 'function' || typeof bridge.onOnlineStatus !== 'function') {
+        return { hasBridge: false as const };
       }
-    }, IPC_CHANNELS);
-
-    const hasBridge = await mainWindow.evaluate(() => {
-      const bridge = (window as unknown as { gogchat?: { checkIfOnline?: unknown } }).gogchat;
-      return typeof bridge?.checkIfOnline === 'function';
+      const attemptId = globalThis.crypto.randomUUID();
+      return new Promise<{
+        hasBridge: true;
+        attemptId: string;
+        status?: { attemptId: string; online: boolean };
+      }>((resolve) => {
+        const off = bridge.onOnlineStatus((status) => {
+          off();
+          resolve({ hasBridge: true, attemptId, status });
+        });
+        bridge.checkIfOnline(attemptId);
+        globalThis.setTimeout(() => {
+          off();
+          resolve({ hasBridge: true, attemptId });
+        }, 8_000);
+      });
     });
-    test.skip(!hasBridge, 'page-world bridge is not exposed on this document');
+
+    test.skip(!result.hasBridge, 'page-world bridge is not exposed on this document');
+    if (!result.hasBridge) {
+      return;
+    }
+    expect(result.attemptId).toEqual(expect.any(String));
+    if (result.status) {
+      expect(result.status.attemptId).toBe(result.attemptId);
+      expect(typeof result.status.online).toBe('boolean');
+    }
     const stillAlive = await electronApp.evaluate(({ BrowserWindow }) => {
       return BrowserWindow.getAllWindows().length > 0;
     });
