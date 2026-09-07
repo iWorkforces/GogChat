@@ -28,6 +28,9 @@ import {
   sanitizeHTML,
   validatePasskeyFailureData,
   validateNotificationData,
+  validateAttemptId,
+  validateOnlineCheckRequest,
+  validateOnlineStatusData,
 } from './dataValidators.js';
 import { BADGE } from './constants.js';
 import { validateNotificationIconURL } from './urlValidators.js';
@@ -441,5 +444,52 @@ describe('validateNotificationData', () => {
     expect(() => validateNotificationData({ title: 'T', tag: longTag })).toThrow(
       'exceeds maximum length'
     );
+  });
+});
+
+describe('validateAttemptId', () => {
+  it('accepts a non-empty opaque id', () => {
+    expect(validateAttemptId('attempt-1')).toBe('attempt-1');
+  });
+
+  it('rejects empty or whitespace-only ids', () => {
+    expect(() => validateAttemptId('')).toThrow('attemptId cannot be empty');
+    expect(() => validateAttemptId('   ')).toThrow('attemptId cannot be empty');
+  });
+
+  it('rejects oversized ids', () => {
+    expect(() => validateAttemptId('a'.repeat(129))).toThrow('exceeds maximum length');
+  });
+});
+
+describe('validateOnlineCheckRequest', () => {
+  it('returns the attemptId from a plain object', () => {
+    expect(validateOnlineCheckRequest({ attemptId: 'a1' })).toEqual({ attemptId: 'a1' });
+  });
+
+  it('rejects non-objects and missing ids', () => {
+    expect(() => validateOnlineCheckRequest(undefined)).toThrow('must be a plain object');
+    expect(() => validateOnlineCheckRequest({ online: true })).toThrow('must be a string');
+  });
+});
+
+describe('validateOnlineStatusData', () => {
+  it('returns attemptId plus a boolean online flag', () => {
+    expect(validateOnlineStatusData({ attemptId: 'a1', online: true })).toEqual({
+      attemptId: 'a1',
+      online: true,
+    });
+    expect(validateOnlineStatusData({ attemptId: 'a1', online: false })).toEqual({
+      attemptId: 'a1',
+      online: false,
+    });
+  });
+
+  it('rejects coerced or missing online flags', () => {
+    expect(() => validateOnlineStatusData({ attemptId: 'a1', online: 'true' })).toThrow(
+      'online must be a boolean'
+    );
+    expect(() => validateOnlineStatusData({ attemptId: 'a1' })).toThrow('online must be a boolean');
+    expect(() => validateOnlineStatusData(null)).toThrow('must be a plain object');
   });
 });

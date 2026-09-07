@@ -9,7 +9,7 @@
 - `constants.ts` owns channel names, selectors, timings, icon/badge constants (`BADGE.DISPLAY_MAX` = 99), notification timing/cooldowns, account-label max length, URL patterns, allowlisted hosts, and deep-link constants.
 - `appIdentity.ts` owns fixed product/bundle identity (`com.ocworkforces.gogchat`); packaging lockstep via `scripts/app-identity.cjs` + electron-builder `appId`.
 - `urlValidators.ts` owns parse-once URL validation for navigation, external links, deep links, Google auth detection, Apple System Preferences notification deep links, and **notification icon** allowlist (`validateNotificationIconURL`: `data:image/*` or Google static HTTPS hosts).
-- `dataValidators.ts` owns non-URL payload validation (including notification payload shapes used by preload/main; icons go through `validateNotificationIconURL`).
+- `dataValidators.ts` owns non-URL payload validation (including notification payload shapes used by preload/main; icons go through `validateNotificationIconURL`; online checks use `validateOnlineCheckRequest` / `validateOnlineStatusData`).
 - `typeUtils.ts` owns `assertNever`, `asType<T>()`, and documented unsafe-cast helpers.
 - `escapeHtml.ts` owns pure HTML-escape for data: HTML dialogs (About / Update). Safe for main-process templates.
 - `appIconAurora.ts` owns brand-icon aurora CSS + HTML strings (`APP_ICON_AURORA_CSS`, `appIconWithAuroraHtml`); About-tier (`.app-icon-aurora--about`) fancy motion for About/Update; reduced-motion / reduced-transparency / contrast queries; no DOM/Electron.

@@ -2,7 +2,12 @@
  * IPC transport types: handlers, validated messages, rate limits, responses, payload map.
  */
 
-import type { NotificationData, PasskeyFailureData } from './domain.js';
+import type {
+  NotificationData,
+  OnlineCheckRequest,
+  OnlineStatusData,
+  PasskeyFailureData,
+} from './domain.js';
 import type { IPCChannelName, IPC_CHANNELS } from '../constants.js';
 
 /**
@@ -54,11 +59,11 @@ export interface IPCChannelPayloadMap {
   [IPC_CHANNELS.FAVICON_CHANGED]: string;
   [IPC_CHANNELS.NOTIFICATION_SHOW]: NotificationData;
   [IPC_CHANNELS.NOTIFICATION_CLICKED]: void;
-  [IPC_CHANNELS.CHECK_IF_ONLINE]: void;
+  [IPC_CHANNELS.CHECK_IF_ONLINE]: OnlineCheckRequest;
   [IPC_CHANNELS.PASSKEY_AUTH_FAILED]: PasskeyFailureData;
   // main → renderer
   [IPC_CHANNELS.SEARCH_SHORTCUT]: void;
-  [IPC_CHANNELS.ONLINE_STATUS]: boolean;
+  [IPC_CHANNELS.ONLINE_STATUS]: OnlineStatusData;
 }
 
 /**
