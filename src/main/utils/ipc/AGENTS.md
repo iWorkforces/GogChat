@@ -47,6 +47,6 @@ Prefer `defineIPC({ kind: 'on' | 'reply' | 'invoke' })` for new handlers. `creat
 ## Anti-patterns
 
 - No raw `ipcMain` registrations without validation and catch handling.
-- No dedup for mutating or non-idempotent operations. Online checks must not use `deduplicate: true` — two senders need isolated probes. Do not put a `defineIPC` `rateLimit` on `CHECK_IF_ONLINE`; a 1/s cap would reject a same-sender replacement before supersession can abort the older probe. `inOnline` keeps one abortable probe per sender instead.
+- No dedup for mutating or non-idempotent operations. Online checks must not use `deduplicate: true` — two senders need isolated probes. Do not put a `defineIPC` `rateLimit` on `CHECK_IF_ONLINE`; a 1/s cap would reject a same-sender replacement before supersession can abort the older probe. `inOnline` keeps one abortable probe per sender and applies `ONLINE_FETCH_MIN_INTERVAL_MS` after the handler runs so a tight loop cannot start unbounded `generate_204` fetches.
 - No raw `ipcRenderer` exposure from preload.
 - `defineIPC.ts` is included in Vitest coverage. `defineIPC.test.ts` covers on/reply/invoke, sender-scoped rate limits, silent drops, channel and payload dedup, and IPCError rethrow from invoke.

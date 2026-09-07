@@ -6,38 +6,59 @@ import log from 'electron-log';
 import { IPC_CHANNELS, TIMING } from '../../shared/constants.js';
 import { validateOnlineCheckRequest } from '../../shared/dataValidators.js';
 import { defineIPC } from '../utils/ipc/defineIPC.js';
+import { createTrackedTimeout, getCleanupManager } from '../utils/lifecycle/resourceCleanup.js';
 import { getIconCache } from '../utils/platform/iconCache.js';
 
 let checkIfOnlineCleanup: (() => void) | null = null;
 
+/** Min gap between generate_204 fetches per sender. Applied after supersession. */
+export const ONLINE_FETCH_MIN_INTERVAL_MS = 1_000;
+
 interface ActiveOnlineProbe {
   attemptId: string;
+  generation: number;
   controller: AbortController;
   sender: WebContents;
   onDestroyed: () => void;
+  coalesceTimer: NodeJS.Timeout | null;
 }
 
 /** At most one in-flight probe per sender. Different senders stay independent. */
 const activeProbes = new Map<number, ActiveOnlineProbe>();
+const lastFetchStartedAt = new Map<number, number>();
+let nextProbeGeneration = 1;
 
-function abortActiveProbe(senderId: number): void {
-  const existing = activeProbes.get(senderId);
-  if (!existing) {
+function clearCoalesceTimer(probe: ActiveOnlineProbe): void {
+  if (probe.coalesceTimer === null) {
     return;
   }
-  existing.controller.abort();
-  try {
-    existing.sender.removeListener('destroyed', existing.onDestroyed);
-  } catch {
-    // Sender may already be gone.
+  clearTimeout(probe.coalesceTimer);
+  getCleanupManager().untrackTimeout(probe.coalesceTimer);
+  probe.coalesceTimer = null;
+}
+
+function abortActiveProbe(senderId: number, clearFetchGate = false): void {
+  const existing = activeProbes.get(senderId);
+  if (existing) {
+    clearCoalesceTimer(existing);
+    existing.controller.abort();
+    try {
+      existing.sender.removeListener('destroyed', existing.onDestroyed);
+    } catch {
+      // Sender may already be gone.
+    }
+    activeProbes.delete(senderId);
   }
-  activeProbes.delete(senderId);
+  if (clearFetchGate) {
+    lastFetchStartedAt.delete(senderId);
+  }
 }
 
 function abortAllProbes(): void {
   for (const senderId of [...activeProbes.keys()]) {
-    abortActiveProbe(senderId);
+    abortActiveProbe(senderId, true);
   }
+  lastFetchStartedAt.clear();
 }
 
 function senderIsGone(sender: WebContents): boolean {
@@ -93,6 +114,7 @@ function replyIfCurrent(
   event: IpcMainEvent,
   sender: WebContents,
   senderId: number,
+  generation: number,
   attemptId: string,
   controller: AbortController,
   online: boolean
@@ -101,7 +123,7 @@ function replyIfCurrent(
     return;
   }
   const current = activeProbes.get(senderId);
-  if (!current || current.attemptId !== attemptId) {
+  if (!current || current.generation !== generation) {
     return;
   }
   try {
@@ -112,6 +134,33 @@ function replyIfCurrent(
   } catch {
     // Send raced a destroy between the liveness check and reply.
   }
+}
+
+function beginProbeFetch(
+  event: IpcMainEvent,
+  sender: WebContents,
+  senderId: number,
+  probe: ActiveOnlineProbe
+): void {
+  const { attemptId, generation, controller } = probe;
+  lastFetchStartedAt.set(senderId, Date.now());
+
+  void (async () => {
+    try {
+      log.debug('[Connectivity] Checking online status...');
+      const online = await checkIfOnline(TIMING.CONNECTIVITY_CHECK, controller.signal);
+      replyIfCurrent(event, sender, senderId, generation, attemptId, controller, online);
+      log.debug(`[Connectivity] Online status: ${online}`);
+    } catch (error: unknown) {
+      log.error('[Connectivity] Failed to handle checkIfOnline:', error);
+      replyIfCurrent(event, sender, senderId, generation, attemptId, controller, false);
+    } finally {
+      const current = activeProbes.get(senderId);
+      if (current?.generation === generation) {
+        abortActiveProbe(senderId);
+      }
+    }
+  })();
 }
 
 function startSenderProbe(attemptId: string, event: IpcMainEvent): void {
@@ -131,8 +180,10 @@ function startSenderProbe(attemptId: string, event: IpcMainEvent): void {
   }
 
   const controller = new AbortController();
+  const generation = nextProbeGeneration;
+  nextProbeGeneration += 1;
   const onDestroyed = (): void => {
-    abortActiveProbe(senderId);
+    abortActiveProbe(senderId, true);
   };
 
   try {
@@ -141,24 +192,39 @@ function startSenderProbe(attemptId: string, event: IpcMainEvent): void {
     return;
   }
 
-  activeProbes.set(senderId, { attemptId, controller, sender, onDestroyed });
+  const probe: ActiveOnlineProbe = {
+    attemptId,
+    generation,
+    controller,
+    sender,
+    onDestroyed,
+    coalesceTimer: null,
+  };
+  activeProbes.set(senderId, probe);
 
-  void (async () => {
-    try {
-      log.debug('[Connectivity] Checking online status...');
-      const online = await checkIfOnline(TIMING.CONNECTIVITY_CHECK, controller.signal);
-      replyIfCurrent(event, sender, senderId, attemptId, controller, online);
-      log.debug(`[Connectivity] Online status: ${online}`);
-    } catch (error: unknown) {
-      log.error('[Connectivity] Failed to handle checkIfOnline:', error);
-      replyIfCurrent(event, sender, senderId, attemptId, controller, false);
-    } finally {
+  const lastStarted = lastFetchStartedAt.get(senderId);
+  const now = Date.now();
+  if (lastStarted === undefined || now - lastStarted >= ONLINE_FETCH_MIN_INTERVAL_MS) {
+    beginProbeFetch(event, sender, senderId, probe);
+    return;
+  }
+
+  const waitMs = ONLINE_FETCH_MIN_INTERVAL_MS - (now - lastStarted);
+  probe.coalesceTimer = createTrackedTimeout(
+    () => {
+      probe.coalesceTimer = null;
       const current = activeProbes.get(senderId);
-      if (current?.attemptId === attemptId) {
-        abortActiveProbe(senderId);
+      if (!current || current.generation !== generation) {
+        return;
       }
-    }
-  })();
+      if (current.controller.signal.aborted || senderIsGone(sender)) {
+        return;
+      }
+      beginProbeFetch(event, sender, senderId, current);
+    },
+    waitMs,
+    `online-probe-coalesce-${senderId}`
+  );
 }
 
 /**
@@ -222,7 +288,7 @@ const checkForInternet = async (window: BrowserWindow) => {
  */
 export default (_window: BrowserWindow) => {
   // No defineIPC rateLimit: a 1/s cap would drop a replacement before
-  // same-sender supersession can abort the older probe.
+  // same-sender supersession. Fetch cadence is gated after the handler runs.
   checkIfOnlineCleanup = defineIPC({
     kind: 'on',
     channel: IPC_CHANNELS.CHECK_IF_ONLINE,

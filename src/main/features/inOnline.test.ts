@@ -332,19 +332,29 @@ describe('inOnline feature', () => {
       const pending: Array<{
         resolve: (value: { ok: boolean }) => void;
         reject: (reason?: unknown) => void;
+        signal?: AbortSignal;
+        aborted: boolean;
       }> = [];
       const fetchMock = vi.fn((_url: string, init?: { signal?: AbortSignal }) => {
         return new Promise<{ ok: boolean }>((resolve, reject) => {
           const signal = init?.signal;
+          const entry = {
+            resolve,
+            reject,
+            signal,
+            aborted: Boolean(signal?.aborted),
+          };
           const onAbort = (): void => {
+            entry.aborted = true;
             reject(new DOMException('Aborted', 'AbortError'));
           };
           if (signal?.aborted) {
             onAbort();
+            pending.push(entry);
             return;
           }
           signal?.addEventListener('abort', onAbort, { once: true });
-          pending.push({ resolve, reject });
+          pending.push(entry);
         });
       });
       vi.stubGlobal('fetch', fetchMock);
@@ -352,11 +362,13 @@ describe('inOnline feature', () => {
     }
 
     afterEach(() => {
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     });
 
     it('lets a fast second probe reply and drops the slow first result', async () => {
-      const { pending } = stubPendingFetch();
+      vi.useFakeTimers();
+      const { pending, fetchMock } = stubPendingFetch();
       const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
       const feature = await import('./inOnline.js');
       feature.default(win);
@@ -365,8 +377,11 @@ describe('inOnline feature', () => {
 
       cfg.handler({ attemptId: 'slow' }, event);
       cfg.handler({ attemptId: 'fast' }, event);
-      await vi.waitFor(() => expect(pending.length).toBe(2));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(pending[0]?.aborted).toBe(true);
 
+      await vi.advanceTimersByTimeAsync(feature.ONLINE_FETCH_MIN_INTERVAL_MS);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
       pending[1]?.resolve({ ok: true });
       await vi.waitFor(() =>
         expect(event.reply).toHaveBeenCalledWith('onlineStatus', {
@@ -374,15 +389,13 @@ describe('inOnline feature', () => {
           online: true,
         })
       );
-
-      pending[0]?.resolve({ ok: false });
-      await Promise.resolve();
-      await Promise.resolve();
       expect(event.reply).toHaveBeenCalledTimes(1);
+      feature.cleanupConnectivityHandler();
     });
 
-    it('replaces a same-sender probe immediately without waiting', async () => {
-      const { pending } = stubPendingFetch();
+    it('replaces a same-sender probe immediately and coalesces the fetch', async () => {
+      vi.useFakeTimers();
+      const { pending, fetchMock } = stubPendingFetch();
       const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
       const feature = await import('./inOnline.js');
       feature.default(win);
@@ -392,9 +405,12 @@ describe('inOnline feature', () => {
       cfg.handler({ attemptId: 'first' }, event);
       cfg.handler({ attemptId: 'second' }, event);
       cfg.handler({ attemptId: 'third' }, event);
-      await vi.waitFor(() => expect(pending.length).toBe(3));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(pending[0]?.aborted).toBe(true);
 
-      pending[2]?.resolve({ ok: true });
+      await vi.advanceTimersByTimeAsync(feature.ONLINE_FETCH_MIN_INTERVAL_MS);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      pending[1]?.resolve({ ok: true });
       await vi.waitFor(() =>
         expect(event.reply).toHaveBeenCalledWith('onlineStatus', {
           attemptId: 'third',
@@ -402,6 +418,33 @@ describe('inOnline feature', () => {
         })
       );
       expect(event.reply).toHaveBeenCalledTimes(1);
+      feature.cleanupConnectivityHandler();
+    });
+
+    it('does not let a reused attemptId abort the replacement', async () => {
+      vi.useFakeTimers();
+      const { pending, fetchMock } = stubPendingFetch();
+      const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
+      const feature = await import('./inOnline.js');
+      feature.default(win);
+      const event = makeReplyEvent(12);
+      const cfg = getOnlineIpc();
+
+      cfg.handler({ attemptId: 'reused' }, event);
+      cfg.handler({ attemptId: 'reused' }, event);
+      expect(pending[0]?.aborted).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(feature.ONLINE_FETCH_MIN_INTERVAL_MS);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      pending[1]?.resolve({ ok: true });
+      await vi.waitFor(() =>
+        expect(event.reply).toHaveBeenCalledWith('onlineStatus', {
+          attemptId: 'reused',
+          online: true,
+        })
+      );
+      expect(event.reply).toHaveBeenCalledTimes(1);
+      feature.cleanupConnectivityHandler();
     });
 
     it('keeps different senders independent', async () => {
@@ -443,6 +486,7 @@ describe('inOnline feature', () => {
       await vi.waitFor(() => expect(pending.length).toBe(1));
 
       event.sender.destroy();
+      expect(pending[0]?.aborted).toBe(true);
       pending[0]?.resolve({ ok: true });
       await Promise.resolve();
       await Promise.resolve();
@@ -504,6 +548,7 @@ describe('inOnline feature', () => {
       await vi.waitFor(() => expect(pending.length).toBe(1));
 
       feature.cleanupConnectivityHandler();
+      expect(pending[0]?.aborted).toBe(true);
       pending[0]?.resolve({ ok: true });
       await Promise.resolve();
       await Promise.resolve();
