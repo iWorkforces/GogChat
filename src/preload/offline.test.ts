@@ -20,6 +20,7 @@ import {
   handleOnlineStatus,
   handleCheckOnline,
   installOffline,
+  clearOfflineCheck,
   ONLINE_CHECK_FAILED_EVENT,
   ONLINE_CHECK_DEADLINE_MS,
 } from './offline.js';
@@ -52,21 +53,23 @@ describe('preload offline recovery', () => {
 
   afterEach(() => {
     window.removeEventListener(ONLINE_CHECK_FAILED_EVENT, onFailed);
+    clearOfflineCheck();
+    vi.useRealTimers();
   });
 
   it('does not reload on false online-status replies and signals the offline page', () => {
-    handleOnlineStatus(false);
-    handleOnlineStatus(false);
-    handleOnlineStatus(false);
+    handleOnlineStatus({ attemptId: handleCheckOnline(), online: false });
+    handleOnlineStatus({ attemptId: handleCheckOnline(), online: false });
+    handleOnlineStatus({ attemptId: handleCheckOnline(), online: false });
 
     expect(locationReload).not.toHaveBeenCalled();
     expect(locationReplace).not.toHaveBeenCalled();
     expect(failedEventCount).toBe(3);
   });
 
-  it('replaces with app URL exactly once on the first true reply', () => {
-    handleOnlineStatus(false);
-    handleOnlineStatus(true);
+  it('replaces with app URL exactly once on the current successful attempt', () => {
+    handleOnlineStatus({ attemptId: handleCheckOnline(), online: false });
+    handleOnlineStatus({ attemptId: handleCheckOnline(), online: true });
 
     expect(locationReload).not.toHaveBeenCalled();
     expect(locationReplace).toHaveBeenCalledTimes(1);
@@ -74,7 +77,43 @@ describe('preload offline recovery', () => {
     expect(failedEventCount).toBe(1);
   });
 
-  it('forwards checkIfOnline through the bridge', () => {
+  it('ignores an older result after a newer retry begins', () => {
+    const first = handleCheckOnline();
+    const second = handleCheckOnline();
+    handleOnlineStatus({ attemptId: first, online: true });
+    expect(locationReplace).not.toHaveBeenCalled();
+    expect(failedEventCount).toBe(0);
+
+    handleOnlineStatus({ attemptId: second, online: false });
+    expect(locationReplace).not.toHaveBeenCalled();
+    expect(failedEventCount).toBe(1);
+  });
+
+  it('ignores an unknown attemptId so it cannot clear the deadline or navigate', () => {
+    vi.useFakeTimers();
+    handleCheckOnline();
+    handleOnlineStatus({ attemptId: 'unknown', online: true });
+    handleOnlineStatus({ attemptId: 'unknown', online: false });
+    expect(locationReplace).not.toHaveBeenCalled();
+    expect(failedEventCount).toBe(0);
+    vi.advanceTimersByTime(ONLINE_CHECK_DEADLINE_MS);
+    expect(failedEventCount).toBe(1);
+    expect(locationReload).not.toHaveBeenCalled();
+  });
+
+  it('ignores a stale response after the 6s deadline', () => {
+    vi.useFakeTimers();
+    const attemptId = handleCheckOnline();
+    vi.advanceTimersByTime(ONLINE_CHECK_DEADLINE_MS);
+    expect(failedEventCount).toBe(1);
+    handleOnlineStatus({ attemptId, online: true });
+    handleOnlineStatus({ attemptId, online: false });
+    expect(locationReplace).not.toHaveBeenCalled();
+    expect(failedEventCount).toBe(1);
+    expect(locationReload).not.toHaveBeenCalled();
+  });
+
+  it('forwards checkIfOnline through the bridge with the current attemptId', () => {
     const checkIfOnline = vi.fn();
     window.gogchat = {
       sendUnreadCount: vi.fn(),
@@ -85,8 +124,9 @@ describe('preload offline recovery', () => {
       onSearchShortcut: vi.fn(() => () => {}),
       onOnlineStatus: vi.fn(() => () => {}),
     };
-    handleCheckOnline();
+    const attemptId = handleCheckOnline();
     expect(checkIfOnline).toHaveBeenCalledTimes(1);
+    expect(checkIfOnline).toHaveBeenCalledWith(attemptId);
   });
 
   it('dispatches one failure event when the 6s deadline elapses', () => {
@@ -98,17 +138,51 @@ describe('preload offline recovery', () => {
     vi.advanceTimersByTime(ONLINE_CHECK_DEADLINE_MS);
     expect(failedEventCount).toBe(1);
     expect(locationReload).not.toHaveBeenCalled();
-    vi.useRealTimers();
   });
 
   it('clears the deadline on a false response so timeout does not fire', () => {
     vi.useFakeTimers();
-    handleCheckOnline();
-    handleOnlineStatus(false);
+    const attemptId = handleCheckOnline();
+    handleOnlineStatus({ attemptId, online: false });
     vi.advanceTimersByTime(ONLINE_CHECK_DEADLINE_MS);
     expect(failedEventCount).toBe(1);
     expect(locationReload).not.toHaveBeenCalled();
-    vi.useRealTimers();
+  });
+
+  it('unload cancels the deadline and ignores a later status for that attempt', () => {
+    vi.useFakeTimers();
+    const checkIfOnline = vi.fn();
+    const listeners: Array<(status: { attemptId: string; online: boolean }) => void> = [];
+    window.gogchat = {
+      sendUnreadCount: vi.fn(),
+      sendFaviconChanged: vi.fn(),
+      sendNotificationClicked: vi.fn(),
+      checkIfOnline,
+      reportPasskeyFailure: vi.fn(),
+      onSearchShortcut: vi.fn(() => () => {}),
+      onOnlineStatus: (callback) => {
+        listeners.push(callback);
+        return () => {
+          const index = listeners.indexOf(callback);
+          if (index >= 0) {
+            listeners.splice(index, 1);
+          }
+        };
+      },
+    };
+
+    installOffline();
+    window.dispatchEvent(new Event('DOMContentLoaded'));
+    window.dispatchEvent(new Event('app:checkIfOnline'));
+    const attemptId = checkIfOnline.mock.calls[0]?.[0] as string;
+    expect(attemptId).toEqual(expect.any(String));
+
+    window.dispatchEvent(new Event('beforeunload'));
+    listeners[0]?.({ attemptId, online: true });
+    vi.advanceTimersByTime(ONLINE_CHECK_DEADLINE_MS);
+    expect(locationReplace).not.toHaveBeenCalled();
+    expect(failedEventCount).toBe(0);
+    expect(locationReload).not.toHaveBeenCalled();
   });
 
   it('falls back to ipcRenderer when the gogchat bridge is absent', async () => {
@@ -126,13 +200,22 @@ describe('preload offline recovery', () => {
     const statusListener = vi
       .mocked(ipcRenderer.on)
       .mock.calls.find((call) => call[0] === IPC_CHANNELS.ONLINE_STATUS)?.[1] as
-      ((event: unknown, online: boolean) => void) | undefined;
+      ((event: unknown, data: unknown) => void) | undefined;
     expect(statusListener).toBeTypeOf('function');
-    statusListener?.({}, false);
-    expect(failedEventCount).toBe(1);
 
     window.dispatchEvent(new Event('app:checkIfOnline'));
-    expect(ipcRenderer.send).toHaveBeenCalledWith(IPC_CHANNELS.CHECK_IF_ONLINE);
+    expect(ipcRenderer.send).toHaveBeenCalledWith(IPC_CHANNELS.CHECK_IF_ONLINE, {
+      attemptId: expect.any(String),
+    });
+    const sent = vi
+      .mocked(ipcRenderer.send)
+      .mock.calls.find((call) => call[0] === IPC_CHANNELS.CHECK_IF_ONLINE);
+    const attemptId = (sent?.[1] as { attemptId: string }).attemptId;
+
+    statusListener?.({}, { attemptId: 'stale', online: false });
+    expect(failedEventCount).toBe(0);
+    statusListener?.({}, { attemptId, online: false });
+    expect(failedEventCount).toBe(1);
 
     window.dispatchEvent(new Event('beforeunload'));
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(

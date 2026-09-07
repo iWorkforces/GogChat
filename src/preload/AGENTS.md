@@ -32,12 +32,13 @@ The preload is sandboxed and built as CommonJS because Electron sandboxed preloa
 
 ## Offline recovery (`offline.ts`)
 
-- Listens for DOM `app:checkIfOnline` and calls `window.gogchat.checkIfOnline()`.
-- Subscribes to `onOnlineStatus`:
+- Listens for DOM `app:checkIfOnline`, generates an opaque `attemptId`, and calls `window.gogchat.checkIfOnline(attemptId)` (ipc fallback sends `{ attemptId }`).
+- Subscribes to `onOnlineStatus` with `{ attemptId, online }`. Only the current attempt may settle:
   - **true** → exactly one `window.location.replace(urls.appUrl)` transition.
   - **false** → dispatch DOM-only `app:onlineCheckFailed` so the offline page restores retry UI. **Do not** `location.reload()`.
-- Each check arms a 6,000 ms deadline; timeout dispatches `app:onlineCheckFailed` once. Clear the deadline on response or unload.
-- `beforeunload` removes the check listener, cancels the deadline, and unsubscribes from online status.
+- Older or unknown `attemptId` values must not clear the deadline, restore retry, or navigate.
+- Each check arms a 6,000 ms deadline; timeout dispatches `app:onlineCheckFailed` once and invalidates that attempt so a late reply is ignored. Clear the deadline on a current response or unload.
+- `beforeunload` removes the check listener, cancels the deadline/attempt, and unsubscribes from online status.
 - Keep the existing narrow bridge surface; never expose raw `ipcRenderer` to the offline page.
 
 ## DOM behavior
@@ -58,4 +59,4 @@ The preload is sandboxed and built as CommonJS because Electron sandboxed preloa
 
 ## Tests
 
-Keep coverage around `index.test.ts`, `notificationBridge.test.ts`, `offline.test.ts`, unread count, favicon changes, notification overrides, passkey monitoring, search shortcut, and WebAuthn disabling when touching preload behavior. Offline recovery tests must assert zero reloads on false replies, one app-URL replace on true, and ipc fallback when `window.gogchat` is absent.
+Keep coverage around `index.test.ts`, `notificationBridge.test.ts`, `offline.test.ts`, unread count, favicon changes, notification overrides, passkey monitoring, search shortcut, and WebAuthn disabling when touching preload behavior. Offline recovery tests must assert zero reloads on false replies, one app-URL replace on the current successful attempt, ignored older/unknown/`timeout`-then-stale `attemptId`s, unload cancellation, and ipc fallback when `window.gogchat` is absent.
