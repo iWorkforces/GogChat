@@ -58,6 +58,7 @@ Security phase features (no deps): `reportExceptions`, `mediaPermissions` (fire-
 - Security features must be ready before network use.
 - UI features may assume account bootstrap/context store exists.
 - Deferred features must tolerate late execution and app shutdown races.
+- `inOnline` `CHECK_IF_ONLINE` / `ONLINE_STATUS` is attempt-aware: each payload carries `attemptId`. Keep one abortable probe per sender, identified by a monotonic `generation` (not the renderer-supplied id). A newer same-sender request aborts and replaces the older probe. Different senders stay independent. Abort on sender `destroyed` and in `cleanupConnectivityHandler`. Superseded or cleanup-aborted probes must not reply; a final liveness check covers the remaining send race. After supersession, coalesce `generate_204` starts to `ONLINE_FETCH_MIN_INTERVAL_MS` per sender. Do not add a `defineIPC` `rateLimit` or a shutdown stage for this.
 - Use utility modules for shared mechanics; do not create hidden feature coupling.
 - Do not write startup performance JSON from feature code. Metrics finalization lives in `utils/lifecycle/performanceFinalizer.ts`.
 - Speculative optimizations (unread, CDP sampling, timers, split chunks, preconnect) stay measure-first: see `scripts/performance-candidate-benchmark.js` and `docs/plans/performance-remediation.md`.

@@ -5,7 +5,10 @@
 
 import { BADGE } from './constants.js';
 import { validateNotificationIconURL } from './urlValidators.js';
-import type { PasskeyErrorType } from './types/domain.js';
+import type { OnlineCheckRequest, OnlineStatusData, PasskeyErrorType } from './types/domain.js';
+
+/** Opaque attempt tokens stay short; UUIDs and similar ids fit well under this. */
+const ATTEMPT_ID_MAX_LENGTH = 128;
 
 /**
  * Validates and sanitizes unread count values
@@ -200,4 +203,44 @@ export function validateNotificationData(data: unknown): {
   }
 
   return result;
+}
+
+/**
+ * Validates an opaque connectivity-check attempt id.
+ * @throws Error if the value is missing, empty, or too long
+ */
+export function validateAttemptId(value: unknown): string {
+  const attemptId = validateString(value, ATTEMPT_ID_MAX_LENGTH);
+  if (attemptId.trim().length === 0) {
+    throw new Error('attemptId cannot be empty');
+  }
+  return attemptId;
+}
+
+/**
+ * Validates a CHECK_IF_ONLINE request payload.
+ * @throws Error if the payload is not a plain object with a valid attemptId
+ */
+export function validateOnlineCheckRequest(data: unknown): OnlineCheckRequest {
+  if (!isSafeObject(data)) {
+    throw new Error('Online check request must be a plain object');
+  }
+  return { attemptId: validateAttemptId(data['attemptId']) };
+}
+
+/**
+ * Validates an ONLINE_STATUS response payload.
+ * @throws Error if the payload is not a plain object with attemptId + boolean online
+ */
+export function validateOnlineStatusData(data: unknown): OnlineStatusData {
+  if (!isSafeObject(data)) {
+    throw new Error('Online status must be a plain object');
+  }
+  if (typeof data['online'] !== 'boolean') {
+    throw new Error('online must be a boolean');
+  }
+  return {
+    attemptId: validateAttemptId(data['attemptId']),
+    online: data['online'],
+  };
 }

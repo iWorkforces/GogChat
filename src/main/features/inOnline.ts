@@ -1,23 +1,95 @@
-import type { BrowserWindow } from 'electron';
+import type { BrowserWindow, IpcMainEvent, WebContents } from 'electron';
 import { Notification, app } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
 import { IPC_CHANNELS, TIMING } from '../../shared/constants.js';
+import { validateOnlineCheckRequest } from '../../shared/dataValidators.js';
 import { defineIPC } from '../utils/ipc/defineIPC.js';
+import { createTrackedTimeout, getCleanupManager } from '../utils/lifecycle/resourceCleanup.js';
 import { getIconCache } from '../utils/platform/iconCache.js';
 
 let checkIfOnlineCleanup: (() => void) | null = null;
+
+/** Min gap between generate_204 fetches per sender. Applied after supersession. */
+export const ONLINE_FETCH_MIN_INTERVAL_MS = 1_000;
+
+interface ActiveOnlineProbe {
+  attemptId: string;
+  generation: number;
+  controller: AbortController;
+  sender: WebContents;
+  onDestroyed: () => void;
+  coalesceTimer: NodeJS.Timeout | null;
+}
+
+/** At most one in-flight probe per sender. Different senders stay independent. */
+const activeProbes = new Map<number, ActiveOnlineProbe>();
+const lastFetchStartedAt = new Map<number, number>();
+let nextProbeGeneration = 1;
+
+function clearCoalesceTimer(probe: ActiveOnlineProbe): void {
+  if (probe.coalesceTimer === null) {
+    return;
+  }
+  clearTimeout(probe.coalesceTimer);
+  getCleanupManager().untrackTimeout(probe.coalesceTimer);
+  probe.coalesceTimer = null;
+}
+
+function abortActiveProbe(senderId: number, clearFetchGate = false): void {
+  const existing = activeProbes.get(senderId);
+  if (existing) {
+    clearCoalesceTimer(existing);
+    existing.controller.abort();
+    try {
+      existing.sender.removeListener('destroyed', existing.onDestroyed);
+    } catch {
+      // Sender may already be gone.
+    }
+    activeProbes.delete(senderId);
+  }
+  if (clearFetchGate) {
+    lastFetchStartedAt.delete(senderId);
+  }
+}
+
+function abortAllProbes(): void {
+  for (const senderId of [...activeProbes.keys()]) {
+    abortActiveProbe(senderId, true);
+  }
+  lastFetchStartedAt.clear();
+}
+
+function senderIsGone(sender: WebContents): boolean {
+  try {
+    return sender.isDestroyed();
+  } catch {
+    return true;
+  }
+}
 
 /**
  * Check internet connectivity using native fetch
  * Uses Google's generate_204 endpoint which is designed for connectivity checks
  */
 const checkIfOnline = async (
-  timeout: number = TIMING.CONNECTIVITY_CHECK_FAST
+  timeout: number = TIMING.CONNECTIVITY_CHECK_FAST,
+  externalSignal?: AbortSignal
 ): Promise<boolean> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const onExternalAbort = (): void => {
+    controller.abort();
+  };
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      clearTimeout(timeoutId);
+      return false;
+    }
+    externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
 
   try {
     const response = await fetch('https://www.google.com/generate_204', {
@@ -34,8 +106,126 @@ const checkIfOnline = async (
     return false;
   } finally {
     clearTimeout(timeoutId);
+    externalSignal?.removeEventListener('abort', onExternalAbort);
   }
 };
+
+function replyIfCurrent(
+  event: IpcMainEvent,
+  sender: WebContents,
+  senderId: number,
+  generation: number,
+  attemptId: string,
+  controller: AbortController,
+  online: boolean
+): void {
+  if (controller.signal.aborted) {
+    return;
+  }
+  const current = activeProbes.get(senderId);
+  if (!current || current.generation !== generation) {
+    return;
+  }
+  try {
+    if (senderIsGone(sender)) {
+      return;
+    }
+    event.reply(IPC_CHANNELS.ONLINE_STATUS, { attemptId, online });
+  } catch {
+    // Send raced a destroy between the liveness check and reply.
+  }
+}
+
+function beginProbeFetch(
+  event: IpcMainEvent,
+  sender: WebContents,
+  senderId: number,
+  probe: ActiveOnlineProbe
+): void {
+  const { attemptId, generation, controller } = probe;
+  lastFetchStartedAt.set(senderId, Date.now());
+
+  void (async () => {
+    try {
+      log.debug('[Connectivity] Checking online status...');
+      const online = await checkIfOnline(TIMING.CONNECTIVITY_CHECK, controller.signal);
+      replyIfCurrent(event, sender, senderId, generation, attemptId, controller, online);
+      log.debug(`[Connectivity] Online status: ${online}`);
+    } catch (error: unknown) {
+      log.error('[Connectivity] Failed to handle checkIfOnline:', error);
+      replyIfCurrent(event, sender, senderId, generation, attemptId, controller, false);
+    } finally {
+      const current = activeProbes.get(senderId);
+      if (current?.generation === generation) {
+        abortActiveProbe(senderId);
+      }
+    }
+  })();
+}
+
+function startSenderProbe(attemptId: string, event: IpcMainEvent): void {
+  const sender = event.sender;
+  if (!sender) {
+    return;
+  }
+  const senderId = sender.id;
+  if (typeof senderId !== 'number') {
+    return;
+  }
+
+  abortActiveProbe(senderId);
+
+  if (senderIsGone(sender)) {
+    return;
+  }
+
+  const controller = new AbortController();
+  const generation = nextProbeGeneration;
+  nextProbeGeneration += 1;
+  const onDestroyed = (): void => {
+    abortActiveProbe(senderId, true);
+  };
+
+  try {
+    sender.once('destroyed', onDestroyed);
+  } catch {
+    return;
+  }
+
+  const probe: ActiveOnlineProbe = {
+    attemptId,
+    generation,
+    controller,
+    sender,
+    onDestroyed,
+    coalesceTimer: null,
+  };
+  activeProbes.set(senderId, probe);
+
+  const lastStarted = lastFetchStartedAt.get(senderId);
+  const now = Date.now();
+  if (lastStarted === undefined || now - lastStarted >= ONLINE_FETCH_MIN_INTERVAL_MS) {
+    beginProbeFetch(event, sender, senderId, probe);
+    return;
+  }
+
+  const waitMs = ONLINE_FETCH_MIN_INTERVAL_MS - (now - lastStarted);
+  probe.coalesceTimer = createTrackedTimeout(
+    () => {
+      probe.coalesceTimer = null;
+      const current = activeProbes.get(senderId);
+      if (!current || current.generation !== generation) {
+        return;
+      }
+      if (current.controller.signal.aborted || senderIsGone(sender)) {
+        return;
+      }
+      beginProbeFetch(event, sender, senderId, current);
+    },
+    waitMs,
+    `online-probe-coalesce-${senderId}`
+  );
+}
 
 /**
  * Show offline notification to user
@@ -97,34 +287,18 @@ const checkForInternet = async (window: BrowserWindow) => {
  * Setup IPC handlers for connectivity checks
  */
 export default (_window: BrowserWindow) => {
-  // Add rate limiting to prevent connectivity check spam
+  // No defineIPC rateLimit: a 1/s cap would drop a replacement before
+  // same-sender supersession. Fetch cadence is gated after the handler runs.
   checkIfOnlineCleanup = defineIPC({
     kind: 'on',
     channel: IPC_CHANNELS.CHECK_IF_ONLINE,
-    validator: () => undefined,
-    rateLimit: 1,
+    validator: validateOnlineCheckRequest,
     description: 'Connectivity check',
-    handler: (_data, event) => {
+    handler: (data, event) => {
       if (!('reply' in event)) {
         return;
       }
-
-      // Handle async operation without making handler async
-      void (async () => {
-        try {
-          log.debug('[Connectivity] Checking online status...');
-          const online = await checkIfOnline(TIMING.CONNECTIVITY_CHECK);
-
-          // Reply with online status
-          event.reply(IPC_CHANNELS.ONLINE_STATUS, online);
-
-          log.debug(`[Connectivity] Online status: ${online}`);
-        } catch (error: unknown) {
-          log.error('[Connectivity] Failed to handle checkIfOnline:', error);
-          // Reply with false on error
-          event.reply(IPC_CHANNELS.ONLINE_STATUS, false);
-        }
-      })();
+      startSenderProbe(data.attemptId, event);
     },
   });
 };
@@ -135,6 +309,7 @@ export default (_window: BrowserWindow) => {
 export function cleanupConnectivityHandler(): void {
   try {
     log.debug('[Connectivity] Cleaning up connectivity handler');
+    abortAllProbes();
     if (checkIfOnlineCleanup) {
       checkIfOnlineCleanup();
       checkIfOnlineCleanup = null;

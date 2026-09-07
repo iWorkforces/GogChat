@@ -176,12 +176,27 @@ test.describe('built CJS preload entry', () => {
       });
       await page.waitForTimeout(50);
       const afterOnlineCheck = await recordedIpc(app);
-      expect(afterOnlineCheck.some((item) => item.channel === 'checkIfOnline')).toBe(true);
+      const onlineRequest = afterOnlineCheck.find((item) => item.channel === 'checkIfOnline');
+      expect(onlineRequest).toEqual({
+        channel: 'checkIfOnline',
+        data: { attemptId: expect.any(String) },
+      });
+      const firstAttemptId = (onlineRequest?.data as { attemptId: string }).attemptId;
 
       await app.evaluate(({ BrowserWindow }) => {
         const win = BrowserWindow.getAllWindows()[0];
-        win?.webContents.send('onlineStatus', false);
+        win?.webContents.send('onlineStatus', { attemptId: 'stale', online: false });
       });
+      await page.waitForTimeout(50);
+      const staleFailedCount = await page.evaluate(() => {
+        return (window as unknown as { __offlineFailed: number }).__offlineFailed;
+      });
+      expect(staleFailedCount).toBe(0);
+
+      await app.evaluate(({ BrowserWindow }, payload) => {
+        const win = BrowserWindow.getAllWindows()[0];
+        win?.webContents.send('onlineStatus', payload);
+      }, { attemptId: firstAttemptId, online: false });
       await page.waitForTimeout(50);
       const failedCount = await page.evaluate(() => {
         return (window as unknown as { __offlineFailed: number }).__offlineFailed;
@@ -189,10 +204,21 @@ test.describe('built CJS preload entry', () => {
       expect(failedCount).toBe(1);
       expect(page.url().startsWith('file://')).toBe(true);
 
-      await app.evaluate(({ BrowserWindow }) => {
-        const win = BrowserWindow.getAllWindows()[0];
-        win?.webContents.send('onlineStatus', true);
+      await page.evaluate(() => {
+        window.dispatchEvent(new Event('app:checkIfOnline'));
       });
+      await page.waitForTimeout(50);
+      const afterSecondCheck = await recordedIpc(app);
+      const secondRequest = [...afterSecondCheck]
+        .reverse()
+        .find((item) => item.channel === 'checkIfOnline');
+      const secondAttemptId = (secondRequest?.data as { attemptId: string }).attemptId;
+      expect(secondAttemptId).not.toBe(firstAttemptId);
+
+      await app.evaluate(({ BrowserWindow }, payload) => {
+        const win = BrowserWindow.getAllWindows()[0];
+        win?.webContents.send('onlineStatus', payload);
+      }, { attemptId: secondAttemptId, online: true });
       await page.waitForURL(
         (url) => {
           const href = url.toString();

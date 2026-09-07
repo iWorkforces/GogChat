@@ -6,7 +6,12 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/constants.js';
-import { validateUnreadCount, validatePasskeyFailureData } from '../shared/dataValidators.js';
+import {
+  validateUnreadCount,
+  validatePasskeyFailureData,
+  validateOnlineCheckRequest,
+  validateOnlineStatusData,
+} from '../shared/dataValidators.js';
 import { validateFaviconURL } from '../shared/urlValidators.js';
 import type { GogChatBridgeAPI } from '../shared/types/bridge.js';
 import { installDisableWebAuthn } from './disableWebAuthn.js';
@@ -45,8 +50,13 @@ const api: GogChatBridgeAPI = {
     ipcRenderer.send(IPC_CHANNELS.NOTIFICATION_CLICKED);
   },
 
-  checkIfOnline: () => {
-    ipcRenderer.send(IPC_CHANNELS.CHECK_IF_ONLINE);
+  checkIfOnline: (attemptId: string) => {
+    try {
+      const validated = validateOnlineCheckRequest({ attemptId });
+      ipcRenderer.send(IPC_CHANNELS.CHECK_IF_ONLINE, validated);
+    } catch (error: unknown) {
+      console.error('[GogChat API] Invalid online check request:', error);
+    }
   },
 
   reportPasskeyFailure: (errorType: string) => {
@@ -69,8 +79,14 @@ const api: GogChatBridgeAPI = {
     };
   },
 
-  onOnlineStatus: (callback: (online: boolean) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, online: boolean) => callback(online);
+  onOnlineStatus: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: unknown) => {
+      try {
+        callback(validateOnlineStatusData(data));
+      } catch (error: unknown) {
+        console.error('[GogChat API] Invalid online status:', error);
+      }
+    };
     ipcRenderer.on(IPC_CHANNELS.ONLINE_STATUS, listener);
 
     // Return cleanup function

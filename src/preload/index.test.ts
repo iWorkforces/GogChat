@@ -17,6 +17,18 @@ vi.mock('electron', () => ({
 vi.mock('../shared/dataValidators.js', () => ({
   validateUnreadCount: vi.fn((v: number) => v),
   validatePasskeyFailureData: vi.fn((v: string) => ({ errorType: v, timestamp: 12345 })),
+  validateOnlineCheckRequest: vi.fn((data: { attemptId: string }) => {
+    if (!data || typeof data.attemptId !== 'string' || data.attemptId.trim() === '') {
+      throw new Error('bad attempt');
+    }
+    return data;
+  }),
+  validateOnlineStatusData: vi.fn((data: { attemptId: string; online: boolean }) => {
+    if (!data || typeof data.attemptId !== 'string' || typeof data.online !== 'boolean') {
+      throw new Error('bad status');
+    }
+    return data;
+  }),
 }));
 
 vi.mock('../shared/urlValidators.js', () => ({
@@ -218,10 +230,20 @@ describe('preload/index.ts', () => {
   });
 
   describe('checkIfOnline', () => {
-    it('sends on CHECK_IF_ONLINE channel with no payload', async () => {
+    it('sends on CHECK_IF_ONLINE channel with a validated attemptId', async () => {
       const api = await loadPreload();
-      api.checkIfOnline();
-      expect(ipcRenderer.send).toHaveBeenCalledWith('check-if-online');
+      api.checkIfOnline('attempt-1');
+      expect(ipcRenderer.send).toHaveBeenCalledWith('check-if-online', { attemptId: 'attempt-1' });
+    });
+
+    it('does NOT send when the attemptId is invalid', async () => {
+      const api = await loadPreload();
+      api.checkIfOnline('   ');
+      expect(ipcRenderer.send).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[GogChat API] Invalid online check request:',
+        expect.any(Error)
+      );
     });
   });
 
@@ -288,20 +310,39 @@ describe('preload/index.ts', () => {
       expect(ipcRenderer.on).toHaveBeenCalledWith('online-status', expect.any(Function));
     });
 
-    it('extracts online boolean from event args and invokes callback', async () => {
+    it('extracts attempt-aware status from event args and invokes callback', async () => {
       const api = await loadPreload();
       const cb = vi.fn();
       api.onOnlineStatus(cb);
       const onMock = vi.mocked(ipcRenderer.on);
       const [, listener] = onMock.mock.calls[0] ?? [];
       expect(listener).toBeDefined();
-      // Simulate main → renderer dispatch: (event, online)
-      (listener as (event: unknown, online: boolean) => void)({}, true);
-      expect(cb).toHaveBeenCalledWith(true);
+      (listener as (event: unknown, data: { attemptId: string; online: boolean }) => void)(
+        {},
+        { attemptId: 'a1', online: true }
+      );
+      expect(cb).toHaveBeenCalledWith({ attemptId: 'a1', online: true });
 
-      (listener as (event: unknown, online: boolean) => void)({}, false);
-      expect(cb).toHaveBeenCalledWith(false);
+      (listener as (event: unknown, data: { attemptId: string; online: boolean }) => void)(
+        {},
+        { attemptId: 'a2', online: false }
+      );
+      expect(cb).toHaveBeenCalledWith({ attemptId: 'a2', online: false });
       expect(cb).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not invoke the callback for an invalid status payload', async () => {
+      const api = await loadPreload();
+      const cb = vi.fn();
+      api.onOnlineStatus(cb);
+      const onMock = vi.mocked(ipcRenderer.on);
+      const [, listener] = onMock.mock.calls[0] ?? [];
+      (listener as (event: unknown, data: unknown) => void)({}, { online: true });
+      expect(cb).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[GogChat API] Invalid online status:',
+        expect.any(Error)
+      );
     });
 
     it('returns cleanup fn that calls removeListener with same listener', async () => {
