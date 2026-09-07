@@ -4,11 +4,56 @@
  * Tests the public API: default export (IPC setup), cleanup,
  * and exported functions.
  */
+/* global AbortSignal */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
 
 // ─── Fake BrowserWindow ───────────────────────────────────────────────────────
+
+function makeSender(id: number) {
+  const sender = new EventEmitter() as EventEmitter & {
+    id: number;
+    isDestroyed: () => boolean;
+    _destroyed: boolean;
+    destroy: () => void;
+  };
+  sender.id = id;
+  sender._destroyed = false;
+  sender.isDestroyed = () => sender._destroyed;
+  sender.destroy = () => {
+    if (sender._destroyed) {
+      return;
+    }
+    sender._destroyed = true;
+    sender.emit('destroyed');
+  };
+  return sender;
+}
+
+function makeReplyEvent(id: number) {
+  return {
+    sender: makeSender(id),
+    reply: vi.fn(),
+  };
+}
+
+type OnlineIpcConfig = {
+  handler: (
+    data: { attemptId: string },
+    event: { reply?: ReturnType<typeof vi.fn>; sender?: ReturnType<typeof makeSender> }
+  ) => void;
+  validator: (data: unknown) => unknown;
+  rateLimit?: number;
+};
+
+function getOnlineIpc(): OnlineIpcConfig {
+  const cfg = mockDefineIPC.mock.calls[0]?.[0] as OnlineIpcConfig | undefined;
+  if (!cfg) {
+    throw new Error('defineIPC was not called');
+  }
+  return cfg;
+}
 
 function makeFakeWindow(url = '') {
   const wc = new EventEmitter() as EventEmitter & {
@@ -220,15 +265,18 @@ describe('inOnline feature', () => {
       const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
       const feature = await import('./inOnline.js');
       feature.default(win);
-      const cfg = mockDefineIPC.mock.calls[0]?.[0] as {
-        handler: (data: unknown, event: { reply?: (ch: string, v: boolean) => void }) => void;
-        validator: (data: unknown) => unknown;
-      };
-      expect(cfg.validator(undefined)).toBeUndefined();
-      cfg.handler(undefined, {});
-      const event = { reply: vi.fn() };
-      cfg.handler(undefined, event);
-      await vi.waitFor(() => expect(event.reply).toHaveBeenCalledWith('onlineStatus', true));
+      const cfg = getOnlineIpc();
+      expect(cfg.validator({ attemptId: 'ok-1' })).toEqual({ attemptId: 'ok-1' });
+      expect(() => cfg.validator(undefined)).toThrow();
+      cfg.handler({ attemptId: 'skip' }, {});
+      const event = makeReplyEvent(1);
+      cfg.handler({ attemptId: 'ok-1' }, event);
+      await vi.waitFor(() =>
+        expect(event.reply).toHaveBeenCalledWith('onlineStatus', {
+          attemptId: 'ok-1',
+          online: true,
+        })
+      );
       vi.unstubAllGlobals();
     });
 
@@ -237,12 +285,14 @@ describe('inOnline feature', () => {
       const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
       const feature = await import('./inOnline.js');
       feature.default(win);
-      const cfg = mockDefineIPC.mock.calls[0]?.[0] as {
-        handler: (data: unknown, event: { reply: (ch: string, v: boolean) => void }) => void;
-      };
-      const event = { reply: vi.fn() };
-      cfg.handler(undefined, event);
-      await vi.waitFor(() => expect(event.reply).toHaveBeenCalledWith('onlineStatus', false));
+      const event = makeReplyEvent(2);
+      getOnlineIpc().handler({ attemptId: 'down-1' }, event);
+      await vi.waitFor(() =>
+        expect(event.reply).toHaveBeenCalledWith('onlineStatus', {
+          attemptId: 'down-1',
+          online: false,
+        })
+      );
       vi.unstubAllGlobals();
     });
   });
@@ -265,20 +315,229 @@ describe('inOnline feature', () => {
       );
     });
 
-    it('handler includes rate limiting', async () => {
+    it('does not rate-limit a replacement before supersession', async () => {
       mockDefineIPC.mockReturnValue(vi.fn());
       const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
 
       const feature = await import('./inOnline.js');
       feature.default(win);
 
-      expect(mockDefineIPC).toHaveBeenCalledWith(
-        expect.objectContaining({
-          channel: 'checkIfOnline',
-          rateLimit: expect.any(Number),
+      expect(mockDefineIPC.mock.calls[0]?.[0]).not.toHaveProperty('rateLimit');
+      expect(mockDefineIPC.mock.calls[0]?.[0]).not.toHaveProperty('deduplicate', true);
+    });
+  });
+
+  describe('attempt-aware probes', () => {
+    function stubPendingFetch() {
+      const pending: Array<{
+        resolve: (value: { ok: boolean }) => void;
+        reject: (reason?: unknown) => void;
+      }> = [];
+      const fetchMock = vi.fn((_url: string, init?: { signal?: AbortSignal }) => {
+        return new Promise<{ ok: boolean }>((resolve, reject) => {
+          const signal = init?.signal;
+          const onAbort = (): void => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          };
+          if (signal?.aborted) {
+            onAbort();
+            return;
+          }
+          signal?.addEventListener('abort', onAbort, { once: true });
+          pending.push({ resolve, reject });
+        });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      return { fetchMock, pending };
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('lets a fast second probe reply and drops the slow first result', async () => {
+      const { pending } = stubPendingFetch();
+      const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
+      const feature = await import('./inOnline.js');
+      feature.default(win);
+      const event = makeReplyEvent(10);
+      const cfg = getOnlineIpc();
+
+      cfg.handler({ attemptId: 'slow' }, event);
+      cfg.handler({ attemptId: 'fast' }, event);
+      await vi.waitFor(() => expect(pending.length).toBe(2));
+
+      pending[1]?.resolve({ ok: true });
+      await vi.waitFor(() =>
+        expect(event.reply).toHaveBeenCalledWith('onlineStatus', {
+          attemptId: 'fast',
+          online: true,
         })
       );
-      expect(mockDefineIPC.mock.calls[0]?.[0]).not.toHaveProperty('deduplicate', true);
+
+      pending[0]?.resolve({ ok: false });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(event.reply).toHaveBeenCalledTimes(1);
+    });
+
+    it('replaces a same-sender probe immediately without waiting', async () => {
+      const { pending } = stubPendingFetch();
+      const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
+      const feature = await import('./inOnline.js');
+      feature.default(win);
+      const event = makeReplyEvent(11);
+      const cfg = getOnlineIpc();
+
+      cfg.handler({ attemptId: 'first' }, event);
+      cfg.handler({ attemptId: 'second' }, event);
+      cfg.handler({ attemptId: 'third' }, event);
+      await vi.waitFor(() => expect(pending.length).toBe(3));
+
+      pending[2]?.resolve({ ok: true });
+      await vi.waitFor(() =>
+        expect(event.reply).toHaveBeenCalledWith('onlineStatus', {
+          attemptId: 'third',
+          online: true,
+        })
+      );
+      expect(event.reply).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps different senders independent', async () => {
+      const { pending } = stubPendingFetch();
+      const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
+      const feature = await import('./inOnline.js');
+      feature.default(win);
+      const first = makeReplyEvent(21);
+      const second = makeReplyEvent(22);
+      const cfg = getOnlineIpc();
+
+      cfg.handler({ attemptId: 'sender-a' }, first);
+      cfg.handler({ attemptId: 'sender-b' }, second);
+      await vi.waitFor(() => expect(pending.length).toBe(2));
+
+      pending[0]?.resolve({ ok: true });
+      pending[1]?.resolve({ ok: false });
+      await vi.waitFor(() =>
+        expect(first.reply).toHaveBeenCalledWith('onlineStatus', {
+          attemptId: 'sender-a',
+          online: true,
+        })
+      );
+      await vi.waitFor(() =>
+        expect(second.reply).toHaveBeenCalledWith('onlineStatus', {
+          attemptId: 'sender-b',
+          online: false,
+        })
+      );
+    });
+
+    it('aborts and does not reply when the sender is destroyed', async () => {
+      const { pending } = stubPendingFetch();
+      const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
+      const feature = await import('./inOnline.js');
+      feature.default(win);
+      const event = makeReplyEvent(31);
+      getOnlineIpc().handler({ attemptId: 'dying' }, event);
+      await vi.waitFor(() => expect(pending.length).toBe(1));
+
+      event.sender.destroy();
+      pending[0]?.resolve({ ok: true });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(event.reply).not.toHaveBeenCalled();
+    });
+
+    it('does not start a probe for an already-destroyed sender', async () => {
+      const { fetchMock } = stubPendingFetch();
+      const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
+      const feature = await import('./inOnline.js');
+      feature.default(win);
+      const event = makeReplyEvent(32);
+      event.sender._destroyed = true;
+      getOnlineIpc().handler({ attemptId: 'gone' }, event);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(event.reply).not.toHaveBeenCalled();
+    });
+
+    it('uses a final liveness check when destroy races the reply', async () => {
+      const { pending } = stubPendingFetch();
+      const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
+      const feature = await import('./inOnline.js');
+      feature.default(win);
+      const event = makeReplyEvent(33);
+      getOnlineIpc().handler({ attemptId: 'race' }, event);
+      await vi.waitFor(() => expect(pending.length).toBe(1));
+
+      event.sender._destroyed = true;
+      pending[0]?.resolve({ ok: true });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(event.reply).not.toHaveBeenCalled();
+    });
+
+    it('swallows a reply throw after the liveness check', async () => {
+      const { pending } = stubPendingFetch();
+      const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
+      const feature = await import('./inOnline.js');
+      feature.default(win);
+      const event = makeReplyEvent(34);
+      event.reply.mockImplementation(() => {
+        throw new Error('sender gone during send');
+      });
+      getOnlineIpc().handler({ attemptId: 'send-race' }, event);
+      await vi.waitFor(() => expect(pending.length).toBe(1));
+      pending[0]?.resolve({ ok: true });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(event.reply).toHaveBeenCalledTimes(1);
+    });
+
+    it('aborts in-flight work on feature cleanup and emits no reply', async () => {
+      const { pending } = stubPendingFetch();
+      const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
+      const feature = await import('./inOnline.js');
+      feature.default(win);
+      const event = makeReplyEvent(41);
+      getOnlineIpc().handler({ attemptId: 'cleanup' }, event);
+      await vi.waitFor(() => expect(pending.length).toBe(1));
+
+      feature.cleanupConnectivityHandler();
+      pending[0]?.resolve({ ok: true });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(event.reply).not.toHaveBeenCalled();
+    });
+
+    it('settles an aborted probe during cleanup without throwing', async () => {
+      const settled = vi.fn();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((_url: string, init?: { signal?: AbortSignal }) => {
+          return new Promise((_resolve, reject) => {
+            const signal = init?.signal;
+            const finish = (): void => {
+              settled();
+              reject(new DOMException('Aborted', 'AbortError'));
+            };
+            if (signal?.aborted) {
+              finish();
+              return;
+            }
+            signal?.addEventListener('abort', finish, { once: true });
+          });
+        })
+      );
+      const win = makeFakeWindow() as unknown as Electron.BrowserWindow;
+      const feature = await import('./inOnline.js');
+      feature.default(win);
+      const event = makeReplyEvent(42);
+      getOnlineIpc().handler({ attemptId: 'shutdown' }, event);
+
+      expect(() => feature.cleanupConnectivityHandler()).not.toThrow();
+      await vi.waitFor(() => expect(settled).toHaveBeenCalled());
+      expect(event.reply).not.toHaveBeenCalled();
     });
   });
 });
