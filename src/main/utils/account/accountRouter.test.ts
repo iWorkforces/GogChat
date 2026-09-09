@@ -439,3 +439,74 @@ describe('routeAccountWindow — new-window registration callback', () => {
     expect(newWin.isDestroyed()).toBe(true);
   });
 });
+
+describe('routeAccountWindow — routing conformance schedules', () => {
+  let registry: AccountWindowRegistry;
+  let mockFactory: ReturnType<typeof makeMockFactory>;
+
+  beforeEach(() => {
+    nextWebContentsId = 9900;
+    clearAllBootstrap();
+    registry = new AccountWindowRegistry();
+    mockFactory = makeMockFactory();
+  });
+
+  it('records show/focus before loadURL on a live window and never assumes settle order', () => {
+    const win = makeTypedWindow();
+    registry.registerWindow(win, 2);
+    const order: string[] = [];
+    const first = 'https://chat.google.com/u/2/room/first';
+    const second = 'https://chat.google.com/u/2/room/second';
+    const pending: Array<() => void> = [];
+
+    vi.spyOn(win, 'show').mockImplementation(() => {
+      order.push('show');
+    });
+    vi.spyOn(win, 'focus').mockImplementation(() => {
+      order.push('focus');
+    });
+    vi.spyOn(win, 'loadURL').mockImplementation((url: string) => {
+      order.push(`load:${url}`);
+      return new Promise<void>((resolve) => {
+        pending.push(resolve);
+      });
+    });
+
+    routeAccountWindow(registry, mockFactory, first, 2);
+    routeAccountWindow(registry, mockFactory, second, 2);
+
+    expect(order).toEqual(['show', 'focus', `load:${first}`, 'show', 'focus', `load:${second}`]);
+    expect(pending).toHaveLength(2);
+    expect(mockFactory.createWindow).not.toHaveBeenCalled();
+    pending.forEach((resolve) => {
+      resolve();
+    });
+  });
+
+  it('hydrates a dehydrated account before applying a different requested URL', () => {
+    const hydrated = makeTypedWindow();
+    (hydrated as unknown as MockBrowserWindow).webContents.url = 'https://chat.google.com/u/2/';
+    const order: string[] = [];
+    const hydrate = vi.fn(() => {
+      order.push('hydrate');
+      registry.registerWindow(hydrated, 2);
+      return hydrated;
+    });
+    vi.spyOn(hydrated, 'loadURL').mockImplementation((url: string) => {
+      order.push(`load:${url}`);
+      return Promise.resolve();
+    });
+
+    const result = routeAccountWindow(
+      registry,
+      mockFactory,
+      'https://chat.google.com/u/2/room/abc',
+      2,
+      { isDehydrated: () => true, hydrate }
+    );
+
+    expect(result).toBe(hydrated);
+    expect(order).toEqual(['hydrate', 'load:https://chat.google.com/u/2/room/abc']);
+    expect(mockFactory.createWindow).not.toHaveBeenCalled();
+  });
+});

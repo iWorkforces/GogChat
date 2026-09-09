@@ -308,6 +308,10 @@ import {
 import { installPermissionHandlers } from '../security/permissionHandler.js';
 import { installHeaderFix } from '../security/cspHeaderHandler.js';
 import { startSessionMaintenance, stopSessionMaintenance } from './accountSessionMaintenance.js';
+import {
+  attachRoutingProbes,
+  runSharedRoutingScenarios,
+} from '../../../../tests/helpers/accountRoutingConformance';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1374,4 +1378,31 @@ describe('AccountViewManager — resource-state throttle matrix (Todo 13)', () =
     expectResourceCell(m, 0, UNTHROTTLED_VISIBLE);
     expectResourceCell(m, 1, SECONDARY_HIDDEN_LIVE);
   });
+});
+
+function partitionForView(manager: AccountViewManager, accountIndex: number): string | null {
+  const wc = manager.getAccountWebContents(asAccountIndex(accountIndex));
+  if (!wc) return null;
+  const win = lastWindow();
+  const found = win.addedChildren.find(
+    (view: MockViewInstance) => view.webContents === (wc as unknown as MockWCInstance)
+  );
+  const options = found?.ctorOptions as { webPreferences?: { partition?: string } } | undefined;
+  return options?.webPreferences?.partition ?? null;
+}
+
+runSharedRoutingScenarios({
+  backend: 'web-contents-view',
+  createContext: () => {
+    const manager = new AccountViewManager();
+    return {
+      backend: 'web-contents-view',
+      manager,
+      probes: attachRoutingProbes('web-contents-view', manager, () => {
+        return manager.getMostRecentWindow()?.webContents ?? null;
+      }),
+      getPartition: (accountIndex: number) => partitionForView(manager, accountIndex),
+      getHostWebContents: () => manager.getMostRecentWindow()?.webContents ?? null,
+    };
+  },
 });

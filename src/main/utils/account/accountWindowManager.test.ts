@@ -298,6 +298,10 @@ import type { WindowFactory } from '../../../shared/types/window';
 import { startSessionMaintenance, stopSessionMaintenance } from './accountSessionMaintenance.js';
 import { getAccountViewManager, resetAccountViewManagerSingleton } from './accountViewManager.js';
 import {
+  attachRoutingProbes,
+  runSharedRoutingScenarios,
+} from '../../../../tests/helpers/accountRoutingConformance';
+import {
   clearAllBootstrap,
   markAsBootstrap as trackerMark,
   isBootstrap as trackerIs,
@@ -1329,4 +1333,25 @@ describe('AccountWindowManager — module helpers', () => {
     expect(trackerIs).toHaveBeenCalled();
     expect(m.isBootstrap(asAccountIndex(1))).toBe(true);
   });
+});
+
+runSharedRoutingScenarios({
+  backend: 'browser-window',
+  createContext: () => {
+    const factory = makeFactory();
+    const manager = new AccountWindowManager(factory);
+    return {
+      backend: 'browser-window',
+      manager,
+      probes: attachRoutingProbes('browser-window', manager, () => null),
+      getPartition: (accountIndex: number) => {
+        const expected = toPartition(asAccountIndex(accountIndex));
+        const hit = [...factory.createWindow.mock.calls]
+          .reverse()
+          .find((call) => call[1] === expected);
+        return hit?.[1] ?? null;
+      },
+      getHostWebContents: () => null,
+    };
+  },
 });
