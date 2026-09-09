@@ -752,8 +752,11 @@ if (process.env['TESTING'] === 'true') {
     typeof globalThis & {
       __gogchatGetAccountWindowManager?: typeof getAccountWindowManager;
       __gogchatPeekAccountWindowManager?: typeof peekAccountWindowManager;
+      __gogchatCreateAccountWindowManager?: (factory?: WindowFactory) => IAccountWindowManager;
     }
   >(globalThis);
   testGlobal.__gogchatGetAccountWindowManager = getAccountWindowManager;
   testGlobal.__gogchatPeekAccountWindowManager = peekAccountWindowManager;
+  testGlobal.__gogchatCreateAccountWindowManager = (factory?: WindowFactory) =>
+    new AccountWindowManager(factory);
 }

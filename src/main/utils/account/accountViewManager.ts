@@ -63,7 +63,7 @@ import { ensureNotificationPermission } from '../security/notificationAccess.js'
 import { installHeaderFix } from '../security/cspHeaderHandler.js';
 import { getWindowDefaults } from '../platform/windowUtils.js';
 import { logger } from '../lifecycle/logger.js';
-import { asUnsafe } from '../../../shared/typeUtils.js';
+import { asType, asUnsafe } from '../../../shared/typeUtils.js';
 import { createAccountWebPreferences } from './accountWebPreferences.js';
 import {
   notifyAccountWebContentsCreated,
@@ -733,6 +733,16 @@ export function destroyAccountViewManager(): void {
  */
 export function resetAccountViewManagerSingleton(): void {
   accountViewManager = null;
+}
+
+if (process.env['TESTING'] === 'true') {
+  const testGlobal = asType<
+    typeof globalThis & {
+      __gogchatCreateAccountViewManager?: (factory?: WindowFactory) => AccountViewManager;
+    }
+  >(globalThis);
+  testGlobal.__gogchatCreateAccountViewManager = (factory?: WindowFactory) =>
+    new AccountViewManager(factory);
 }
 
 // Re-export the factory parameter type for clarity at the call site even
