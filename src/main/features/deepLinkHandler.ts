@@ -82,8 +82,11 @@ function navigateToUrl(url: string): void {
   }
 
   log.info(`[DeepLink] Navigating to: ${sanitizeUrlForLog(url)}`);
-  loadAccountURL(manager, accountIndex, url);
+  // Hydrate / bring the account UI forward before navigation so a dehydrated
+  // BrowserWindow has live WebContents for loadAccountURL (same contract as
+  // externalLinks). createAccountWindow above already hydrates when missing.
   manager.focusAccount(accountIndex);
+  loadAccountURL(manager, accountIndex, url);
 }
 
 function processPendingDeepLink(): void {
