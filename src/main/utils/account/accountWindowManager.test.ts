@@ -74,6 +74,7 @@ const h = vi.hoisted(() => {
     public destroyed = false;
     public minimized = false;
     public maximized = false;
+    public visible = true;
     public bounds = { x: 10, y: 20, width: 800, height: 600 };
     public ctorOptions: unknown;
 
@@ -100,9 +101,11 @@ const h = vi.hoisted(() => {
       createdWindows.push(this);
 
       this.show = vi.fn((): void => {
+        this.visible = true;
         this.emit('show');
       });
       this.hide = vi.fn((): void => {
+        this.visible = false;
         this.emit('hide');
       });
       this.focus = vi.fn((): void => {
@@ -121,7 +124,7 @@ const h = vi.hoisted(() => {
       this.isMaximized = vi.fn((): boolean => this.maximized);
       this.isMinimized = vi.fn((): boolean => this.minimized);
       this.isDestroyed = vi.fn((): boolean => this.destroyed);
-      this.isVisible = vi.fn((): boolean => !this.destroyed);
+      this.isVisible = vi.fn((): boolean => this.visible && !this.destroyed);
       this.loadURL = vi.fn((url: string): Promise<void> => {
         this.webContents.url = url;
         return Promise.resolve();
@@ -361,6 +364,32 @@ describe('AccountWindowManager — construction', () => {
   it('starts session maintenance exactly once per instance', () => {
     new AccountWindowManager();
     expect(startSessionMaintenance).toHaveBeenCalledTimes(1);
+  });
+
+  it('isolated constructors skip bootstrap reset and process-wide maintenance', () => {
+    h.bootstrapSet.add(7);
+    vi.mocked(startSessionMaintenance).mockClear();
+    vi.mocked(stopSessionMaintenance).mockClear();
+    const manager = new AccountWindowManager(makeFactory(), { isolated: true });
+    expect(h.bootstrapSet.has(7)).toBe(true);
+    expect(startSessionMaintenance).not.toHaveBeenCalled();
+    manager.destroyAll();
+    expect(stopSessionMaintenance).not.toHaveBeenCalled();
+  });
+
+  it('isolated create/dehydrate/hydrate do not start maintenance or require hook notify', () => {
+    vi.mocked(startSessionMaintenance).mockClear();
+    const factory = makeFactory();
+    const manager = new AccountWindowManager(factory, { isolated: true });
+    const window = manager.createAccountWindow('https://chat.google.com/u/1/', asAccountIndex(1));
+    expect(window).toBeTruthy();
+    expect(startSessionMaintenance).not.toHaveBeenCalled();
+    manager.dehydrateAccount(asAccountIndex(1));
+    expect(manager.isDehydrated(asAccountIndex(1))).toBe(true);
+    const restored = manager.hydrateAccount(asAccountIndex(1));
+    expect(restored).toBeTruthy();
+    manager.destroyAll();
+    expect(stopSessionMaintenance).not.toHaveBeenCalled();
   });
 
   it('honours a configured memory.dehydrationThresholdMs in [60000, 600000]', () => {

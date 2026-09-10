@@ -117,6 +117,7 @@ const h = vi.hoisted(() => {
     public show: ReturnType<typeof vi.fn>;
     public hide: ReturnType<typeof vi.fn>;
     public focus: ReturnType<typeof vi.fn>;
+    public loadURL: ReturnType<typeof vi.fn>;
     public isVisible: ReturnType<typeof vi.fn>;
     public isMaximized: ReturnType<typeof vi.fn>;
     public isMinimized: ReturnType<typeof vi.fn>;
@@ -152,6 +153,10 @@ const h = vi.hoisted(() => {
         this.visible = false;
       });
       this.focus = vi.fn();
+      this.loadURL = vi.fn((url: string): Promise<void> => {
+        this.webContents.url = url;
+        return Promise.resolve();
+      });
       this.isVisible = vi.fn((): boolean => this.visible);
       this.isMaximized = vi.fn((): boolean => this.maximized);
       this.isMinimized = vi.fn((): boolean => false);
@@ -372,6 +377,28 @@ describe('AccountViewManager — construction', () => {
     const manager = new AccountViewManager();
 
     expect(startSessionMaintenance).toHaveBeenCalledWith(h.activityTracker, manager);
+  });
+
+  it('isolated constructors skip bootstrap reset and process-wide maintenance', () => {
+    h.bootstrapSet.add(7);
+    vi.mocked(startSessionMaintenance).mockClear();
+    vi.mocked(stopSessionMaintenance).mockClear();
+    const manager = new AccountViewManager(undefined, { isolated: true });
+    expect(h.bootstrapSet.has(7)).toBe(true);
+    expect(startSessionMaintenance).not.toHaveBeenCalled();
+    manager.destroyAll();
+    expect(stopSessionMaintenance).not.toHaveBeenCalled();
+  });
+
+  it('isolated create skips shared session permission handlers', () => {
+    vi.mocked(startSessionMaintenance).mockClear();
+    const manager = new AccountViewManager(undefined, { isolated: true });
+    manager.createAccountWindow('https://chat.google.com/u/1/', asAccountIndex(1));
+    expect(startSessionMaintenance).not.toHaveBeenCalled();
+    expect(installPermissionHandlers).not.toHaveBeenCalled();
+    expect(installHeaderFix).not.toHaveBeenCalled();
+    manager.destroyAll();
+    expect(stopSessionMaintenance).not.toHaveBeenCalled();
   });
 });
 

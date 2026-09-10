@@ -32,6 +32,7 @@ import { BrowserWindow, WebContentsView, type WebContents, type Rectangle } from
 import log from 'electron-log';
 
 import type {
+  AccountManagerOptions,
   AccountWebContentsInfo,
   AccountWindowState,
   WindowFactory,
@@ -118,19 +119,42 @@ export class AccountViewManager implements IAccountWindowManager {
   private resizeHandler: (() => void) | null = null;
   private activityHandler: (() => void) | null = null;
 
-  constructor(_windowFactory?: WindowFactory) {
-    // Reset shared bootstrap tracker so each manager instance starts clean,
-    // matching the BrowserWindow path semantics.
-    clearAllBootstrap();
-    this.startMaintenance();
+  private readonly isolated: boolean;
+
+  constructor(_windowFactory?: WindowFactory, options?: AccountManagerOptions) {
+    this.isolated = options?.isolated === true;
+    if (!this.isolated) {
+      // Reset shared bootstrap tracker so each manager instance starts clean,
+      // matching the BrowserWindow path semantics.
+      clearAllBootstrap();
+      this.startMaintenance();
+    }
   }
 
   private startMaintenance(): void {
-    if (this.maintenanceStarted) {
+    if (this.isolated || this.maintenanceStarted) {
       return;
     }
     startSessionMaintenance(getAccountActivityTracker(), this);
     this.maintenanceStarted = true;
+  }
+
+  private emitWebContentsCreated(accountIndex: AccountIndex, webContents: WebContents): void {
+    if (this.isolated) {
+      return;
+    }
+    notifyAccountWebContentsCreated({
+      accountIndex,
+      webContents,
+      backend: 'web-contents-view',
+    });
+  }
+
+  private emitWebContentsDestroyed(accountIndex: AccountIndex): void {
+    if (this.isolated) {
+      return;
+    }
+    notifyAccountWebContentsDestroyed(accountIndex);
   }
 
   // ─── Host window lifecycle ────────────────────────────────────────────────
@@ -250,7 +274,9 @@ export class AccountViewManager implements IAccountWindowManager {
    * view's webContents should use {@link getAccountWebContents}.
    */
   createAccountWindow(url: string, accountIndex: AccountIndex): BrowserWindow {
-    this.startMaintenance();
+    if (!this.isolated) {
+      this.startMaintenance();
+    }
     const host = this.ensureHostWindow();
     const existing = this.views.get(accountIndex);
     if (existing) {
@@ -284,24 +310,26 @@ export class AccountViewManager implements IAccountWindowManager {
     // Install per-session security handlers. They reach into
     // `webContents.session` which is the per-partition session, so each
     // account view gets the same protections as a per-account BrowserWindow.
-    try {
-      // permissionHandler / headerFix expect a BrowserWindow argument so they
-      // can use its session and id for dialog ownership. They both only ever
-      // touch `window.webContents.session`. We construct a minimal proxy
-      // that forwards just `webContents` to keep the call sites unchanged.
-      // NOTE: for view-based accounts the dialog parent will be the host
-      // window if the helper opens any modal, which is the correct UX.
-      const sessionCarrier = asUnsafe<BrowserWindow & { webContents: WebContents }>(
-        view,
-        'WebContentsView shares webContents-shaped surface with BrowserWindow for installPermissionHandlers/installHeaderFix'
-      );
-      installPermissionHandlers(sessionCarrier);
-      installHeaderFix(sessionCarrier);
-    } catch (error: unknown) {
-      log.warn(
-        `[AccountViewManager] Failed to install security handlers for account ${accountIndex}:`,
-        error
-      );
+    if (!this.isolated) {
+      try {
+        // permissionHandler / headerFix expect a BrowserWindow argument so they
+        // can use its session and id for dialog ownership. They both only ever
+        // touch `window.webContents.session`. We construct a minimal proxy
+        // that forwards just `webContents` to keep the call sites unchanged.
+        // NOTE: for view-based accounts the dialog parent will be the host
+        // window if the helper opens any modal, which is the correct UX.
+        const sessionCarrier = asUnsafe<BrowserWindow & { webContents: WebContents }>(
+          view,
+          'WebContentsView shares webContents-shaped surface with BrowserWindow for installPermissionHandlers/installHeaderFix'
+        );
+        installPermissionHandlers(sessionCarrier);
+        installHeaderFix(sessionCarrier);
+      } catch (error: unknown) {
+        log.warn(
+          `[AccountViewManager] Failed to install security handlers for account ${accountIndex}:`,
+          error
+        );
+      }
     }
 
     const entry: AccountViewEntry = {
@@ -315,7 +343,9 @@ export class AccountViewManager implements IAccountWindowManager {
     this.webContentsToAccountIndex.set(asWebContentsId(view.webContents.id), accountIndex);
 
     this.applyResourceTransition({ visible: accountIndex });
-    getAccountActivityTracker().recordActivity(accountIndex);
+    if (!this.isolated) {
+      getAccountActivityTracker().recordActivity(accountIndex);
+    }
 
     try {
       void view.webContents.loadURL(url);
@@ -327,11 +357,7 @@ export class AccountViewManager implements IAccountWindowManager {
       `[AccountViewManager] Created view for account ${accountIndex} (partition=${partition})`
     );
 
-    notifyAccountWebContentsCreated({
-      accountIndex,
-      webContents: view.webContents,
-      backend: 'web-contents-view',
-    });
+    this.emitWebContentsCreated(accountIndex, view.webContents);
 
     return host;
   }
@@ -391,7 +417,9 @@ export class AccountViewManager implements IAccountWindowManager {
     const target = this.views.get(accountIndex);
     if (!target) return;
     this.applyResourceTransition({ visible: accountIndex });
-    getAccountActivityTracker().recordActivity(accountIndex);
+    if (!this.isolated) {
+      getAccountActivityTracker().recordActivity(accountIndex);
+    }
     if (this.hostWindow && !this.hostWindow.isDestroyed()) {
       if (this.hostWindow.isMinimized()) this.hostWindow.restore();
       if (!this.hostWindow.isVisible()) this.hostWindow.show();
@@ -506,14 +534,16 @@ export class AccountViewManager implements IAccountWindowManager {
     if (!entry) return;
     const wasVisible = entry.resourceState === 'visible';
     const wasRecent = this.mostRecentAccountIndex === accountIndex;
-    notifyAccountWebContentsDestroyed(accountIndex);
+    this.emitWebContentsDestroyed(accountIndex);
     try {
       this.webContentsToAccountIndex.delete(asWebContentsId(entry.view.webContents.id));
     } catch {
       // webContents may already be destroyed; ignore.
     }
     this.views.delete(accountIndex);
-    _clearBootstrap(accountIndex);
+    if (!this.isolated) {
+      _clearBootstrap(accountIndex);
+    }
     if (this.hostWindow && !this.hostWindow.isDestroyed()) {
       try {
         this.hostWindow.contentView.removeChildView(entry.view);
@@ -559,7 +589,9 @@ export class AccountViewManager implements IAccountWindowManager {
   }
 
   destroyAll(): void {
-    stopSessionMaintenance();
+    if (!this.isolated) {
+      stopSessionMaintenance(this);
+    }
     this.maintenanceStarted = false;
     for (const accountIndex of Array.from(this.views.keys())) {
       this.unregisterAccount(accountIndex);
@@ -582,7 +614,9 @@ export class AccountViewManager implements IAccountWindowManager {
     this.resizeHandler = null;
     this.activityHandler = null;
     this.mostRecentAccountIndex = null;
-    clearAllBootstrap();
+    if (!this.isolated) {
+      clearAllBootstrap();
+    }
     logger.window.info('[AccountViewManager] Destroyed all views and host window');
   }
 
@@ -742,7 +776,7 @@ if (process.env['TESTING'] === 'true') {
     }
   >(globalThis);
   testGlobal.__gogchatCreateAccountViewManager = (factory?: WindowFactory) =>
-    new AccountViewManager(factory);
+    new AccountViewManager(factory, { isolated: true });
 }
 
 // Re-export the factory parameter type for clarity at the call site even

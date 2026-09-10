@@ -131,6 +131,7 @@ export class AccountActivityTracker {
 
 let maintenanceInterval: NodeJS.Timeout | null = null;
 let pressureHandler: (() => void) | null = null;
+let maintenanceOwner: IAccountWindowManager | null = null;
 
 /**
  * Start the periodic maintenance scheduler.
@@ -148,6 +149,7 @@ export function startSessionMaintenance(
   if (maintenanceInterval) {
     return;
   }
+  maintenanceOwner = manager;
   maintenanceInterval = createTrackedInterval(
     () => {
       // Build the active-accounts exclusion set once per tick. Bootstrap
@@ -283,8 +285,15 @@ export function startSessionMaintenance(
 
 /**
  * Stop the maintenance scheduler. Safe to call when not running.
+ *
+ * When `owner` is provided, no-op unless that instance started the scheduler.
+ * Callers that must tear the process scheduler down (shutdown, tracker
+ * destroy) omit `owner`.
  */
-export function stopSessionMaintenance(): void {
+export function stopSessionMaintenance(owner?: IAccountWindowManager): void {
+  if (owner !== undefined && maintenanceOwner !== null && owner !== maintenanceOwner) {
+    return;
+  }
   if (maintenanceInterval) {
     clearInterval(maintenanceInterval);
     maintenanceInterval = null;
@@ -298,6 +307,7 @@ export function stopSessionMaintenance(): void {
     }
     pressureHandler = null;
   }
+  maintenanceOwner = null;
 }
 
 // ─── Singleton ───────────────────────────────────────────────────────────────
