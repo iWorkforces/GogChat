@@ -239,7 +239,41 @@ describe('externalLinks feature', () => {
       expect(win.loadURL).not.toHaveBeenCalled();
     });
 
-    it('issues two focus-then-load sequences when the second Chat link arrives before the first load settles', async () => {
+    it('hydrates a known dehydrated account before loadAccountURL', async () => {
+      mockHasAccount.mockReturnValue(true);
+      const order: string[] = [];
+      mockFocusAccount.mockImplementation(() => {
+        order.push('focus');
+      });
+      mockGetAccountURL.mockImplementation(() =>
+        order.includes('focus') ? 'https://chat.google.com/u/2/' : null
+      );
+      mockLoadAccountURL.mockImplementation(() => {
+        order.push('load');
+        return true;
+      });
+      const win = makeFakeWindow('https://chat.google.com/u/0/');
+      const feature = await import('./externalLinks.js');
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
+
+      const handler = win.webContents.setWindowOpenHandler.mock.calls[0][0];
+      expect(
+        handler({ url: 'https://chat.google.com/u/2/room/restored' } as Electron.HandlerDetails)
+      ).toEqual({ action: 'deny' });
+
+      expect(order[0]).toBe('focus');
+      expect(order).toContain('load');
+      expect(mockLoadAccountURL).toHaveBeenCalledWith(
+        expect.anything(),
+        2,
+        'https://chat.google.com/u/2/room/restored'
+      );
+    });
+
+    it('records two focus-then-load sequences when a second Chat link is issued immediately', async () => {
       mockHasAccount.mockReturnValue(true);
       mockGetAccountURL.mockReturnValue('https://chat.google.com/u/2/');
       const order: string[] = [];
