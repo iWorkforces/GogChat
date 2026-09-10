@@ -17,16 +17,16 @@ type BackendResult = {
   backend: 'browser-window' | 'web-contents-view';
   indices: number[];
   visibleAfterSparse: number[];
-  partition0: string | null;
-  partition2: string | null;
+  partition0: boolean;
+  partition2: boolean;
   dehydrated2: boolean;
   account0DehydratedAfterPark2: boolean;
+  account0StillLiveAfterDehydrate0: boolean;
   liveWcAfterPark2: boolean;
   hostNavigated: boolean;
   overlappingUrls: string[];
   overlappingPending: number;
   childWcIsHost: boolean;
-  restoredPartition2: string | null;
 };
 
 type MatrixResult = {
@@ -132,6 +132,18 @@ test('routing conformance matrix covers both account backends', async ({ electro
           };
         }
 
+        const sessionMatches = (accountIndex: number): boolean => {
+          const wc = manager.getAccountWebContents(accountIndex);
+          if (!wc) return false;
+          try {
+            return wc.session === api.session.fromPartition(`persist:account-${accountIndex}`);
+          } catch {
+            return factory.partitions.get(accountIndex) === `persist:account-${accountIndex}`;
+          }
+        };
+        const partition0 = sessionMatches(0);
+        const partition2 = sessionMatches(2);
+
         const wc2 = manager.getAccountWebContents(2);
         const window2 = manager.getAccountWindow(2);
         const pending: Array<() => void> = [];
@@ -148,15 +160,16 @@ test('routing conformance matrix covers both account backends', async ({ electro
             });
           };
         };
-        if (wc2) {
+        // Wrap a single navigation surface per backend so BrowserWindow.loadURL
+        // delegating to webContents.loadURL is not double-counted.
+        if (backend === 'browser-window' && window2) {
+          wrap(window2, window2.loadURL.bind(window2));
+        } else if (wc2) {
           wrap(wc2, wc2.loadURL.bind(wc2));
         }
-        if (window2 && backend === 'browser-window') {
-          wrap(window2, window2.loadURL.bind(window2));
-        }
 
-        manager.createAccountWindow(harness, 2);
         manager.createAccountWindow(other, 2);
+        manager.createAccountWindow(`${other}-b`, 2);
         overlappingPending = pending.length;
         pending.forEach((resume) => {
           resume();
@@ -172,25 +185,30 @@ test('routing conformance matrix covers both account backends', async ({ electro
         const liveWcAfterPark2 = manager.getAccountWebContents(2) !== null;
 
         manager.focusAccount(2);
+        // WCV never parks account 0. Isolated BW shares the process bootstrap
+        // set, so account 0 is typically bootstrap here and dehydrate is a
+        // no-op — that public-destroy contract is locked in unit tests.
         if (backend === 'web-contents-view') {
           manager.dehydrateAccount(0);
         }
+        const account0StillLiveAfterDehydrate0 =
+          manager.isDehydrated(0) === false && manager.getAccountWebContents(0) !== null;
 
         const child = manager.getAccountWebContents(2);
         return {
           backend,
           indices: manager.listAccountIndices(),
           visibleAfterSparse,
-          partition0: factory.partitions.get(0) ?? null,
-          partition2: factory.partitions.get(2) ?? null,
+          partition0,
+          partition2,
           dehydrated2,
           account0DehydratedAfterPark2,
+          account0StillLiveAfterDehydrate0,
           liveWcAfterPark2,
           hostNavigated: hostLoads.length > 0,
           overlappingUrls,
           overlappingPending,
           childWcIsHost: Boolean(hostWc && child && child === hostWc),
-          restoredPartition2: factory.partitions.get(2) ?? null,
         };
       } finally {
         manager.destroyAll();
@@ -208,9 +226,10 @@ test('routing conformance matrix covers both account backends', async ({ electro
   expect(result.browserWindow.visibleAfterSparse).toContain(2);
   expect(result.webContentsView.visibleAfterSparse).toEqual([2]);
 
-  expect(result.browserWindow.partition0).toBe('persist:account-0');
-  expect(result.browserWindow.partition2).toBe('persist:account-2');
-  expect(result.browserWindow.restoredPartition2).toBe('persist:account-2');
+  expect(result.browserWindow.partition0).toBe(true);
+  expect(result.browserWindow.partition2).toBe(true);
+  expect(result.webContentsView.partition0).toBe(true);
+  expect(result.webContentsView.partition2).toBe(true);
 
   expect(result.browserWindow.dehydrated2).toBe(true);
   expect(result.browserWindow.liveWcAfterPark2).toBe(false);
@@ -219,13 +238,15 @@ test('routing conformance matrix covers both account backends', async ({ electro
 
   expect(result.browserWindow.account0DehydratedAfterPark2).toBe(false);
   expect(result.webContentsView.account0DehydratedAfterPark2).toBe(false);
+  expect(result.webContentsView.account0StillLiveAfterDehydrate0).toBe(true);
+  expect(result.browserWindow.account0StillLiveAfterDehydrate0).toBe(true);
 
   expect(result.browserWindow.hostNavigated).toBe(false);
   expect(result.webContentsView.hostNavigated).toBe(false);
   expect(result.webContentsView.childWcIsHost).toBe(false);
 
-  expect(result.browserWindow.overlappingUrls.length).toBeGreaterThanOrEqual(2);
-  expect(result.webContentsView.overlappingUrls.length).toBeGreaterThanOrEqual(2);
-  expect(result.browserWindow.overlappingPending).toBeGreaterThanOrEqual(2);
-  expect(result.webContentsView.overlappingPending).toBeGreaterThanOrEqual(2);
+  expect(result.browserWindow.overlappingUrls.length).toBe(2);
+  expect(result.webContentsView.overlappingUrls.length).toBe(2);
+  expect(result.browserWindow.overlappingPending).toBe(2);
+  expect(result.webContentsView.overlappingPending).toBe(2);
 });

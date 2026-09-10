@@ -24,7 +24,9 @@ export type RoutingOp =
   | 'dehydrateAccount'
   | 'loadAccountURL'
   | 'windowLoadURL'
-  | 'webContentsLoadURL';
+  | 'webContentsLoadURL'
+  | 'windowShow'
+  | 'windowFocus';
 
 export type RoutingTarget = 'account-child' | 'host' | 'window' | 'manager';
 
@@ -149,6 +151,7 @@ export function attachRoutingProbes(
 ): RoutingProbes {
   const calls: RoutingCall[] = [];
   const wrapped = new WeakSet<object>();
+  const chromeWrapped = new WeakSet<object>();
   let holding = false;
   const held: HeldLoad[] = [];
 
@@ -217,6 +220,33 @@ export function attachRoutingProbes(
         windowIsHost ? 'host' : 'window',
         windowIsHost ? host : window.webContents
       );
+      wrapWindowChrome(window, idx, windowIsHost ? 'host' : 'window');
+    }
+  };
+
+  const wrapWindowChrome = (
+    window: Electron.BrowserWindow,
+    accountIndex: number,
+    target: RoutingTarget
+  ): void => {
+    if (chromeWrapped.has(window)) {
+      return;
+    }
+    chromeWrapped.add(window);
+    const showable = window as Electron.BrowserWindow & { show?: () => void; focus?: () => void };
+    if (typeof showable.show === 'function') {
+      const originalShow = showable.show.bind(window);
+      showable.show = (): void => {
+        record({ op: 'windowShow', accountIndex, target });
+        originalShow();
+      };
+    }
+    if (typeof showable.focus === 'function') {
+      const originalFocus = showable.focus.bind(window);
+      showable.focus = (): void => {
+        record({ op: 'windowFocus', accountIndex, target });
+        originalFocus();
+      };
     }
   };
 
@@ -276,7 +306,11 @@ export function attachRoutingProbes(
       dehydrated,
       liveWcByAccount,
       urlByAccount,
-      hostLoadURLCount: calls.filter((call) => call.target === 'host').length,
+      hostLoadURLCount: calls.filter(
+        (call) =>
+          call.target === 'host' &&
+          (call.op === 'windowLoadURL' || call.op === 'webContentsLoadURL')
+      ).length,
     };
   };
 
@@ -331,19 +365,32 @@ export function runSharedRoutingScenarios(options: {
       ctx.manager.destroyAll();
     });
 
-    it('records the documented BrowserWindow vs WebContentsView differences', () => {
-      const ids = INTENTIONAL_BACKEND_DIFFERENCES.map((diff) => diff.id);
-      expect(ids).toEqual([
-        'dehydrate-lifecycle',
-        'getAccountWindow',
-        'visibility-model',
-        'account-0-dehydrate',
-        'reuse-navigation-surface',
-        'park-unpark',
-      ]);
-      expect(options.backend === 'browser-window' || options.backend === 'web-contents-view').toBe(
-        true
-      );
+    it('executes the documented BrowserWindow vs WebContentsView differences', () => {
+      const { manager } = ctx;
+      manager.createAccountWindow(chatUrl(0), asAccountIndex(0));
+      manager.createAccountWindow(chatUrl(2), asAccountIndex(2));
+      const wc2 = manager.getAccountWebContents(asAccountIndex(2));
+      const window2 = manager.getAccountWindow(asAccountIndex(2));
+
+      if (options.backend === 'web-contents-view') {
+        expect(manager.isAccountVisible(asAccountIndex(2))).toBe(true);
+        expect(manager.isAccountVisible(asAccountIndex(0))).toBe(false);
+        expect(manager.isDehydrated(asAccountIndex(0))).toBe(false);
+        manager.dehydrateAccount(asAccountIndex(2));
+        expect(manager.getAccountWebContents(asAccountIndex(2))).toBe(wc2);
+        expect(manager.getAccountWindow(asAccountIndex(2))).toBe(window2);
+        manager.dehydrateAccount(asAccountIndex(0));
+        expect(manager.isDehydrated(asAccountIndex(0))).toBe(false);
+        expect(manager.getAccountWebContents(asAccountIndex(0))).not.toBeNull();
+      } else {
+        expect(manager.isAccountVisible(asAccountIndex(2))).toBe(true);
+        manager.dehydrateAccount(asAccountIndex(2));
+        expect(manager.getAccountWebContents(asAccountIndex(2))).toBeNull();
+        expect(manager.getAccountWindow(asAccountIndex(2))).toBeNull();
+        manager.dehydrateAccount(asAccountIndex(0));
+        expect(manager.isDehydrated(asAccountIndex(0))).toBe(true);
+        expect(manager.getAccountWebContents(asAccountIndex(0))).toBeNull();
+      }
     });
 
     it('keeps sparse indices and routes the live target child WebContents', () => {
@@ -367,6 +414,12 @@ export function runSharedRoutingScenarios(options: {
         expect(manager.isAccountVisible(asAccountIndex(2))).toBe(true);
         expect(manager.isAccountVisible(asAccountIndex(0))).toBe(false);
         expect(manager.isDehydrated(asAccountIndex(0))).toBe(false);
+        const hostWindow = manager.getMostRecentWindow() as
+          | { loadURL?: { mock?: { calls: unknown[] } } }
+          | null;
+        if (hostWindow?.loadURL && 'mock' in hostWindow.loadURL) {
+          expect(hostWindow.loadURL.mock?.calls ?? []).toHaveLength(0);
+        }
       } else {
         expect(manager.isAccountVisible(asAccountIndex(2))).toBe(true);
       }
@@ -446,6 +499,9 @@ export function runSharedRoutingScenarios(options: {
       if (options.backend === 'web-contents-view') {
         expect(manager.isDehydrated(asAccountIndex(0))).toBe(false);
         expect(manager.getAccountWebContents(asAccountIndex(0))).toBe(wc0);
+      } else {
+        expect(manager.isDehydrated(asAccountIndex(0))).toBe(true);
+        expect(manager.getAccountWebContents(asAccountIndex(0))).toBeNull();
       }
       expect(getPartition(0)).toBe('persist:account-0');
     });
@@ -467,6 +523,11 @@ export function runSharedRoutingScenarios(options: {
       expect(accountChildLoads(probes.calls, 2).length).toBe(loadsBefore);
       expect(loadAccountURL(manager, asAccountIndex(2), chatUrl(2, 'room/nav'))).toBe(false);
       expect(getAccountURL(manager, asAccountIndex(2))).toContain('accounts.google.com');
+      manager.focusAccount(asAccountIndex(2));
+      expect(opsNamed(probes.calls, 'focusAccount').some((call) => call.accountIndex === 2)).toBe(
+        true
+      );
+      expect(manager.isAccountVisible(asAccountIndex(2))).toBe(true);
     });
 
     it('issues both loadURL calls when a second command arrives before the first settles', () => {
@@ -496,33 +557,73 @@ export function runSharedRoutingScenarios(options: {
       expect(loads[1]?.url).toBe(second);
     });
 
-    it('records focus before reuse navigation on a live account', () => {
+    it('records show/focus before reuse navigation on a live account', () => {
       const { manager, probes } = ctx;
       manager.createAccountWindow(chatUrl(2), asAccountIndex(2));
       probes.wrapLiveSurfaces();
       const start = probes.calls.length;
       manager.createAccountWindow(chatUrl(2, 'room/focus-first'), asAccountIndex(2));
 
-      const relevant = probes.calls.slice(start).filter((call) =>
-        ['focusAccount', 'windowLoadURL', 'webContentsLoadURL', 'createAccountWindow'].includes(
-          call.op
-        )
+      const slice = probes.calls.slice(start);
+      const firstFocus = slice.find(
+        (call) =>
+          call.op === 'windowShow' || call.op === 'windowFocus' || call.op === 'focusAccount'
       );
-      const firstNav = relevant.find(
+      const firstNav = slice.find(
         (call) =>
           (call.op === 'windowLoadURL' || call.op === 'webContentsLoadURL') &&
           call.target !== 'host' &&
           call.url === chatUrl(2, 'room/focus-first')
       );
+      expect(firstFocus).toBeDefined();
       expect(firstNav).toBeDefined();
+      expect(slice.indexOf(firstFocus!)).toBeLessThan(slice.indexOf(firstNav!));
       if (options.backend === 'web-contents-view') {
-        // WCV switches (host + child focus) then loads the child WC.
         expect(firstNav?.target).toBe('account-child');
         expect(firstNav?.op).toBe('webContentsLoadURL');
       } else {
         expect(firstNav?.target).toBe('window');
         expect(firstNav?.op).toBe('windowLoadURL');
       }
+    });
+
+    it('does not load a dehydrated BrowserWindow until focus recreates WebContents', () => {
+      const { manager } = ctx;
+      manager.createAccountWindow(chatUrl(2), asAccountIndex(2));
+      manager.dehydrateAccount(asAccountIndex(2));
+      expect(manager.hasAccount(asAccountIndex(2))).toBe(true);
+
+      if (options.backend === 'browser-window') {
+        expect(manager.getAccountWebContents(asAccountIndex(2))).toBeNull();
+        expect(loadAccountURL(manager, asAccountIndex(2), chatUrl(2, 'room/x'))).toBe(false);
+        manager.focusAccount(asAccountIndex(2));
+        expect(manager.getAccountWebContents(asAccountIndex(2))).not.toBeNull();
+        expect(loadAccountURL(manager, asAccountIndex(2), chatUrl(2, 'room/x'))).toBe(true);
+      } else {
+        expect(manager.getAccountWebContents(asAccountIndex(2))).not.toBeNull();
+        expect(loadAccountURL(manager, asAccountIndex(2), chatUrl(2, 'room/x'))).toBe(true);
+      }
+    });
+
+    it('routes overlapping commands to different live accounts', () => {
+      const { manager, probes } = ctx;
+      manager.createAccountWindow(chatUrl(2), asAccountIndex(2));
+      manager.createAccountWindow(chatUrl(3), asAccountIndex(3));
+      probes.wrapLiveSurfaces();
+      probes.holdLoads();
+
+      const forTwo = chatUrl(2, 'room/a');
+      const forThree = chatUrl(3, 'room/b');
+      manager.createAccountWindow(forTwo, asAccountIndex(2));
+      manager.createAccountWindow(forThree, asAccountIndex(3));
+
+      expect(accountChildLoads(probes.calls, 2).some((call) => call.url === forTwo)).toBe(true);
+      expect(accountChildLoads(probes.calls, 3).some((call) => call.url === forThree)).toBe(true);
+      expect(manager.isAccountVisible(asAccountIndex(3))).toBe(true);
+      if (options.backend === 'web-contents-view') {
+        expect(manager.isAccountVisible(asAccountIndex(2))).toBe(false);
+      }
+      probes.releaseLoads();
     });
 
     it('does not navigate a missing account via loadAccountURL until create', () => {
