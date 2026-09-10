@@ -312,6 +312,7 @@ import {
 } from './bootstrapTracker.js';
 import { installPermissionHandlers } from '../security/permissionHandler.js';
 import { installHeaderFix } from '../security/cspHeaderHandler.js';
+import { ensureNotificationPermission } from '../security/notificationAccess.js';
 import { startSessionMaintenance, stopSessionMaintenance } from './accountSessionMaintenance.js';
 import {
   attachRoutingProbes,
@@ -399,6 +400,26 @@ describe('AccountViewManager — construction', () => {
     expect(installHeaderFix).not.toHaveBeenCalled();
     manager.destroyAll();
     expect(stopSessionMaintenance).not.toHaveBeenCalled();
+  });
+
+  it('isolated create does not notify WC hooks or stamp host activity', async () => {
+    const hooks = await import('./accountWebContentsHooks.js');
+    hooks.clearAccountWebContentsHooksForTests();
+    const created = vi.fn();
+    hooks.onAccountWebContentsCreated(created);
+    h.activityTracker.recordActivity.mockClear();
+    vi.mocked(ensureNotificationPermission).mockClear();
+
+    const manager = new AccountViewManager(undefined, { isolated: true });
+    manager.createAccountWindow('https://chat.google.com/u/1/', asAccountIndex(1));
+    expect(created).not.toHaveBeenCalled();
+    const host = lastWindow();
+    host.emit('focus');
+    host.emit('ready-to-show');
+    expect(h.activityTracker.recordActivity).not.toHaveBeenCalled();
+    expect(ensureNotificationPermission).not.toHaveBeenCalled();
+    manager.destroyAll();
+    hooks.clearAccountWebContentsHooksForTests();
   });
 });
 

@@ -23,12 +23,7 @@ import type {
 import type { AccountIndex, WebContentsId } from '../../../shared/types/branded.js';
 import { asWebContentsId, toPartition } from '../../../shared/types/branded.js';
 import { asType } from '../../../shared/typeUtils.js';
-import {
-  markAsBootstrap as _markAsBootstrap,
-  isBootstrap as _isBootstrap,
-  clearBootstrap as _clearBootstrap,
-  clearAllBootstrap,
-} from './bootstrapTracker.js';
+import { markAsBootstrap as _markAsBootstrap, clearAllBootstrap } from './bootstrapTracker.js';
 import { bootstrapDelegates } from './accountLifecycleHelpers.js';
 import { AccountWindowRegistry } from './accountWindowRegistry.js';
 import { routeAccountWindow, type HydrationHook } from './accountRouter.js';
@@ -127,6 +122,7 @@ export class AccountWindowManager implements IAccountWindowManager {
    */
   private readonly dehydrateThresholdMs: number;
   private readonly isolated: boolean;
+  private readonly isolatedBootstrap = new Set<AccountIndex>();
   private readonly windowFactory?: WindowFactory;
 
   constructor(windowFactory?: WindowFactory, options?: AccountManagerOptions) {
@@ -134,7 +130,7 @@ export class AccountWindowManager implements IAccountWindowManager {
       this.windowFactory = windowFactory;
     }
     this.isolated = options?.isolated === true;
-    this.registry = new AccountWindowRegistry();
+    this.registry = new AccountWindowRegistry({ preserveBootstrap: this.isolated });
     if (!this.isolated) {
       // Reset shared bootstrap tracker so each manager instance starts clean
       clearAllBootstrap();
@@ -213,7 +209,7 @@ export class AccountWindowManager implements IAccountWindowManager {
     // T12/M3 — idle dehydration timer. Bootstrap accounts are excluded:
     // dehydrating mid-auth would destroy the in-flight Google sign-in flow.
     const onIdleStart = (): void => {
-      if (_isBootstrap(accountIndex)) {
+      if (this.isBootstrap(accountIndex)) {
         return;
       }
       this.scheduleDehydrate(accountIndex);
@@ -491,19 +487,35 @@ export class AccountWindowManager implements IAccountWindowManager {
       );
       return;
     }
+    if (this.isolated) {
+      this.isolatedBootstrap.add(accountIndex);
+      return;
+    }
     _markAsBootstrap(accountIndex);
   }
 
   isBootstrap = (accountIndex: AccountIndex): boolean =>
-    bootstrapDelegates.isBootstrap(accountIndex);
+    this.isolated
+      ? this.isolatedBootstrap.has(accountIndex)
+      : bootstrapDelegates.isBootstrap(accountIndex);
 
-  promoteBootstrap = (accountIndex: AccountIndex): boolean =>
-    bootstrapDelegates.promoteBootstrap(accountIndex);
+  promoteBootstrap = (accountIndex: AccountIndex): boolean => {
+    if (this.isolated) {
+      return this.isolatedBootstrap.delete(accountIndex);
+    }
+    return bootstrapDelegates.promoteBootstrap(accountIndex);
+  };
 
-  clearBootstrap = (accountIndex: AccountIndex): void =>
+  clearBootstrap = (accountIndex: AccountIndex): void => {
+    if (this.isolated) {
+      this.isolatedBootstrap.delete(accountIndex);
+      return;
+    }
     bootstrapDelegates.clearBootstrap(accountIndex);
+  };
 
-  getBootstrapAccounts = (): AccountIndex[] => [...bootstrapDelegates.getBootstrapAccounts()];
+  getBootstrapAccounts = (): AccountIndex[] =>
+    this.isolated ? [...this.isolatedBootstrap] : [...bootstrapDelegates.getBootstrapAccounts()];
 
   // ─── Window state persistence ────────────────────────────────────────────
 
@@ -539,7 +551,7 @@ export class AccountWindowManager implements IAccountWindowManager {
     if (this.dehydratedAccounts.has(accountIndex)) {
       return;
     }
-    if (_isBootstrap(accountIndex)) {
+    if (this.isBootstrap(accountIndex)) {
       log.debug(
         `[AccountWindowManager] dehydrateAccount: skipped bootstrap account ${accountIndex}`
       );

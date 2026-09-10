@@ -43,7 +43,6 @@ import { asAccountIndex, asWebContentsId, toPartition } from '../../../shared/ty
 import { isGoogleAuthUrl } from '../../../shared/urlValidators.js';
 import {
   markAsBootstrap as _markAsBootstrap,
-  isBootstrap as _isBootstrap,
   clearBootstrap as _clearBootstrap,
   clearAllBootstrap,
 } from './bootstrapTracker.js';
@@ -120,6 +119,7 @@ export class AccountViewManager implements IAccountWindowManager {
   private activityHandler: (() => void) | null = null;
 
   private readonly isolated: boolean;
+  private readonly isolatedBootstrap = new Set<AccountIndex>();
 
   constructor(_windowFactory?: WindowFactory, options?: AccountManagerOptions) {
     this.isolated = options?.isolated === true;
@@ -205,16 +205,18 @@ export class AccountViewManager implements IAccountWindowManager {
     window.on('leave-full-screen', onResize);
     this.resizeHandler = onResize;
 
-    const recordActivity = (): void => {
-      if (this.mostRecentAccountIndex !== null) {
-        getAccountActivityTracker().recordActivity(this.mostRecentAccountIndex);
-      }
-    };
-    window.on('focus', recordActivity);
-    window.on('blur', recordActivity);
-    window.on('show', recordActivity);
-    window.on('hide', recordActivity);
-    this.activityHandler = recordActivity;
+    if (!this.isolated) {
+      const recordActivity = (): void => {
+        if (this.mostRecentAccountIndex !== null) {
+          getAccountActivityTracker().recordActivity(this.mostRecentAccountIndex);
+        }
+      };
+      window.on('focus', recordActivity);
+      window.on('blur', recordActivity);
+      window.on('show', recordActivity);
+      window.on('hide', recordActivity);
+      this.activityHandler = recordActivity;
+    }
 
     window.on('closed', () => {
       // Host window closing tears down everything — destroyAll cleans up.
@@ -226,8 +228,10 @@ export class AccountViewManager implements IAccountWindowManager {
       if (!defaults.startHidden && !window.isDestroyed()) {
         window.show();
       }
-      // Same first-run macOS notification UX as windowWrapper (BW path).
-      ensureNotificationPermission({ parentWindow: window });
+      if (!this.isolated) {
+        // Same first-run macOS notification UX as windowWrapper (BW path).
+        ensureNotificationPermission({ parentWindow: window });
+      }
     });
 
     this.hostWindow = window;
@@ -285,7 +289,7 @@ export class AccountViewManager implements IAccountWindowManager {
       // BrowserWindow path.
       this.switchToAccount(accountIndex);
       const currentUrl = existing.view.webContents.getURL();
-      if (_isBootstrap(accountIndex) && isGoogleAuthUrl(currentUrl)) {
+      if (this.isBootstrap(accountIndex) && isGoogleAuthUrl(currentUrl)) {
         return host;
       }
       try {
@@ -629,19 +633,35 @@ export class AccountViewManager implements IAccountWindowManager {
       );
       return;
     }
+    if (this.isolated) {
+      this.isolatedBootstrap.add(accountIndex);
+      return;
+    }
     _markAsBootstrap(accountIndex);
   }
 
   isBootstrap = (accountIndex: AccountIndex): boolean =>
-    bootstrapDelegates.isBootstrap(accountIndex);
+    this.isolated
+      ? this.isolatedBootstrap.has(accountIndex)
+      : bootstrapDelegates.isBootstrap(accountIndex);
 
-  promoteBootstrap = (accountIndex: AccountIndex): boolean =>
-    bootstrapDelegates.promoteBootstrap(accountIndex);
+  promoteBootstrap = (accountIndex: AccountIndex): boolean => {
+    if (this.isolated) {
+      return this.isolatedBootstrap.delete(accountIndex);
+    }
+    return bootstrapDelegates.promoteBootstrap(accountIndex);
+  };
 
-  clearBootstrap = (accountIndex: AccountIndex): void =>
+  clearBootstrap = (accountIndex: AccountIndex): void => {
+    if (this.isolated) {
+      this.isolatedBootstrap.delete(accountIndex);
+      return;
+    }
     bootstrapDelegates.clearBootstrap(accountIndex);
+  };
 
-  getBootstrapAccounts = (): AccountIndex[] => [...bootstrapDelegates.getBootstrapAccounts()];
+  getBootstrapAccounts = (): AccountIndex[] =>
+    this.isolated ? [...this.isolatedBootstrap] : [...bootstrapDelegates.getBootstrapAccounts()];
 
   // ─── Per-account window state ─────────────────────────────────────────────
 
@@ -671,7 +691,7 @@ export class AccountViewManager implements IAccountWindowManager {
   dehydrateAccount(accountIndex: AccountIndex): void {
     const entry = this.views.get(accountIndex);
     if (!entry) return;
-    if (_isBootstrap(accountIndex)) return;
+    if (this.isBootstrap(accountIndex)) return;
     if (accountIndex === 0) return; // never dehydrate primary account
     if (entry.resourceState === 'dehydrated-parked') return;
 

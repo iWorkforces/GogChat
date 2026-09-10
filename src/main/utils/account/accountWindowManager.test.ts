@@ -392,6 +392,27 @@ describe('AccountWindowManager — construction', () => {
     expect(stopSessionMaintenance).not.toHaveBeenCalled();
   });
 
+  it('isolated teardown does not wipe the shared bootstrap set or notify WC hooks', async () => {
+    h.bootstrapSet.add(0);
+    const hooks = await import('./accountWebContentsHooks.js');
+    hooks.clearAccountWebContentsHooksForTests();
+    const created = vi.fn();
+    hooks.onAccountWebContentsCreated(created);
+
+    const manager = new AccountWindowManager(makeFactory(), { isolated: true });
+    manager.createAccountWindow('https://chat.google.com/u/2/', asAccountIndex(2));
+    expect(created).not.toHaveBeenCalled();
+    expect(manager.isBootstrap(asAccountIndex(0))).toBe(false);
+    manager.markAsBootstrap(asAccountIndex(2));
+    expect(manager.isBootstrap(asAccountIndex(2))).toBe(true);
+    expect(h.bootstrapSet.has(0)).toBe(true);
+
+    manager.destroyAll();
+    expect(h.bootstrapSet.has(0)).toBe(true);
+    expect(created).not.toHaveBeenCalled();
+    hooks.clearAccountWebContentsHooksForTests();
+  });
+
   it('honours a configured memory.dehydrationThresholdMs in [60000, 600000]', () => {
     h.mockStore['memory'] = { dehydrationThresholdMs: 120000 };
     // We cannot read the private threshold directly. Instead, verify the
