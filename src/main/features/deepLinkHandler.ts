@@ -2,6 +2,7 @@ import { app } from 'electron';
 import log from 'electron-log';
 import { DEEP_LINK } from '../../shared/constants.js';
 import {
+  isAuthenticatedChatUrl,
   isGoogleAuthUrl,
   validateDeepLinkURL,
   validateExternalURL,
@@ -10,7 +11,7 @@ import type { IAccountWindowManager } from '../../shared/types/window.js';
 import { asAccountIndex, type AccountIndex } from '../../shared/types/branded.js';
 import {
   createAccountWindow,
-  getAccountWindowManager,
+  peekAccountWindowManager,
 } from '../utils/account/accountWindowManager.js';
 import { loadAccountURL, getAccountURL } from '../utils/account/accountNavigation.js';
 import { extractDeepLinkFromArgv } from '../utils/account/deepLinkUtils.js';
@@ -60,30 +61,34 @@ function detachPendingReplay(): void {
 }
 
 /**
- * Replay a buffered deep link once the account leaves a Google auth page.
- * One-shot: the first non-auth `did-navigate` drains `pendingDeepLinkUrl`.
+ * Replay a buffered deep link once the account reaches authenticated Chat.
+ * One-shot: the first `isAuthenticatedChatUrl` `did-navigate` drains the buffer.
  */
-function armPendingReplay(accountIndex: AccountIndex): void {
+function armPendingReplay(manager: IAccountWindowManager, accountIndex: AccountIndex): void {
   detachPendingReplay();
-  const manager = getAccountWindowManager();
   const webContents = manager.getAccountWebContents(accountIndex);
   if (!webContents || webContents.isDestroyed()) {
     return;
   }
 
   const onNavigate = (_event: Electron.Event, nextUrl: string): void => {
-    if (isGoogleAuthUrl(nextUrl)) {
+    if (!isAuthenticatedChatUrl(nextUrl)) {
       return;
     }
     detachPendingReplay();
     processPendingDeepLink();
   };
+  const onDestroyed = (): void => {
+    detachPendingReplay();
+  };
 
   webContents.on('did-navigate', onNavigate);
+  webContents.once('destroyed', onDestroyed);
   pendingReplayDetach = () => {
     try {
       if (!webContents.isDestroyed()) {
         webContents.removeListener('did-navigate', onNavigate);
+        webContents.removeListener('destroyed', onDestroyed);
       }
     } catch {
       // webContents already gone
@@ -95,7 +100,13 @@ function navigateToUrl(url: string): void {
   // Prefer path /u/N/ from the deep link itself (WCV host getAccountIndex is
   // "most recent", not the URL account). Fall back only when path has no /u/N/.
   const accountIndex = getAccountIndexFromUrl(url);
-  const manager = getAccountWindowManager();
+  // Do not construct a factory-less singleton from pre-ready open-url.
+  const manager = peekAccountWindowManager();
+  if (!manager) {
+    pendingDeepLinkUrl = url;
+    log.info('[DeepLink] Window not ready, buffering URL');
+    return;
+  }
 
   // Match externalLinks: missing account → create only (factory/router load).
   // Existing (including dehydrated BW: hasAccount=true, no live window) →
@@ -117,14 +128,21 @@ function navigateToUrl(url: string): void {
   if (currentUrl !== null && isGoogleAuthUrl(currentUrl)) {
     pendingDeepLinkUrl = url;
     log.info('[DeepLink] Google auth in progress, buffering URL');
-    armPendingReplay(accountIndex);
+    armPendingReplay(manager, accountIndex);
     return;
   }
 
   if (currentUrl !== url) {
     log.info(`[DeepLink] Navigating to: ${sanitizeUrlForLog(url)}`);
-    loadAccountURL(manager, accountIndex, url);
+    if (!loadAccountURL(manager, accountIndex, url)) {
+      pendingDeepLinkUrl = url;
+      log.info('[DeepLink] loadAccountURL skipped, buffering URL');
+      armPendingReplay(manager, accountIndex);
+      return;
+    }
   }
+  detachPendingReplay();
+  pendingDeepLinkUrl = null;
 }
 
 function processPendingDeepLink(): void {

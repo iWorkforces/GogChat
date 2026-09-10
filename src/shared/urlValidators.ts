@@ -204,6 +204,28 @@ export function isWhitelistedHost(url: string, currentHost: string): boolean {
  * @returns Sanitized https://chat.google.com/... URL
  * @throws Error if URL is invalid, not a recognized scheme, or targets a non-allowed host
  */
+/**
+ * Deep-link paths: `/`, `/room|dm|space/…`, or `/u/N` plus those suffixes.
+ * `/u/N/admin` and other unknown tails are rejected.
+ */
+function isAllowedDeepLinkPath(pathLower: string): boolean {
+  if (pathLower === '/') {
+    return true;
+  }
+  if (DEEP_LINK.ALLOWED_PATH_PREFIXES.some((prefix) => pathLower.startsWith(prefix))) {
+    return true;
+  }
+  const accountMatch = /^\/u\/\d+(\/.*)?$/.exec(pathLower);
+  if (accountMatch === null) {
+    return false;
+  }
+  const rest = accountMatch[1];
+  if (rest === undefined || rest === '/') {
+    return true;
+  }
+  return DEEP_LINK.ALLOWED_PATH_PREFIXES.some((prefix) => rest.startsWith(prefix));
+}
+
 export function validateDeepLinkURL(url: unknown): ValidatedURL {
   // Type check
   if (typeof url !== 'string') {
@@ -254,13 +276,9 @@ export function validateDeepLinkURL(url: unknown): ValidatedURL {
   parsed.username = '';
   parsed.password = '';
 
-  // Validate path has an allowed prefix (or is root)
+  // Validate path: root, /room|/dm|/space, or /u/N plus those suffixes.
   const pathLower = parsed.pathname.toLowerCase();
-  const hasAllowedPath =
-    pathLower === '/' ||
-    DEEP_LINK.ALLOWED_PATH_PREFIXES.some((prefix) => pathLower.startsWith(prefix));
-
-  if (!hasAllowedPath) {
+  if (!isAllowedDeepLinkPath(pathLower)) {
     throw new Error(`Deep link path not allowed: ${parsed.pathname}`);
   }
 
