@@ -19,6 +19,8 @@ type BackendResult = {
   visibleAfterSparse: number[];
   partition0: boolean;
   partition2: boolean;
+  partitionsDistinct: boolean;
+  restoredPartition2: boolean;
   dehydrated2: boolean;
   account0DehydratedAfterPark2: boolean;
   account0StillLiveAfterDehydrate0: boolean;
@@ -120,8 +122,6 @@ test('routing conformance matrix covers both account backends', async ({ electro
 
       try {
         manager.createAccountWindow(harness, 0);
-        manager.createAccountWindow(harness, 2);
-
         const hostWc =
           backend === 'web-contents-view' ? manager.getMostRecentWindow()?.webContents : null;
         if (hostWc && typeof hostWc.loadURL === 'function') {
@@ -131,18 +131,18 @@ test('routing conformance matrix covers both account backends', async ({ electro
             return originalHost(url, options);
           };
         }
+        manager.createAccountWindow(harness, 2);
 
         const sessionMatches = (accountIndex: number): boolean => {
           const wc = manager.getAccountWebContents(accountIndex);
-          if (!wc) return false;
-          try {
-            return wc.session === api.session.fromPartition(`persist:account-${accountIndex}`);
-          } catch {
-            return factory.partitions.get(accountIndex) === `persist:account-${accountIndex}`;
-          }
+          if (!wc || !api.session) return false;
+          return wc.session === api.session.fromPartition(`persist:account-${accountIndex}`);
         };
+        const session0 = manager.getAccountWebContents(0)?.session;
+        const session2 = manager.getAccountWebContents(2)?.session;
         const partition0 = sessionMatches(0);
         const partition2 = sessionMatches(2);
+        const partitionsDistinct = Boolean(session0 && session2 && session0 !== session2);
 
         const wc2 = manager.getAccountWebContents(2);
         const window2 = manager.getAccountWindow(2);
@@ -185,12 +185,8 @@ test('routing conformance matrix covers both account backends', async ({ electro
         const liveWcAfterPark2 = manager.getAccountWebContents(2) !== null;
 
         manager.focusAccount(2);
-        // WCV never parks account 0. Isolated BW shares the process bootstrap
-        // set, so account 0 is typically bootstrap here and dehydrate is a
-        // no-op — that public-destroy contract is locked in unit tests.
-        if (backend === 'web-contents-view') {
-          manager.dehydrateAccount(0);
-        }
+        const restoredPartition2 = sessionMatches(2);
+        manager.dehydrateAccount(0);
         const account0StillLiveAfterDehydrate0 =
           manager.isDehydrated(0) === false && manager.getAccountWebContents(0) !== null;
 
@@ -201,6 +197,8 @@ test('routing conformance matrix covers both account backends', async ({ electro
           visibleAfterSparse,
           partition0,
           partition2,
+          partitionsDistinct,
+          restoredPartition2,
           dehydrated2,
           account0DehydratedAfterPark2,
           account0StillLiveAfterDehydrate0,
@@ -228,8 +226,12 @@ test('routing conformance matrix covers both account backends', async ({ electro
 
   expect(result.browserWindow.partition0).toBe(true);
   expect(result.browserWindow.partition2).toBe(true);
+  expect(result.browserWindow.partitionsDistinct).toBe(true);
+  expect(result.browserWindow.restoredPartition2).toBe(true);
   expect(result.webContentsView.partition0).toBe(true);
   expect(result.webContentsView.partition2).toBe(true);
+  expect(result.webContentsView.partitionsDistinct).toBe(true);
+  expect(result.webContentsView.restoredPartition2).toBe(true);
 
   expect(result.browserWindow.dehydrated2).toBe(true);
   expect(result.browserWindow.liveWcAfterPark2).toBe(false);
@@ -239,14 +241,18 @@ test('routing conformance matrix covers both account backends', async ({ electro
   expect(result.browserWindow.account0DehydratedAfterPark2).toBe(false);
   expect(result.webContentsView.account0DehydratedAfterPark2).toBe(false);
   expect(result.webContentsView.account0StillLiveAfterDehydrate0).toBe(true);
-  expect(result.browserWindow.account0StillLiveAfterDehydrate0).toBe(true);
+  expect(result.browserWindow.account0StillLiveAfterDehydrate0).toBe(false);
 
   expect(result.browserWindow.hostNavigated).toBe(false);
   expect(result.webContentsView.hostNavigated).toBe(false);
   expect(result.webContentsView.childWcIsHost).toBe(false);
 
-  expect(result.browserWindow.overlappingUrls.length).toBe(2);
-  expect(result.webContentsView.overlappingUrls.length).toBe(2);
+  expect(result.browserWindow.overlappingUrls).toHaveLength(2);
+  expect(result.webContentsView.overlappingUrls).toHaveLength(2);
+  expect(result.browserWindow.overlappingUrls[0]).toContain('#second');
+  expect(result.browserWindow.overlappingUrls[1]).toContain('#second-b');
+  expect(result.webContentsView.overlappingUrls[0]).toContain('#second');
+  expect(result.webContentsView.overlappingUrls[1]).toContain('#second-b');
   expect(result.browserWindow.overlappingPending).toBe(2);
   expect(result.webContentsView.overlappingPending).toBe(2);
 });
