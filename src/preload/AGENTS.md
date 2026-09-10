@@ -17,10 +17,13 @@ The preload is sandboxed and built as CommonJS because Electron sandboxed preloa
 
 `src/preload/index.ts` calls explicit installers in order: `installDisableWebAuthn` → `contextBridge.exposeInMainWorld('gogchat')` → `installFaviconChanged` → `installOffline` → `installPasskeyMonitor` → `installSearchShortcut` → `installUnreadCount` → `installNotificationBridge`. Do **not** import `overrideNotifications.ts` from `index.ts`. Do not add bare side-effect imports.
 
-- Isolated-world code cannot see `window.gogchat`. Feature installers may use the bridge when present (unit tests) and must fall back to `ipcRenderer` in production. `offline.test.ts` and `searchShortcut.test.ts` cover that ipc fallback. `passkeyMonitor` fallback must `validatePasskeyFailureData` and send the **object** (`{ errorType, timestamp }`), never a bare string — main `parsePasskeyFailureData` requires a plain object.
-- `installDisableWebAuthn` overrides isolated `navigator.credentials` and injects the same override into page world via `webFrame.executeJavaScript` (contextIsolation). Swallow a rejected page-world injection with `Promise.resolve(injected).catch` — never call `.catch` on a possibly non-thenable return. Do not leave an unhandled rejection.
+Account webPreferences attach only `lib/preload/index.js`. Rsbuild still emits every `src/preload/*.ts` file as a CJS entry, including leftover `overrideNotifications.ts` — that extra emit is **not** a live product path.
+
+- Isolated-world code cannot see `window.gogchat`. Feature installers may use the bridge when present (unit tests) and must fall back to `ipcRenderer` in production. `offline.test.ts` and `searchShortcut.test.ts` cover that ipc fallback.
+- `installDisableWebAuthn` nulls isolated `navigator.credentials` first and injects the same override into page world via `webFrame.executeJavaScript`. Swallow a rejected page-world injection with `Promise.resolve(injected).catch` — never call `.catch` on a possibly non-thenable return.
+- `installPasskeyMonitor` runs after that null-out, so wrapping `navigator.credentials` is largely unreachable in production (`monitorWebAuthn` returns early when credentials is missing). If the IPC fallback still fires, it must `validatePasskeyFailureData` and send the **object** (`{ errorType, timestamp }`), never a bare string — main `parsePasskeyFailureData` requires a plain object.
 - `searchShortcut.ts` focuses `SELECTORS.SEARCH_INPUT`. Built-CJS proof: `tests/artifact/preload/preload-entry.test.ts` (`--project=preload-artifact`).
-- `src/preload/**` is included in Vitest coverage except `overrideNotifications.ts`. Do not stack multiple `install*()` calls that leave `window` listeners if a later case deletes `window.gogchat` — old listeners will take the ipc path.
+- `src/preload/**` is included in Vitest coverage except leftover `overrideNotifications.ts`. Do not stack multiple `install*()` calls that leave `window` listeners if a later case deletes `window.gogchat` — old listeners will take the ipc path.
 
 ## Bridge surface
 
@@ -49,14 +52,11 @@ The preload is sandboxed and built as CommonJS because Electron sandboxed preloa
 
 ## Notification override
 
-- `notificationBridge.ts` is the context-isolated notification path used by `index.ts`: it installs the page-world `Notification` wrapper with `webFrame.executeJavaScript`, listens for its custom event in isolated preload, validates with `validateNotificationData`, then sends `IPC_CHANNELS.NOTIFICATION_SHOW`.
+- `notificationBridge.ts` is the live context-isolated path used by `index.ts`: page-world `Notification` wrapper via `webFrame.executeJavaScript`, isolated custom-event listener, `validateNotificationData`, then `IPC_CHANNELS.NOTIFICATION_SHOW`.
 - Main shows OS banners via `handleNotification` → `nativeNotification`; multi-account identity is resolved from the IPC sender in main, not from preload.
-- Do not replace this with script-tag injection; Google CSP is intentionally preserved and inline page injection is fragile.
-- `overrideNotifications.ts` is an intentional separate preload with `contextIsolation: false`.
-- Do not import it from `index.ts`.
-- `newNotify` must remain an ES5-style function, not an arrow, because it emulates the Notification constructor.
-- It uses `asUnsafe` only with documented runtime checks and validates notification data before handoff.
+- Do not replace this with script-tag injection; Google CSP is intentionally preserved.
+- `overrideNotifications.ts` is a leftover Rsbuild preload entry (`contextIsolation: false` era). It is **not** attached at runtime. Do not import it from `index.ts`.
 
 ## Tests
 
-Keep coverage around `index.test.ts`, `notificationBridge.test.ts`, `offline.test.ts`, unread count, favicon changes, notification overrides, passkey monitoring, search shortcut, and WebAuthn disabling when touching preload behavior. Offline recovery tests must assert zero reloads on false replies, one app-URL replace on the current successful attempt, ignored older/unknown/`timeout`-then-stale `attemptId`s, unload cancellation, and ipc fallback when `window.gogchat` is absent.
+Keep coverage around `index.test.ts`, `notificationBridge.test.ts`, `offline.test.ts`, unread count, favicon changes, passkey monitoring, search shortcut, and WebAuthn disabling when touching preload behavior. Offline recovery tests must assert zero reloads on false replies, one app-URL replace on the current successful attempt, ignored older/unknown/`timeout`-then-stale `attemptId`s, unload cancellation, and ipc fallback when `window.gogchat` is absent.

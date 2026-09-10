@@ -21,6 +21,7 @@ This directory is the canonical home for app startup/shutdown sequencing and bui
 - Runtime execution happens in `src/main/utils/lifecycle/featureRunner.ts`.
 - Shared feature runtime state is in `src/main/utils/lifecycle/featureContextStore.ts`.
 - Use `dependencies` for ordering. Avoid relying on lexical or array position.
+- `userAgent` is the only spec with a static feature import (`ui.spec.ts`); others dynamic-import.
 
 ## Startup phases
 
@@ -42,7 +43,7 @@ In `registerAppReady.ts`, after account-0 window construction:
 
 Before account-0 creation, optional session preconnect warms Google Chat/auth/CDN hosts unless `GOGCHAT_DISABLE_PRECONNECT=1`.
 
-Deferred phase (via `cacheWarmer.runDeferredPhase`) calls `notifyDeferredPhaseComplete()` after features load. Final metrics export is not owned by deferred-only paths. Icon warming (`warmInitialIcons` / `warmSoonDeferredIcons`) runs on the same `setImmediate` path as deferred — not on the critical path before first window. Deferred ordering (see `deferred.spec.ts` / generated `featurePlan.ts`): early batch includes `aboutPanel` + `appUpdates` (menu action registration); `trayIcon` depends on `aboutPanel`; `appMenu` depends on `openAtLogin` / `externalLinks` / `appUpdates` / `aboutPanel`; `cdpTelemetry` depends on `appMenu`.
+`registerAppReady` dynamically imports `cacheWarmer` on `setImmediate` (keeps cacheWarmer+configProfiler out of `lib/main/index.js`) then `runDeferredPhase` calls `notifyDeferredPhaseComplete()` after features load. Final metrics export is not owned by deferred-only paths. Icon warming (`warmInitialIcons` / `warmSoonDeferredIcons`) runs on the same `setImmediate` path as deferred — not on the critical path before first window. Deferred ordering (see `deferred.spec.ts` / generated `featurePlan.ts`): early batch includes `aboutPanel` + `appUpdates` (menu action registration); `trayIcon` depends on `aboutPanel`; `appMenu` depends on `openAtLogin` / `externalLinks` / `appUpdates` / `aboutPanel`; `cdpTelemetry` depends on `appMenu`.
 
 ## Shutdown
 

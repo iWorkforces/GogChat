@@ -49,3 +49,4 @@ This directory contains main-process security wrappers and SafeStorage-backed ki
 - No broad CSP rewrite to “make Chat work”.
 - No new permission without a narrow host/use-case explanation and tests.
 - No custom certificate-pinning feature without an explicit security plan and tests that document trust behavior.
+- The OS permission dialog is **not** owned by `platform/` (presentation only).

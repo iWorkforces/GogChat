@@ -40,4 +40,7 @@ Do not move icon warming back onto the pre-window critical path; it affects app-
 - No direct feature imports from menu/platform utilities except the menu action registry.
 - No platform checks that imply public Windows/Linux support; Windows branches must be capability-gated preparation with tests and guarded docs.
 - No badge or tray state writes from unrelated modules; route through platform helpers.
-- No macOS notification **permission** probe/dialog logic here — that lives in `utils/security/notificationAccess.ts`.
+- Do not call `shell.openExternal` — use `shellWrapper`.
+- `nativeNotification` trusts caller for icons; new callers must `validateNotificationIconURL` first.
+- Presentation vs permission: this directory shows notifications. The OS permission dialog lives in `security/notificationAccess.ts`; call sites are `windowWrapper` + WCV host on `ready-to-show` with `{ parentWindow }`. Do not own the dialog here.
+- `badgeHelpers` may call `ensureNotificationPermission()` without parent (probe-only) — do not copy that for first-run UX.

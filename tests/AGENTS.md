@@ -20,9 +20,9 @@ bun run check:doc-claims
 - Unit: Vitest, colocated `*.test.ts` and `scripts/**/*.test.js` (included by `vitest.config.ts`).
 - Integration/e2e/performance: Playwright/Electron helpers under `tests/`. `*.spec.ts` under `initializers/` are **feature-plan input**, not tests.
 - Playwright config: `testDir: './tests'`, `workers: 1`, timeout 60000 (e2e project 120000 for cold macos CI document load), retries 0, four isolated projects — `e2e`, `integration`, `performance`, `preload-artifact`. Contract: `scripts/playwright-config.test.js`. `preload-artifact` executes `tests/artifact/preload/preload-entry.test.ts` against built `lib/preload/index.js`.
-- Coverage thresholds in `vitest.config.ts`: statements 94, branches 92, functions 94, lines 94. Include is `src/**/*.ts` only.
-- Coverage includes remediates seams: `src/preload/**` (except `overrideNotifications.ts`), `registerAppReady.ts`, `inOnline.ts`, `appUpdates.ts`, and `defineIPC.ts`. CDP product files and `src/main/generated/**` stay excluded. Thresholds remain 94/92/94/94. Todo 18 closed remaining branch gaps with colocated happy/failure tests only (no production or threshold edits).
+- Coverage (`vitest.config.ts`): 94/92/94/94 on `src/**/*.ts` only. Includes remediates seams (`src/preload/**` except `overrideNotifications.ts`, `registerAppReady.ts`, `inOnline.ts`, `appUpdates.ts`, `defineIPC.ts`). CDP product files and `src/main/generated/**` stay excluded.
 - Evidence classes (source-unit, built-CJS execution, packaged-presence, packaged-runtime, headless, workflow) are defined in root `AGENTS.md`. Do not substitute one for another.
+- `tests/helpers/accountRoutingConformance.ts` is Vitest-only (imported by colocated account manager tests); Playwright integration has its own `account-routing-conformance.test.ts`.
 
 ## Electron test helpers
 
@@ -30,7 +30,7 @@ bun run check:doc-claims
 - Use `tests/mocks/electron.ts` for Electron mocks.
 - Reset with `electronMock.reset()` and `vi.clearAllMocks()` between cases.
 - Keep `tests/polyfill-crypto.cjs` loaded for crypto-dependent unit tests.
-- Electron 43 evaluate is ESM: do not call `require()` or `import()` inside `electronApp.evaluate`. Use `BrowserWindow` APIs, `evaluateWithRequire` (binds CJS `require` via `process.getBuiltinModule`), or `TESTING` hooks such as `__gogchatGetAccountWindowManager`. `Page.isVisible()` needs a selector — use `isMainWindowVisible()` for a snapshot or `waitForMainWindowVisible()` until native `show`. Skip authenticated Chat UI when no session exists. Accept `workspace.google.com` as a Chat landing URL. Do not wait on unbounded `networkidle` (Chat keeps sockets open) — use `waitForLoadStateBounded`. Do not assert exact `setSize` pixels on macOS CI; product mins are 480×570. Unauthenticated CI may land on `accounts.google.com` (`isGoogleSurfaceUrl`). Shared-fixture force-show is best-effort (`showMainWindowBestEffort`). Playwright `evaluate` can throw `Resulting promise was garbage collected` after many sequential Electron launches — wrap the app with `wrapEvaluateWithGcRetry` and do not fail the fixture for a single GC. Do not `await evaluate(app.quit())` — race the child `exit` event instead. Bound `sendIPCFromMain` and never `await app.close()` without `closeElectronApp` (manual-update finally). After `app.quit()` (bounded-shutdown), `app.process()` throws `reading '_object'`; `peekElectronChildProcess` / `closeElectronApp` must swallow that. Never await unbounded `app.close()` in fixture teardown — race it (`ELECTRON_CLOSE_TIMEOUT_MS`) and `SIGKILL` a leftover child so Playwright cannot spend the 120s fixture budget on close. After SIGKILL wait for `exitCode` (do not treat `killed` as gone) so the next launch can get a window. Launch via `launchElectronAppWithWindow` (bounded `firstWindow`, one retry, unique userData per attempt). Do not call bare `app.firstWindow()` — it inherits the test timeout and can sit for 180s. Playwright performance cases must not treat Google Chat DOM size or `page.evaluate` RTT as product IPC budgets (`IPC_AVERAGE` 50ms / `DOM_NODES` 15000). Default Electron launches set `GOGCHAT_TEST_APP_URL` to `tests/fixtures/electron-harness.html` so integration/performance do not load live Google Chat. `environment.resolveAppUrl` honors that only when `TESTING=true` and only for `file:` / loopback `http:`. Opt into Chat with `GOGCHAT_TEST_APP_URL=''`.
+- Electron 44 evaluate is ESM: do not call `require()` or `import()` inside `electronApp.evaluate`. Use `BrowserWindow` APIs, `evaluateWithRequire` (binds CJS `require` via `process.getBuiltinModule`), or `TESTING` hooks such as `__gogchatGetAccountWindowManager`. `Page.isVisible()` needs a selector — `isMainWindowVisible()` / `waitForMainWindowVisible()`. Skip authenticated Chat UI when no session exists. Accept `workspace.google.com` as a Chat landing URL. Do not wait on unbounded `networkidle` — use `waitForLoadStateBounded`. Do not assert exact `setSize` pixels on macOS CI; product mins are 480×570. Unauthenticated CI may land on `accounts.google.com` (`isGoogleSurfaceUrl`). Shared-fixture force-show is best-effort (`showMainWindowBestEffort`). Playwright `evaluate` can throw `Resulting promise was garbage collected` after many sequential launches — wrap with `wrapEvaluateWithGcRetry` and do not fail the fixture for a single GC. Do not `await evaluate(app.quit())` — race the child `exit` event. Bound `sendIPCFromMain` and never `await app.close()` without `closeElectronApp`. After `app.quit()`, `app.process()` throws `reading '_object'`; `peekElectronChildProcess` / `closeElectronApp` must swallow that. Never await unbounded `app.close()` in fixture teardown — race it (`ELECTRON_CLOSE_TIMEOUT_MS`) and `SIGKILL` a leftover child. After SIGKILL wait for `exitCode` (do not treat `killed` as gone). Launch via `launchElectronAppWithWindow` (bounded `firstWindow`, one retry, unique userData). Do not call bare `app.firstWindow()`. Playwright performance cases must not treat Chat DOM size or `page.evaluate` RTT as product IPC budgets (`IPC_AVERAGE` 50ms / `DOM_NODES` 15000). Default launches set `GOGCHAT_TEST_APP_URL` to `tests/fixtures/electron-harness.html`; `environment.resolveAppUrl` honors that only when `TESTING=true` and only for `file:` / loopback `http:`. Opt into Chat with `GOGCHAT_TEST_APP_URL=''`.
 - `GOGCHAT_TEST_HANG_SHUTDOWN` is opt-in via `test.use({ extraElectronEnv: { GOGCHAT_TEST_HANG_SHUTDOWN: 'feature' } })`. The default Electron fixture strips that env so other integration files cannot inherit a hung shutdown.
 - Do not leave `expect(true).toBe(true)` or “window still exists” as the only assertion when the case claims to exercise IPC or the account manager.
 
@@ -44,25 +44,13 @@ bun run check:doc-claims
 - Notification presentation: `nativeNotification`, `notificationFocus`, `accountNotificationIdentity`, `accountLabelStore`, bridge vs unread-delta sources, multi-account subtitle/tag namespacing, unread-delta suppress only when host focused **and** `isAccountVisible`.
 - Manual update checks: `src/main/features/appUpdates.test.ts` covers the pure stable-release parser, 10s hung-fetch abort, gate release, and draft/prerelease rejection. Surface: `tests/integration/manual-update.test.ts` launches Electron itself (temp `user-data-dir`) so `electronApp.evaluate` can replace main-process `globalThis.fetch` with a local fixture, import `lib/chunks/appUpdates.js`, invoke the manual path, and inspect the real update-window lifecycle with no public GitHub access. Close the app with `closeElectronApp` (never unbounded `app.close()`) and remove that temp userData in `finally`.
 - Timing tests in `configProfiler.test.ts` and `performanceMonitor.test.ts` must stay on mocked clocks; do not reintroduce `Date.now()` busy-waits or `<N ms` wall-clock assertions.
-- Performance contract changes (TDD preferred):
-  - Finalizer: no early export; complete+valid only with required markers + renderer samples.
-  - Headless aggregation: invalid runs retained as failures; no medians from incomplete sets.
-  - Budget gate: missing gated metric → FAIL; warn-only → SKIP/WARN; MB formatted once.
-  - Package closure: missing runtime external fails fixture; build-only packages classified.
-  - Candidate thresholds: incomplete evidence → `NO CHANGE` with no product diff.
-  - Claim validators: overclaim fixtures must reject.
-- Packaging / release contract changes (TDD preferred):
-  - `package-scaffold.test.js` — arch-pinned mac scripts, signing helper, Windows NSIS names, no `amd64`.
-  - `release-workflow.test.js` — mac arm64/x64 matrix, Windows matrix, single publish job, no write tokens on build legs.
-  - `verify-macos-package-artifacts.test.js` — require arm64+x64 DMGs; forbid bad labels/duplicates.
-  - `verify-release-artifacts.test.js` — aggregate requires both mac DMGs + both Windows setups.
-  - mac signing policy / trust verifier tests when changing credential or stapler gates.
+- Performance / packaging contracts (TDD): finalizer complete+valid only; headless invalid runs retained (no medians from incomplete sets); missing gated metric → FAIL; warn-only → SKIP/WARN; MB once; package closure + candidate `NO CHANGE`; claim validators reject overclaim. Packaging contracts live with the scripts (`package-scaffold`, `release-workflow`, mac/Windows artifact+signing tests).
 
 ## Live harnesses (not Vitest)
 
 ```bash
 bun run build:prod
-GOGCHAT_PERF_RUNS=5 HEADLESS_TIMEOUT_MS=60000 node scripts/headless-startup.js
+GOGCHAT_PERF_RUNS=5 HEADLESS_TIMEOUT_MS=90000 node scripts/headless-startup.js
 node scripts/check-perf-budget.js performance-metrics.json
 bun scripts/verify-packaged-dependency-closure.js
 bun scripts/account-backend-benchmark.js --verify-contract
@@ -75,7 +63,7 @@ bun run package:mac:artifacts
 
 CI remains unauthenticated. Authenticated first-interaction is credential-isolated; without credentials expect `[blocked: credentials unavailable]`.
 
-PR Check runs frozen install → Electron binary → literal typecheck / doc-claims / `scripts/lint.sh` / Vitest coverage / madge / production build / Playwright `e2e` `integration` `performance` `preload-artifact` / five-run headless / budget, then always-uploads metrics and coverage logs. Default `bun run test` is still Vitest only. Electron Playwright cases need a production build first and import from `tests/helpers/electron-test.ts`.
+PR Check sequence lives in `scripts/AGENTS.md`. Default `bun run test` is Vitest only. Electron Playwright cases need a production build first and import from `tests/helpers/electron-test.ts`.
 
 ## Anti-patterns
 
