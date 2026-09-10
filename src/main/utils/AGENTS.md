@@ -26,6 +26,7 @@
 
 ## Resource rules
 
+- `cacheWarmer` is dynamically imported from `registerAppReady` (bundle budget).
 - Deep performance notes live in `PERFORMANCE_UTILITIES.md` when present; always prefer `lifecycle/AGENTS.md` and `performanceTypes.ts` for the versioned export contract, MB units, and finalizer ownership.
 - Main-process timers/listeners must be tracked with `createTrackedInterval`, `createTrackedTimeout`, `addTrackedListener`, `registerCleanupTask`, or `registerGlobalCleanupCallback`.
 - Bare timer exceptions must be documented and rare; `errorHandler` has a circular-dependency exception.

@@ -22,9 +22,9 @@
 
 ## Build contract
 
-- Offline assets are copied to `lib/offline` by the build scripts.
-- `src/offline/index.html` references the built script through `../../lib/offline/index.js`.
-- Do not change output paths without updating `scripts/build-rsbuild.js` and packaging checks. Offline assets ship inside both macOS packaging arches the same way.
+- `copyOfflineAssets` in `scripts/build-rsbuild.js` copies `index.html` + `index.css` only to `lib/offline`. `src/offline/index.ts` is **not** a current Rsbuild entry, so the retry IIFE may not ship until that file is added as an entry.
+- `src/offline/index.html` still references `../../lib/offline/index.js`. That path is the tree's intended script hook; do not invent a build-entry or copy-step fix here — document the contract vs tree only.
+- Do not change output paths without updating `scripts/build-rsbuild.js` and packaging checks. Copied assets ship the same way in both macOS packaging arches.
 
 ## Anti-patterns
 

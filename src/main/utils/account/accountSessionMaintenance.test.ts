@@ -394,6 +394,23 @@ describe('startSessionMaintenance / stopSessionMaintenance', () => {
     }).not.toThrow();
   });
 
+  it('stopSessionMaintenance(owner) is a no-op for a non-owner instance', () => {
+    const tracker = new AccountActivityTracker();
+    const owner = makeManager();
+    const other = makeManager();
+    tracker.recordActivity(0);
+    startSessionMaintenance(tracker, owner);
+
+    stopSessionMaintenance(other);
+    vi.advanceTimersByTime(THIRTY_MIN);
+    expect(mockClearCodeCaches).toHaveBeenCalled();
+
+    stopSessionMaintenance(owner);
+    mockClearCodeCaches.mockClear();
+    vi.advanceTimersByTime(THIRTY_MIN);
+    expect(mockClearCodeCaches).not.toHaveBeenCalled();
+  });
+
   // ── Tier 2 (HTTP cache @ 2 hours) ───────────────────────
   it('does NOT clear HTTP cache for accounts idle < 2 hours', () => {
     const tracker = new AccountActivityTracker();

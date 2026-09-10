@@ -374,6 +374,22 @@ describe('AccountWindowRegistry — destroyAll', () => {
     expect(() => registry.destroyAll()).not.toThrow();
     expect(registry.getAccountCount()).toBe(0);
   });
+
+  it('preserveBootstrap skips shared bootstrap teardown', async () => {
+    const tracker = await import('./bootstrapTracker.js');
+    const clearAll = vi.spyOn(tracker, 'clearAllBootstrap');
+    const clearOne = vi.spyOn(tracker, 'clearBootstrap');
+    const isolated = new AccountWindowRegistry({ preserveBootstrap: true });
+    isolated.registerWindow(makeTypedWindow(), 0);
+    isolated.destroyAll();
+    expect(clearAll).not.toHaveBeenCalled();
+
+    isolated.registerWindow(makeTypedWindow(), 1);
+    isolated.unregisterAccount(1);
+    expect(clearOne).not.toHaveBeenCalled();
+    clearAll.mockRestore();
+    clearOne.mockRestore();
+  });
 });
 
 describe('AccountWindowRegistry — listAccountIndices', () => {

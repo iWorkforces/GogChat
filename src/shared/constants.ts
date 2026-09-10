@@ -150,7 +150,7 @@ export const DEEP_LINK = {
   TARGET_ORIGIN: 'https://chat.google.com',
   /** Maximum URL length for deep links */
   MAX_URL_LENGTH: 2048,
-  /** Allowed path prefixes for deep link navigation */
+  /** Allowed path prefixes for deep link navigation (`/u/N` + these is also allowed) */
   ALLOWED_PATH_PREFIXES: asType<readonly string[]>(['/room/', '/dm/', '/space/']),
 } as const satisfies Record<string, string | number | readonly string[]>;
 

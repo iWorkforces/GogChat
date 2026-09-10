@@ -54,6 +54,17 @@ export interface WindowFactory {
 }
 
 /**
+ * Construction options for account managers.
+ *
+ * `isolated` is TESTING-only: skip process-wide bootstrap reset, session
+ * maintenance, WebContents hook notify, and shared-session permission
+ * handlers so extra constructors cannot steal the live app's singletons.
+ */
+export interface AccountManagerOptions {
+  isolated?: boolean;
+}
+
+/**
  * Backend that owns live account WebContents for multi-account rendering.
  * BrowserWindow is the default; WebContentsView remains opt-in.
  */

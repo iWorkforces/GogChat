@@ -112,4 +112,64 @@ describe('accountNavigation', () => {
       expect(sendToAccount(makeManager(null), asAccountIndex(0), 'searchShortcut')).toBe(false);
     });
   });
+
+  describe('routing conformance schedules', () => {
+    it('records both loadURL calls when the first promise is still pending', () => {
+      const pending: Array<{ url: string; resolve: () => void }> = [];
+      const loadURL = vi.fn((url: string) => {
+        return new Promise<void>((resolve) => {
+          pending.push({ url, resolve });
+        });
+      });
+      const manager = makeManager({
+        isDestroyed: () => false,
+        getURL: () => 'https://chat.google.com/u/2/',
+        loadURL,
+        send: vi.fn(),
+      });
+
+      const first = 'https://chat.google.com/u/2/room/first';
+      const second = 'https://chat.google.com/u/2/room/second';
+      expect(loadAccountURL(manager, asAccountIndex(2), first)).toBe(true);
+      expect(loadAccountURL(manager, asAccountIndex(2), second)).toBe(true);
+
+      expect(loadURL.mock.calls.map((call) => call[0])).toEqual([first, second]);
+      expect(pending).toHaveLength(2);
+      expect(pending[0]?.url).toBe(first);
+      expect(pending[1]?.url).toBe(second);
+      pending.forEach((item) => {
+        item.resolve();
+      });
+    });
+
+    it('returns false for destroyed WebContents and does not load', () => {
+      const loadURL = vi.fn();
+      const manager = makeManager({
+        isDestroyed: () => true,
+        getURL: () => 'https://chat.google.com/u/2/',
+        loadURL,
+        send: vi.fn(),
+      });
+      expect(loadAccountURL(manager, asAccountIndex(2), 'https://chat.google.com/u/2/room/x')).toBe(
+        false
+      );
+      expect(loadURL).not.toHaveBeenCalled();
+    });
+
+    it('still loads when getURL throws (auth check is best-effort)', () => {
+      const loadURL = vi.fn().mockResolvedValue(undefined);
+      const manager = makeManager({
+        isDestroyed: () => false,
+        getURL: () => {
+          throw new Error('webContents gone');
+        },
+        loadURL,
+        send: vi.fn(),
+      });
+      expect(loadAccountURL(manager, asAccountIndex(2), 'https://chat.google.com/u/2/room/x')).toBe(
+        true
+      );
+      expect(loadURL).toHaveBeenCalledWith('https://chat.google.com/u/2/room/x');
+    });
+  });
 });

@@ -513,6 +513,16 @@ describe('validateDeepLinkURL', () => {
     expect(() => validateDeepLinkURL('gogchat://admin/settings')).toThrow('path not allowed');
     expect(() => validateDeepLinkURL('gogchat://api/v1/data')).toThrow('path not allowed');
   });
+
+  it('should accept account-scoped /u/N room paths', () => {
+    expect(validateDeepLinkURL('gogchat://u/2/room/abc')).toBe(
+      'https://chat.google.com/u/2/room/abc'
+    );
+  });
+
+  it('should reject /u/N with an unknown tail', () => {
+    expect(() => validateDeepLinkURL('gogchat://u/2/admin')).toThrow('path not allowed');
+  });
 });
 
 describe('isAuthenticatedChatUrl', () => {

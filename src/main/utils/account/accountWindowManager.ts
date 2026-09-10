@@ -14,6 +14,7 @@ import type { BrowserWindow } from 'electron';
 import log from 'electron-log';
 import { configGet } from '../../config.js';
 import type {
+  AccountManagerOptions,
   AccountWebContentsInfo,
   AccountWindowState,
   WindowFactory,
@@ -22,12 +23,7 @@ import type {
 import type { AccountIndex, WebContentsId } from '../../../shared/types/branded.js';
 import { asWebContentsId, toPartition } from '../../../shared/types/branded.js';
 import { asType } from '../../../shared/typeUtils.js';
-import {
-  markAsBootstrap as _markAsBootstrap,
-  isBootstrap as _isBootstrap,
-  clearBootstrap as _clearBootstrap,
-  clearAllBootstrap,
-} from './bootstrapTracker.js';
+import { markAsBootstrap as _markAsBootstrap, clearAllBootstrap } from './bootstrapTracker.js';
 import { bootstrapDelegates } from './accountLifecycleHelpers.js';
 import { AccountWindowRegistry } from './accountWindowRegistry.js';
 import { routeAccountWindow, type HydrationHook } from './accountRouter.js';
@@ -125,12 +121,21 @@ export class AccountWindowManager implements IAccountWindowManager {
    * value change requires an app restart.
    */
   private readonly dehydrateThresholdMs: number;
+  private readonly isolated: boolean;
+  private readonly isolatedBootstrap = new Set<AccountIndex>();
+  private readonly windowFactory?: WindowFactory;
 
-  constructor(private readonly windowFactory?: WindowFactory) {
-    // Reset shared bootstrap tracker so each manager instance starts clean
-    clearAllBootstrap();
-    this.registry = new AccountWindowRegistry();
-    this.startMaintenance();
+  constructor(windowFactory?: WindowFactory, options?: AccountManagerOptions) {
+    if (windowFactory !== undefined) {
+      this.windowFactory = windowFactory;
+    }
+    this.isolated = options?.isolated === true;
+    this.registry = new AccountWindowRegistry({ preserveBootstrap: this.isolated });
+    if (!this.isolated) {
+      // Reset shared bootstrap tracker so each manager instance starts clean
+      clearAllBootstrap();
+      this.startMaintenance();
+    }
     // Read dehydration threshold from config, fall back to 90s default.
     // Validate range (60s–600s) to guard against typos in the hidden pref.
     const configured = configGet('memory')?.dehydrationThresholdMs;
@@ -146,11 +151,32 @@ export class AccountWindowManager implements IAccountWindowManager {
    * call from the constructor and again from explicit init paths.
    */
   private startMaintenance(): void {
-    if (this.maintenanceStarted) {
+    if (this.isolated || this.maintenanceStarted) {
       return;
     }
     startSessionMaintenance(getAccountActivityTracker(), this);
     this.maintenanceStarted = true;
+  }
+
+  private emitWebContentsCreated(
+    accountIndex: AccountIndex,
+    webContents: Electron.WebContents
+  ): void {
+    if (this.isolated) {
+      return;
+    }
+    notifyAccountWebContentsCreated({
+      accountIndex,
+      webContents,
+      backend: 'browser-window',
+    });
+  }
+
+  private emitWebContentsDestroyed(accountIndex: AccountIndex): void {
+    if (this.isolated) {
+      return;
+    }
+    notifyAccountWebContentsDestroyed(accountIndex);
   }
 
   // ─── Registry delegates ──────────────────────────────────────────────────
@@ -158,7 +184,9 @@ export class AccountWindowManager implements IAccountWindowManager {
   registerWindow(window: BrowserWindow, accountIndex: AccountIndex): void {
     this.detachActivityListeners(window);
     this.registry.registerWindow(window, accountIndex);
-    this.attachActivityListeners(window, accountIndex);
+    if (!this.isolated) {
+      this.attachActivityListeners(window, accountIndex);
+    }
   }
 
   /**
@@ -181,7 +209,7 @@ export class AccountWindowManager implements IAccountWindowManager {
     // T12/M3 — idle dehydration timer. Bootstrap accounts are excluded:
     // dehydrating mid-auth would destroy the in-flight Google sign-in flow.
     const onIdleStart = (): void => {
-      if (_isBootstrap(accountIndex)) {
+      if (this.isBootstrap(accountIndex)) {
         return;
       }
       this.scheduleDehydrate(accountIndex);
@@ -338,7 +366,7 @@ export class AccountWindowManager implements IAccountWindowManager {
   }
 
   unregisterAccount(accountIndex: AccountIndex): void {
-    notifyAccountWebContentsDestroyed(accountIndex);
+    this.emitWebContentsDestroyed(accountIndex);
     const window = this.registry.getAccountWindow(accountIndex);
     if (window) {
       this.detachActivityListeners(window);
@@ -380,11 +408,13 @@ export class AccountWindowManager implements IAccountWindowManager {
   }
 
   destroyAll(): void {
-    stopSessionMaintenance();
+    if (!this.isolated) {
+      stopSessionMaintenance(this);
+    }
     this.maintenanceStarted = false;
     // Dispose multi-account WC hooks before tearing down windows (KD13 symmetry).
     for (const accountIndex of this.listAccountIndices()) {
-      notifyAccountWebContentsDestroyed(accountIndex);
+      this.emitWebContentsDestroyed(accountIndex);
     }
     for (const accountIndex of this.dehydrateTimers.keys()) {
       this.cancelDehydrate(accountIndex);
@@ -435,11 +465,7 @@ export class AccountWindowManager implements IAccountWindowManager {
         window.webContents &&
         !window.webContents.isDestroyed()
       ) {
-        notifyAccountWebContentsCreated({
-          accountIndex,
-          webContents: window.webContents,
-          backend: 'browser-window',
-        });
+        this.emitWebContentsCreated(accountIndex, window.webContents);
       }
     } catch (error: unknown) {
       this.detachActivityListeners(window);
@@ -447,7 +473,7 @@ export class AccountWindowManager implements IAccountWindowManager {
       if (this.registry.getAccountWindow(accountIndex) === window) {
         this.registry.unregisterAccount(accountIndex);
       }
-      notifyAccountWebContentsDestroyed(accountIndex);
+      this.emitWebContentsDestroyed(accountIndex);
       throw error;
     }
   }
@@ -461,19 +487,35 @@ export class AccountWindowManager implements IAccountWindowManager {
       );
       return;
     }
+    if (this.isolated) {
+      this.isolatedBootstrap.add(accountIndex);
+      return;
+    }
     _markAsBootstrap(accountIndex);
   }
 
   isBootstrap = (accountIndex: AccountIndex): boolean =>
-    bootstrapDelegates.isBootstrap(accountIndex);
+    this.isolated
+      ? this.isolatedBootstrap.has(accountIndex)
+      : bootstrapDelegates.isBootstrap(accountIndex);
 
-  promoteBootstrap = (accountIndex: AccountIndex): boolean =>
-    bootstrapDelegates.promoteBootstrap(accountIndex);
+  promoteBootstrap = (accountIndex: AccountIndex): boolean => {
+    if (this.isolated) {
+      return this.isolatedBootstrap.delete(accountIndex);
+    }
+    return bootstrapDelegates.promoteBootstrap(accountIndex);
+  };
 
-  clearBootstrap = (accountIndex: AccountIndex): void =>
+  clearBootstrap = (accountIndex: AccountIndex): void => {
+    if (this.isolated) {
+      this.isolatedBootstrap.delete(accountIndex);
+      return;
+    }
     bootstrapDelegates.clearBootstrap(accountIndex);
+  };
 
-  getBootstrapAccounts = (): AccountIndex[] => [...bootstrapDelegates.getBootstrapAccounts()];
+  getBootstrapAccounts = (): AccountIndex[] =>
+    this.isolated ? [...this.isolatedBootstrap] : [...bootstrapDelegates.getBootstrapAccounts()];
 
   // ─── Window state persistence ────────────────────────────────────────────
 
@@ -509,7 +551,7 @@ export class AccountWindowManager implements IAccountWindowManager {
     if (this.dehydratedAccounts.has(accountIndex)) {
       return;
     }
-    if (_isBootstrap(accountIndex)) {
+    if (this.isBootstrap(accountIndex)) {
       log.debug(
         `[AccountWindowManager] dehydrateAccount: skipped bootstrap account ${accountIndex}`
       );
@@ -534,7 +576,7 @@ export class AccountWindowManager implements IAccountWindowManager {
     this.detachActivityListeners(window);
     // Tear down per-account feature handlers (externalLinks, etc.) before destroy;
     // hydrate will re-notify create for the new WebContents.
-    notifyAccountWebContentsDestroyed(accountIndex);
+    this.emitWebContentsDestroyed(accountIndex);
     log.info(`[AccountWindowManager] Dehydrating account ${accountIndex} (url=${snapshot.url})`);
     window.destroy();
     // The registry's `closed` listener unregisters the window automatically;
@@ -567,8 +609,7 @@ export class AccountWindowManager implements IAccountWindowManager {
     // observers. Restored on any post-create failure so the account stays parked.
     this.dehydratedAccounts.delete(accountIndex);
     try {
-      this.registry.registerWindow(window, accountIndex);
-      this.attachActivityListeners(window, accountIndex);
+      this.registerWindow(window, accountIndex);
       // Restore presentation state. setBounds first, then maximize, so that the
       // pre-maximize bounds are remembered for later unmaximize.
       window.setBounds(snapshot.bounds);
@@ -580,18 +621,14 @@ export class AccountWindowManager implements IAccountWindowManager {
       // Snapshot URL is factory input only — do not re-dispatch navigation.
       // Callers that need a *requested* URL apply it after hydrate (router).
       if (window.webContents && !window.webContents.isDestroyed()) {
-        notifyAccountWebContentsCreated({
-          accountIndex,
-          webContents: window.webContents,
-          backend: 'browser-window',
-        });
+        this.emitWebContentsCreated(accountIndex, window.webContents);
       }
     } catch (error: unknown) {
       this.detachActivityListeners(window);
       if (this.registry.getAccountWindow(accountIndex) === window) {
         this.registry.unregisterAccount(accountIndex);
       }
-      notifyAccountWebContentsDestroyed(accountIndex);
+      this.emitWebContentsDestroyed(accountIndex);
       if (!window.isDestroyed()) {
         window.destroy();
       }
@@ -752,8 +789,11 @@ if (process.env['TESTING'] === 'true') {
     typeof globalThis & {
       __gogchatGetAccountWindowManager?: typeof getAccountWindowManager;
       __gogchatPeekAccountWindowManager?: typeof peekAccountWindowManager;
+      __gogchatCreateAccountWindowManager?: (factory?: WindowFactory) => IAccountWindowManager;
     }
   >(globalThis);
   testGlobal.__gogchatGetAccountWindowManager = getAccountWindowManager;
   testGlobal.__gogchatPeekAccountWindowManager = peekAccountWindowManager;
+  testGlobal.__gogchatCreateAccountWindowManager = (factory?: WindowFactory) =>
+    new AccountWindowManager(factory, { isolated: true });
 }

@@ -32,6 +32,7 @@ import { BrowserWindow, WebContentsView, type WebContents, type Rectangle } from
 import log from 'electron-log';
 
 import type {
+  AccountManagerOptions,
   AccountWebContentsInfo,
   AccountWindowState,
   WindowFactory,
@@ -42,7 +43,6 @@ import { asAccountIndex, asWebContentsId, toPartition } from '../../../shared/ty
 import { isGoogleAuthUrl } from '../../../shared/urlValidators.js';
 import {
   markAsBootstrap as _markAsBootstrap,
-  isBootstrap as _isBootstrap,
   clearBootstrap as _clearBootstrap,
   clearAllBootstrap,
 } from './bootstrapTracker.js';
@@ -63,7 +63,7 @@ import { ensureNotificationPermission } from '../security/notificationAccess.js'
 import { installHeaderFix } from '../security/cspHeaderHandler.js';
 import { getWindowDefaults } from '../platform/windowUtils.js';
 import { logger } from '../lifecycle/logger.js';
-import { asUnsafe } from '../../../shared/typeUtils.js';
+import { asType, asUnsafe } from '../../../shared/typeUtils.js';
 import { createAccountWebPreferences } from './accountWebPreferences.js';
 import {
   notifyAccountWebContentsCreated,
@@ -118,19 +118,43 @@ export class AccountViewManager implements IAccountWindowManager {
   private resizeHandler: (() => void) | null = null;
   private activityHandler: (() => void) | null = null;
 
-  constructor(_windowFactory?: WindowFactory) {
-    // Reset shared bootstrap tracker so each manager instance starts clean,
-    // matching the BrowserWindow path semantics.
-    clearAllBootstrap();
-    this.startMaintenance();
+  private readonly isolated: boolean;
+  private readonly isolatedBootstrap = new Set<AccountIndex>();
+
+  constructor(_windowFactory?: WindowFactory, options?: AccountManagerOptions) {
+    this.isolated = options?.isolated === true;
+    if (!this.isolated) {
+      // Reset shared bootstrap tracker so each manager instance starts clean,
+      // matching the BrowserWindow path semantics.
+      clearAllBootstrap();
+      this.startMaintenance();
+    }
   }
 
   private startMaintenance(): void {
-    if (this.maintenanceStarted) {
+    if (this.isolated || this.maintenanceStarted) {
       return;
     }
     startSessionMaintenance(getAccountActivityTracker(), this);
     this.maintenanceStarted = true;
+  }
+
+  private emitWebContentsCreated(accountIndex: AccountIndex, webContents: WebContents): void {
+    if (this.isolated) {
+      return;
+    }
+    notifyAccountWebContentsCreated({
+      accountIndex,
+      webContents,
+      backend: 'web-contents-view',
+    });
+  }
+
+  private emitWebContentsDestroyed(accountIndex: AccountIndex): void {
+    if (this.isolated) {
+      return;
+    }
+    notifyAccountWebContentsDestroyed(accountIndex);
   }
 
   // ─── Host window lifecycle ────────────────────────────────────────────────
@@ -181,16 +205,18 @@ export class AccountViewManager implements IAccountWindowManager {
     window.on('leave-full-screen', onResize);
     this.resizeHandler = onResize;
 
-    const recordActivity = (): void => {
-      if (this.mostRecentAccountIndex !== null) {
-        getAccountActivityTracker().recordActivity(this.mostRecentAccountIndex);
-      }
-    };
-    window.on('focus', recordActivity);
-    window.on('blur', recordActivity);
-    window.on('show', recordActivity);
-    window.on('hide', recordActivity);
-    this.activityHandler = recordActivity;
+    if (!this.isolated) {
+      const recordActivity = (): void => {
+        if (this.mostRecentAccountIndex !== null) {
+          getAccountActivityTracker().recordActivity(this.mostRecentAccountIndex);
+        }
+      };
+      window.on('focus', recordActivity);
+      window.on('blur', recordActivity);
+      window.on('show', recordActivity);
+      window.on('hide', recordActivity);
+      this.activityHandler = recordActivity;
+    }
 
     window.on('closed', () => {
       // Host window closing tears down everything — destroyAll cleans up.
@@ -202,8 +228,10 @@ export class AccountViewManager implements IAccountWindowManager {
       if (!defaults.startHidden && !window.isDestroyed()) {
         window.show();
       }
-      // Same first-run macOS notification UX as windowWrapper (BW path).
-      ensureNotificationPermission({ parentWindow: window });
+      if (!this.isolated) {
+        // Same first-run macOS notification UX as windowWrapper (BW path).
+        ensureNotificationPermission({ parentWindow: window });
+      }
     });
 
     this.hostWindow = window;
@@ -250,7 +278,9 @@ export class AccountViewManager implements IAccountWindowManager {
    * view's webContents should use {@link getAccountWebContents}.
    */
   createAccountWindow(url: string, accountIndex: AccountIndex): BrowserWindow {
-    this.startMaintenance();
+    if (!this.isolated) {
+      this.startMaintenance();
+    }
     const host = this.ensureHostWindow();
     const existing = this.views.get(accountIndex);
     if (existing) {
@@ -259,7 +289,7 @@ export class AccountViewManager implements IAccountWindowManager {
       // BrowserWindow path.
       this.switchToAccount(accountIndex);
       const currentUrl = existing.view.webContents.getURL();
-      if (_isBootstrap(accountIndex) && isGoogleAuthUrl(currentUrl)) {
+      if (this.isBootstrap(accountIndex) && isGoogleAuthUrl(currentUrl)) {
         return host;
       }
       try {
@@ -284,24 +314,26 @@ export class AccountViewManager implements IAccountWindowManager {
     // Install per-session security handlers. They reach into
     // `webContents.session` which is the per-partition session, so each
     // account view gets the same protections as a per-account BrowserWindow.
-    try {
-      // permissionHandler / headerFix expect a BrowserWindow argument so they
-      // can use its session and id for dialog ownership. They both only ever
-      // touch `window.webContents.session`. We construct a minimal proxy
-      // that forwards just `webContents` to keep the call sites unchanged.
-      // NOTE: for view-based accounts the dialog parent will be the host
-      // window if the helper opens any modal, which is the correct UX.
-      const sessionCarrier = asUnsafe<BrowserWindow & { webContents: WebContents }>(
-        view,
-        'WebContentsView shares webContents-shaped surface with BrowserWindow for installPermissionHandlers/installHeaderFix'
-      );
-      installPermissionHandlers(sessionCarrier);
-      installHeaderFix(sessionCarrier);
-    } catch (error: unknown) {
-      log.warn(
-        `[AccountViewManager] Failed to install security handlers for account ${accountIndex}:`,
-        error
-      );
+    if (!this.isolated) {
+      try {
+        // permissionHandler / headerFix expect a BrowserWindow argument so they
+        // can use its session and id for dialog ownership. They both only ever
+        // touch `window.webContents.session`. We construct a minimal proxy
+        // that forwards just `webContents` to keep the call sites unchanged.
+        // NOTE: for view-based accounts the dialog parent will be the host
+        // window if the helper opens any modal, which is the correct UX.
+        const sessionCarrier = asUnsafe<BrowserWindow & { webContents: WebContents }>(
+          view,
+          'WebContentsView shares webContents-shaped surface with BrowserWindow for installPermissionHandlers/installHeaderFix'
+        );
+        installPermissionHandlers(sessionCarrier);
+        installHeaderFix(sessionCarrier);
+      } catch (error: unknown) {
+        log.warn(
+          `[AccountViewManager] Failed to install security handlers for account ${accountIndex}:`,
+          error
+        );
+      }
     }
 
     const entry: AccountViewEntry = {
@@ -315,7 +347,9 @@ export class AccountViewManager implements IAccountWindowManager {
     this.webContentsToAccountIndex.set(asWebContentsId(view.webContents.id), accountIndex);
 
     this.applyResourceTransition({ visible: accountIndex });
-    getAccountActivityTracker().recordActivity(accountIndex);
+    if (!this.isolated) {
+      getAccountActivityTracker().recordActivity(accountIndex);
+    }
 
     try {
       void view.webContents.loadURL(url);
@@ -327,11 +361,7 @@ export class AccountViewManager implements IAccountWindowManager {
       `[AccountViewManager] Created view for account ${accountIndex} (partition=${partition})`
     );
 
-    notifyAccountWebContentsCreated({
-      accountIndex,
-      webContents: view.webContents,
-      backend: 'web-contents-view',
-    });
+    this.emitWebContentsCreated(accountIndex, view.webContents);
 
     return host;
   }
@@ -391,7 +421,9 @@ export class AccountViewManager implements IAccountWindowManager {
     const target = this.views.get(accountIndex);
     if (!target) return;
     this.applyResourceTransition({ visible: accountIndex });
-    getAccountActivityTracker().recordActivity(accountIndex);
+    if (!this.isolated) {
+      getAccountActivityTracker().recordActivity(accountIndex);
+    }
     if (this.hostWindow && !this.hostWindow.isDestroyed()) {
       if (this.hostWindow.isMinimized()) this.hostWindow.restore();
       if (!this.hostWindow.isVisible()) this.hostWindow.show();
@@ -506,14 +538,16 @@ export class AccountViewManager implements IAccountWindowManager {
     if (!entry) return;
     const wasVisible = entry.resourceState === 'visible';
     const wasRecent = this.mostRecentAccountIndex === accountIndex;
-    notifyAccountWebContentsDestroyed(accountIndex);
+    this.emitWebContentsDestroyed(accountIndex);
     try {
       this.webContentsToAccountIndex.delete(asWebContentsId(entry.view.webContents.id));
     } catch {
       // webContents may already be destroyed; ignore.
     }
     this.views.delete(accountIndex);
-    _clearBootstrap(accountIndex);
+    if (!this.isolated) {
+      _clearBootstrap(accountIndex);
+    }
     if (this.hostWindow && !this.hostWindow.isDestroyed()) {
       try {
         this.hostWindow.contentView.removeChildView(entry.view);
@@ -559,7 +593,9 @@ export class AccountViewManager implements IAccountWindowManager {
   }
 
   destroyAll(): void {
-    stopSessionMaintenance();
+    if (!this.isolated) {
+      stopSessionMaintenance(this);
+    }
     this.maintenanceStarted = false;
     for (const accountIndex of Array.from(this.views.keys())) {
       this.unregisterAccount(accountIndex);
@@ -582,7 +618,9 @@ export class AccountViewManager implements IAccountWindowManager {
     this.resizeHandler = null;
     this.activityHandler = null;
     this.mostRecentAccountIndex = null;
-    clearAllBootstrap();
+    if (!this.isolated) {
+      clearAllBootstrap();
+    }
     logger.window.info('[AccountViewManager] Destroyed all views and host window');
   }
 
@@ -595,19 +633,35 @@ export class AccountViewManager implements IAccountWindowManager {
       );
       return;
     }
+    if (this.isolated) {
+      this.isolatedBootstrap.add(accountIndex);
+      return;
+    }
     _markAsBootstrap(accountIndex);
   }
 
   isBootstrap = (accountIndex: AccountIndex): boolean =>
-    bootstrapDelegates.isBootstrap(accountIndex);
+    this.isolated
+      ? this.isolatedBootstrap.has(accountIndex)
+      : bootstrapDelegates.isBootstrap(accountIndex);
 
-  promoteBootstrap = (accountIndex: AccountIndex): boolean =>
-    bootstrapDelegates.promoteBootstrap(accountIndex);
+  promoteBootstrap = (accountIndex: AccountIndex): boolean => {
+    if (this.isolated) {
+      return this.isolatedBootstrap.delete(accountIndex);
+    }
+    return bootstrapDelegates.promoteBootstrap(accountIndex);
+  };
 
-  clearBootstrap = (accountIndex: AccountIndex): void =>
+  clearBootstrap = (accountIndex: AccountIndex): void => {
+    if (this.isolated) {
+      this.isolatedBootstrap.delete(accountIndex);
+      return;
+    }
     bootstrapDelegates.clearBootstrap(accountIndex);
+  };
 
-  getBootstrapAccounts = (): AccountIndex[] => [...bootstrapDelegates.getBootstrapAccounts()];
+  getBootstrapAccounts = (): AccountIndex[] =>
+    this.isolated ? [...this.isolatedBootstrap] : [...bootstrapDelegates.getBootstrapAccounts()];
 
   // ─── Per-account window state ─────────────────────────────────────────────
 
@@ -637,7 +691,7 @@ export class AccountViewManager implements IAccountWindowManager {
   dehydrateAccount(accountIndex: AccountIndex): void {
     const entry = this.views.get(accountIndex);
     if (!entry) return;
-    if (_isBootstrap(accountIndex)) return;
+    if (this.isBootstrap(accountIndex)) return;
     if (accountIndex === 0) return; // never dehydrate primary account
     if (entry.resourceState === 'dehydrated-parked') return;
 
@@ -733,6 +787,16 @@ export function destroyAccountViewManager(): void {
  */
 export function resetAccountViewManagerSingleton(): void {
   accountViewManager = null;
+}
+
+if (process.env['TESTING'] === 'true') {
+  const testGlobal = asType<
+    typeof globalThis & {
+      __gogchatCreateAccountViewManager?: (factory?: WindowFactory) => AccountViewManager;
+    }
+  >(globalThis);
+  testGlobal.__gogchatCreateAccountViewManager = (factory?: WindowFactory) =>
+    new AccountViewManager(factory, { isolated: true });
 }
 
 // Re-export the factory parameter type for clarity at the call site even

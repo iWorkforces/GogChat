@@ -2,6 +2,7 @@
  * Unit tests for deepLinkHandler feature.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { EventEmitter } from 'events';
 import type { BrowserWindow } from 'electron';
 
 vi.mock('electron', () => {
@@ -31,19 +32,32 @@ vi.mock('electron-log', () => ({
 
 vi.mock('../../shared/urlValidators.js', () => ({
   isGoogleAuthUrl: vi.fn((url: unknown) => url === 'https://accounts.google.com/signin/v2'),
+  isAuthenticatedChatUrl: vi.fn(
+    (url: unknown) =>
+      typeof url === 'string' && url.includes('chat.google.com') && /\/u\/\d+/.test(url)
+  ),
   validateDeepLinkURL: vi.fn((url: string) => url),
   validateExternalURL: vi.fn((url: string) => url),
 }));
 
 const mockFocusAccount = vi.fn();
+const mockHasAccount = vi.fn().mockReturnValue(false);
+const mockGetAccountWebContents = vi.fn().mockReturnValue(null);
+const mockPeekAccountWindowManager = vi.fn();
+function mockAccountManager() {
+  return {
+    getAccountIndex: vi.fn().mockReturnValue(0),
+    focusAccount: (...args: unknown[]) => mockFocusAccount(...args),
+    hasAccount: (...args: unknown[]) => mockHasAccount(...args),
+    getAccountWebContents: (...args: unknown[]) => mockGetAccountWebContents(...args),
+  };
+}
 vi.mock('../utils/account/accountWindowManager', () => ({
   createAccountWindow: vi.fn(),
   getWindowForAccount: vi.fn().mockReturnValue(null),
   getMostRecentWindow: vi.fn().mockReturnValue(null),
-  getAccountWindowManager: vi.fn(() => ({
-    getAccountIndex: vi.fn().mockReturnValue(0),
-    focusAccount: (...args: unknown[]) => mockFocusAccount(...args),
-  })),
+  peekAccountWindowManager: (...args: unknown[]) => mockPeekAccountWindowManager(...args),
+  getAccountWindowManager: vi.fn(() => mockAccountManager()),
 }));
 
 vi.mock('../utils/account/accountNavigation.js', () => ({
@@ -122,7 +136,11 @@ function makeFakeWindow(): FakeWindow {
 
 describe('deepLinkHandler', () => {
   beforeEach(() => {
+    cleanupDeepLinkHandler();
     vi.clearAllMocks();
+    mockHasAccount.mockReturnValue(false);
+    mockGetAccountWebContents.mockReturnValue(null);
+    mockPeekAccountWindowManager.mockReturnValue(mockAccountManager());
     vi.mocked(app.setAsDefaultProtocolClient).mockReturnValue(true);
     const listeners = getAppListeners();
     for (const key of Object.keys(listeners)) {
@@ -369,10 +387,10 @@ describe('deepLinkHandler', () => {
       vi.mocked(getMostRecentWindow).mockReturnValue(null);
       processDeepLink('gogchat://chat.google.com/room/buffered');
 
-      // Now make window available for init
-      const fakeWindow = makeFakeWindow();
-      vi.mocked(getWindowForAccount).mockReturnValue(fakeWindow as FakeWindow);
-      vi.mocked(getMostRecentWindow).mockReturnValue(fakeWindow as FakeWindow);
+      // Now make the account known so the buffered URL can navigate
+      mockHasAccount.mockReturnValue(true);
+      vi.mocked(getAccountURL).mockReturnValue('https://chat.google.com/u/0/');
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
 
       initDeepLinkHandler({});
 
@@ -385,9 +403,9 @@ describe('deepLinkHandler', () => {
       vi.mocked(app.setAsDefaultProtocolClient).mockReturnValue(true);
       const originalArgv = process.argv;
       process.argv = ['GogChat.exe', 'gogchat://room/cold-start'];
-      const fakeWindow = makeFakeWindow();
-      vi.mocked(getWindowForAccount).mockReturnValue(fakeWindow as FakeWindow);
-      vi.mocked(getMostRecentWindow).mockReturnValue(fakeWindow as FakeWindow);
+      mockHasAccount.mockReturnValue(true);
+      vi.mocked(getAccountURL).mockReturnValue('https://chat.google.com/u/0/');
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
 
       initDeepLinkHandler({});
 
@@ -405,6 +423,7 @@ describe('deepLinkHandler', () => {
       vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
       vi.mocked(getAccountURL).mockReturnValue('https://chat.google.com/u/0/');
       vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
+      mockHasAccount.mockReturnValue(true);
 
       const fakeWindow = makeFakeWindow();
       vi.mocked(getWindowForAccount).mockReturnValue(fakeWindow as FakeWindow);
@@ -420,21 +439,263 @@ describe('deepLinkHandler', () => {
     });
   });
 
+  describe('routing conformance schedules', () => {
+    it('focuses (hydrates) before loadAccountURL on a live target', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      vi.mocked(getAccountURL).mockReturnValue('https://chat.google.com/u/2/');
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
+      mockHasAccount.mockReturnValue(true);
+      const order: string[] = [];
+      mockFocusAccount.mockImplementation(() => {
+        order.push('focus');
+      });
+      vi.mocked(loadAccountURL).mockImplementation(() => {
+        order.push('load');
+        return true;
+      });
+
+      processDeepLink('gogchat://chat.google.com/u/2/room/live');
+
+      expect(order).toEqual(['focus', 'load']);
+      expect(createAccountWindow).not.toHaveBeenCalled();
+      expect(loadAccountURL).toHaveBeenCalledWith(
+        expect.anything(),
+        2,
+        expect.stringContaining('/u/2/')
+      );
+    });
+
+    it('creates a missing account without a second loadAccountURL', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
+      mockHasAccount.mockReturnValue(false);
+      const order: string[] = [];
+      vi.mocked(createAccountWindow).mockImplementation(() => {
+        order.push('create');
+        return makeFakeWindow() as FakeWindow;
+      });
+      mockFocusAccount.mockImplementation(() => {
+        order.push('focus');
+      });
+      vi.mocked(loadAccountURL).mockImplementation(() => {
+        order.push('load');
+        return true;
+      });
+
+      processDeepLink('gogchat://chat.google.com/u/3/room/new');
+
+      expect(order).toEqual(['create', 'focus']);
+      expect(createAccountWindow).toHaveBeenCalledWith(expect.stringContaining('/u/3/'), 3);
+      expect(loadAccountURL).not.toHaveBeenCalled();
+    });
+
+    it('hydrates a known dehydrated account then loads once (hasAccount, no window)', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
+      mockHasAccount.mockReturnValue(true);
+      const order: string[] = [];
+      mockFocusAccount.mockImplementation(() => {
+        order.push('focus');
+      });
+      vi.mocked(getAccountURL).mockImplementation(() =>
+        order.includes('focus') ? 'https://chat.google.com/u/2/' : null
+      );
+      vi.mocked(loadAccountURL).mockImplementation(() => {
+        order.push('load');
+        return true;
+      });
+
+      processDeepLink('gogchat://chat.google.com/u/2/room/restored');
+
+      expect(createAccountWindow).not.toHaveBeenCalled();
+      expect(order).toEqual(['focus', 'load']);
+      expect(loadAccountURL).toHaveBeenCalledTimes(1);
+      expect(loadAccountURL).toHaveBeenCalledWith(
+        expect.anything(),
+        2,
+        expect.stringContaining('/u/2/room/restored')
+      );
+    });
+
+    it('records both requested URLs in call order on a live account', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      vi.mocked(getAccountURL).mockReturnValue('https://chat.google.com/u/2/');
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
+      mockHasAccount.mockReturnValue(true);
+      const loads: string[] = [];
+      vi.mocked(loadAccountURL).mockImplementation((_manager, _index, url: string) => {
+        loads.push(url);
+        return true;
+      });
+
+      processDeepLink('gogchat://chat.google.com/u/2/room/first');
+      processDeepLink('gogchat://chat.google.com/u/2/room/second');
+
+      expect(loads).toEqual([
+        'gogchat://chat.google.com/u/2/room/first',
+        'gogchat://chat.google.com/u/2/room/second',
+      ]);
+      expect(mockFocusAccount).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('navigateToUrl auth-page protection', () => {
     it('does not interrupt an active Google auth page with loadURL', () => {
       vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      mockHasAccount.mockReturnValue(true);
 
       const fakeWindow = makeFakeWindow();
       fakeWindow.webContents.getURL.mockReturnValue('https://accounts.google.com/signin/v2');
       vi.mocked(getAccountURL).mockReturnValue('https://accounts.google.com/signin/v2');
       vi.mocked(isGoogleAuthUrl).mockReturnValue(true);
-      vi.mocked(getWindowForAccount).mockReturnValue(fakeWindow as FakeWindow);
-      vi.mocked(getMostRecentWindow).mockReturnValue(fakeWindow as FakeWindow);
 
       processDeepLink('gogchat://chat.google.com/room/test');
 
       expect(loadAccountURL).not.toHaveBeenCalled();
       expect(mockFocusAccount).toHaveBeenCalledWith(0);
+    });
+
+    it('replays the buffered deep link after the account leaves Google auth', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      mockHasAccount.mockReturnValue(true);
+      const wc = new EventEmitter() as EventEmitter & { isDestroyed: () => boolean };
+      wc.isDestroyed = () => false;
+      mockGetAccountWebContents.mockReturnValue(wc);
+
+      vi.mocked(isGoogleAuthUrl).mockImplementation(
+        (value: unknown) => typeof value === 'string' && value.includes('accounts.google.com')
+      );
+      vi.mocked(getAccountURL)
+        .mockReturnValueOnce('https://accounts.google.com/signin/v2')
+        .mockReturnValue('https://chat.google.com/u/0/');
+
+      processDeepLink('gogchat://chat.google.com/room/after-auth');
+      expect(loadAccountURL).not.toHaveBeenCalled();
+
+      wc.emit('did-navigate', {}, 'https://chat.google.com/u/0/');
+
+      expect(loadAccountURL).toHaveBeenCalledWith(
+        expect.anything(),
+        0,
+        'gogchat://chat.google.com/room/after-auth'
+      );
+    });
+
+    it('ignores further Google auth navigations until a non-auth URL arrives', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      mockHasAccount.mockReturnValue(true);
+      const wc = new EventEmitter() as EventEmitter & { isDestroyed: () => boolean };
+      wc.isDestroyed = () => false;
+      mockGetAccountWebContents.mockReturnValue(wc);
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(true);
+      vi.mocked(getAccountURL).mockReturnValue('https://accounts.google.com/signin/v2');
+
+      processDeepLink('gogchat://chat.google.com/room/after-auth');
+      wc.emit('did-navigate', {}, 'https://accounts.google.com/signin/challenge');
+      wc.emit('did-navigate', {}, 'about:blank');
+      expect(loadAccountURL).not.toHaveBeenCalled();
+    });
+
+    it('skips loadAccountURL when the focused account is already on the requested URL', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => {
+        if (url.startsWith('gogchat://')) {
+          return `https://chat.google.com/${url.slice('gogchat://'.length)}`;
+        }
+        return url;
+      });
+      mockHasAccount.mockReturnValue(true);
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
+      vi.mocked(getAccountURL).mockReturnValue('https://chat.google.com/room/same');
+
+      processDeepLink('gogchat://room/same');
+
+      expect(mockFocusAccount).toHaveBeenCalled();
+      expect(loadAccountURL).not.toHaveBeenCalled();
+    });
+
+    it('replaces a buffered auth deep link with a later one', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      mockHasAccount.mockReturnValue(true);
+      const wc = new EventEmitter() as EventEmitter & { isDestroyed: () => boolean };
+      wc.isDestroyed = () => false;
+      mockGetAccountWebContents.mockReturnValue(wc);
+      vi.mocked(isGoogleAuthUrl).mockImplementation(
+        (value: unknown) => typeof value === 'string' && value.includes('accounts.google.com')
+      );
+      vi.mocked(getAccountURL)
+        .mockReturnValueOnce('https://accounts.google.com/signin/v2')
+        .mockReturnValueOnce('https://accounts.google.com/signin/v2')
+        .mockReturnValue('https://chat.google.com/u/0/');
+
+      processDeepLink('gogchat://chat.google.com/room/first');
+      processDeepLink('gogchat://chat.google.com/room/second');
+      wc.emit('did-navigate', {}, 'https://chat.google.com/u/0/');
+
+      expect(loadAccountURL).toHaveBeenCalledTimes(1);
+      expect(loadAccountURL).toHaveBeenCalledWith(
+        expect.anything(),
+        0,
+        'gogchat://chat.google.com/room/second'
+      );
+    });
+
+    it('does not replay a stale buffer after a later non-auth deep link', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      mockHasAccount.mockReturnValue(true);
+      const wc = new EventEmitter() as EventEmitter & { isDestroyed: () => boolean };
+      wc.isDestroyed = () => false;
+      mockGetAccountWebContents.mockReturnValue(wc);
+      vi.mocked(isGoogleAuthUrl).mockImplementation(
+        (value: unknown) => typeof value === 'string' && value.includes('accounts.google.com')
+      );
+      vi.mocked(getAccountURL).mockReturnValue('https://accounts.google.com/signin/v2');
+
+      processDeepLink('gogchat://chat.google.com/room/stale');
+      expect(loadAccountURL).not.toHaveBeenCalled();
+
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
+      vi.mocked(getAccountURL).mockReturnValue('https://chat.google.com/u/0/');
+      processDeepLink('gogchat://chat.google.com/room/fresh');
+      expect(loadAccountURL).toHaveBeenCalledTimes(1);
+      expect(loadAccountURL).toHaveBeenCalledWith(
+        expect.anything(),
+        0,
+        'gogchat://chat.google.com/room/fresh'
+      );
+
+      wc.emit('did-navigate', {}, 'https://chat.google.com/u/0/room/fresh');
+      expect(loadAccountURL).toHaveBeenCalledTimes(1);
+    });
+
+    it('buffers during auth even when no live WebContents exists to watch', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      mockHasAccount.mockReturnValue(true);
+      mockGetAccountWebContents.mockReturnValue(null);
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(true);
+      vi.mocked(getAccountURL).mockReturnValue('https://accounts.google.com/signin/v2');
+
+      processDeepLink('gogchat://chat.google.com/room/no-wc');
+      expect(loadAccountURL).not.toHaveBeenCalled();
+      expect(mockFocusAccount).toHaveBeenCalled();
+    });
+
+    it('cleanupDeepLinkHandler detaches the replay listener', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      mockHasAccount.mockReturnValue(true);
+      const wc = new EventEmitter() as EventEmitter & { isDestroyed: () => boolean };
+      wc.isDestroyed = () => false;
+      mockGetAccountWebContents.mockReturnValue(wc);
+      vi.mocked(isGoogleAuthUrl).mockImplementation(
+        (value: unknown) => typeof value === 'string' && value.includes('accounts.google.com')
+      );
+      vi.mocked(getAccountURL).mockReturnValue('https://accounts.google.com/signin/v2');
+
+      processDeepLink('gogchat://chat.google.com/room/cleanup');
+      cleanupDeepLinkHandler();
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
+      vi.mocked(getAccountURL).mockReturnValue('https://chat.google.com/u/0/');
+      wc.emit('did-navigate', {}, 'https://chat.google.com/u/0/');
+      expect(loadAccountURL).not.toHaveBeenCalled();
     });
   });
 
@@ -450,11 +711,48 @@ describe('deepLinkHandler', () => {
 
       expect(log.info).toHaveBeenCalledWith('[DeepLink] Window not ready, buffering URL');
 
-      // Keep windows null for init → processPendingDeepLink → navigateToUrl still buffers
       initDeepLinkHandler({});
       expect(log.info).toHaveBeenCalledWith(
         expect.stringMatching(/Window not ready|Processing buffered/)
       );
+    });
+
+    it('buffers without constructing a manager when peek returns null', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      mockPeekAccountWindowManager.mockReturnValue(null);
+
+      processDeepLink('gogchat://room/early');
+
+      expect(log.info).toHaveBeenCalledWith('[DeepLink] Window not ready, buffering URL');
+      expect(createAccountWindow).not.toHaveBeenCalled();
+      expect(mockFocusAccount).not.toHaveBeenCalled();
+    });
+
+    it('buffers when create returns a destroyed window', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      mockHasAccount.mockReturnValue(false);
+      vi.mocked(createAccountWindow).mockReturnValue({
+        isDestroyed: () => true,
+      } as unknown as BrowserWindow);
+
+      processDeepLink('gogchat://chat.google.com/room/destroyed');
+
+      expect(log.info).toHaveBeenCalledWith('[DeepLink] Window not ready, buffering URL');
+      expect(loadAccountURL).not.toHaveBeenCalled();
+    });
+
+    it('re-buffers when loadAccountURL returns false after focus', () => {
+      vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+      mockHasAccount.mockReturnValue(true);
+      vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
+      vi.mocked(getAccountURL).mockReturnValue('https://chat.google.com/u/2/');
+      vi.mocked(loadAccountURL).mockReturnValue(false);
+
+      processDeepLink('https://chat.google.com/u/2/room/retry');
+
+      expect(mockFocusAccount).toHaveBeenCalledWith(2);
+      expect(loadAccountURL).toHaveBeenCalled();
+      expect(log.info).toHaveBeenCalledWith('[DeepLink] loadAccountURL skipped, buffering URL');
     });
   });
 
@@ -469,15 +767,9 @@ describe('deepLinkHandler', () => {
       vi.mocked(getMostRecentWindow).mockReturnValue(null);
       processDeepLink('gogchat://chat.google.com/room/error');
 
-      // Now make getWindowForAccount return an object that throws on isDestroyed
-      const errorWindow = {
-        isDestroyed: (): never => {
-          throw new Error('Window exploded');
-        },
-      };
-      vi.mocked(getWindowForAccount).mockReturnValue(
-        errorWindow as unknown as BrowserWindow | null
-      );
+      mockHasAccount.mockImplementation(() => {
+        throw new Error('Window exploded');
+      });
 
       initDeepLinkHandler({});
 
@@ -494,6 +786,8 @@ describe('getAccountIndexFromUrl invalid URL fallback', () => {
     // validateDeepLinkURL is mocked as identity, so we can pass a malformed URL.
     // Reset to identity (prior tests may have set throw impl).
     vi.mocked(validateDeepLinkURL).mockImplementation((url: string) => url);
+    mockHasAccount.mockReturnValue(false);
+    mockPeekAccountWindowManager.mockReturnValue(mockAccountManager());
     vi.mocked(getWindowForAccount).mockReturnValue(null);
     vi.mocked(createAccountWindow).mockReturnValue(makeFakeWindow() as FakeWindow);
 
@@ -563,10 +857,7 @@ describe('menu action registration', () => {
     expect(callArgs).toBeDefined();
     const action = callArgs![1] as { handler: (url: string) => void };
 
-    // Set up window so processDeepLink reaches navigateToUrl
-    const fakeWindow = makeFakeWindow();
-    vi.mocked(getWindowForAccount).mockReturnValue(fakeWindow as FakeWindow);
-    vi.mocked(getMostRecentWindow).mockReturnValue(fakeWindow as FakeWindow);
+    mockHasAccount.mockReturnValue(true);
     vi.mocked(getAccountURL).mockReturnValue('https://chat.google.com/u/0/');
     vi.mocked(isGoogleAuthUrl).mockReturnValue(false);
     vi.mocked(loadAccountURL).mockReturnValue(true);

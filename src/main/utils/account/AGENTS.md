@@ -62,7 +62,7 @@ This directory owns multi-account window/view backends and per-account session p
 
 ## Deferred phase / metrics hook
 
-- `registerAppReady` schedules `warmInitialIcons` + `warmSoonDeferredIcons` + `runDeferredPhase` on `setImmediate` after the UI phase (icons are off the critical path; account-0 window icon loads on demand in `windowWrapper`).
+- `registerAppReady` **dynamic-imports** this module on `setImmediate` after the UI phase (mainBundleSize); then `warmInitialIcons` + `warmSoonDeferredIcons` + `runDeferredPhase` (icons off the critical path; account-0 window icon loads on demand in `windowWrapper`).
 - `cacheWarmer.runDeferredPhase` runs deferred features, logs the perf summary, optional dev config profiling (`runDevPostDeferred`), then `notifyDeferredPhaseComplete()`.
 - Metrics JSON export is **not** owned here; see `performanceFinalizer.ts`.
 

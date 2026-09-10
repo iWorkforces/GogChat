@@ -29,9 +29,14 @@ export interface AccountWindowEntry {
  * Account Window Registry - Manages per-account BrowserWindow lookups and lifecycle
  */
 export class AccountWindowRegistry {
+  private readonly preserveBootstrap: boolean;
   private windows = new Map<AccountIndex, AccountWindowEntry>();
   private reverseLookup = new Map<BrowserWindow, AccountIndex>();
   private mostRecentAccountIndex: AccountIndex | null = null;
+
+  constructor(options?: { preserveBootstrap?: boolean }) {
+    this.preserveBootstrap = options?.preserveBootstrap === true;
+  }
   /**
    * Tracks event listeners attached to windows so they can be removed on re-register.
    * Prevents stale closures from firing with wrong accountIndex on focus/show events.
@@ -199,7 +204,9 @@ export class AccountWindowRegistry {
 
       this.reverseLookup.delete(entry.window);
       this.windows.delete(accountIndex);
-      _clearBootstrap(accountIndex);
+      if (!this.preserveBootstrap) {
+        _clearBootstrap(accountIndex);
+      }
 
       if (this.mostRecentAccountIndex === accountIndex) {
         // Find the next most recent
@@ -257,7 +264,9 @@ export class AccountWindowRegistry {
 
     this.windows.clear();
     this.reverseLookup.clear();
-    clearAllBootstrap();
+    if (!this.preserveBootstrap) {
+      clearAllBootstrap();
+    }
     this.windowListeners.clear();
     this.mostRecentAccountIndex = null;
   }

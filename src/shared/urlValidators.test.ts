@@ -453,6 +453,27 @@ describe('validateDeepLinkURL', () => {
     it('rejects paths that are similar but not exact matches', () => {
       expect(() => validateDeepLinkURL('gogchat://rooms/abc')).toThrow('path not allowed');
     });
+
+    it('accepts /u/N and /u/N/ plus room/dm/space suffixes', () => {
+      expect(validateDeepLinkURL('gogchat://u/2')).toBe('https://chat.google.com/u/2');
+      expect(validateDeepLinkURL('gogchat://u/2/')).toBe('https://chat.google.com/u/2/');
+      expect(validateDeepLinkURL('gogchat://u/2/room/abc')).toBe(
+        'https://chat.google.com/u/2/room/abc'
+      );
+      expect(validateDeepLinkURL('https://chat.google.com/u/3/dm/xyz')).toBe(
+        'https://chat.google.com/u/3/dm/xyz'
+      );
+      expect(validateDeepLinkURL('gogchat://u/0/space/s1')).toBe(
+        'https://chat.google.com/u/0/space/s1'
+      );
+    });
+
+    it('rejects /u/N with an unknown tail', () => {
+      expect(() => validateDeepLinkURL('gogchat://u/2/admin')).toThrow('path not allowed');
+      expect(() => validateDeepLinkURL('https://chat.google.com/u/2/api/x')).toThrow(
+        'path not allowed'
+      );
+    });
   });
 });
 

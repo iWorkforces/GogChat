@@ -239,6 +239,96 @@ describe('externalLinks feature', () => {
       expect(win.loadURL).not.toHaveBeenCalled();
     });
 
+    it('hydrates a known dehydrated account before loadAccountURL', async () => {
+      mockHasAccount.mockReturnValue(true);
+      const order: string[] = [];
+      mockFocusAccount.mockImplementation(() => {
+        order.push('focus');
+      });
+      mockGetAccountURL.mockImplementation(() =>
+        order.includes('focus') ? 'https://chat.google.com/u/2/' : null
+      );
+      mockLoadAccountURL.mockImplementation(() => {
+        order.push('load');
+        return true;
+      });
+      const win = makeFakeWindow('https://chat.google.com/u/0/');
+      const feature = await import('./externalLinks.js');
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
+
+      const handler = win.webContents.setWindowOpenHandler.mock.calls[0][0];
+      expect(
+        handler({ url: 'https://chat.google.com/u/2/room/restored' } as Electron.HandlerDetails)
+      ).toEqual({ action: 'deny' });
+
+      expect(order[0]).toBe('focus');
+      expect(order).toContain('load');
+      expect(mockLoadAccountURL).toHaveBeenCalledWith(
+        expect.anything(),
+        2,
+        'https://chat.google.com/u/2/room/restored'
+      );
+    });
+
+    it('records two focus-then-load sequences when a second Chat link is issued immediately', async () => {
+      mockHasAccount.mockReturnValue(true);
+      mockGetAccountURL.mockReturnValue('https://chat.google.com/u/2/');
+      const order: string[] = [];
+      mockFocusAccount.mockImplementation(() => {
+        order.push('focus');
+      });
+      mockLoadAccountURL.mockImplementation((_manager, accountIndex, url: string) => {
+        order.push(`load:${String(accountIndex)}:${url}`);
+        return true;
+      });
+      const win = makeFakeWindow('https://chat.google.com/u/0/');
+      const feature = await import('./externalLinks.js');
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
+
+      const handler = win.webContents.setWindowOpenHandler.mock.calls[0][0];
+      const first = 'https://chat.google.com/u/2/room/first';
+      const second = 'https://chat.google.com/u/2/room/second';
+      expect(handler({ url: first } as Electron.HandlerDetails)).toEqual({ action: 'deny' });
+      expect(handler({ url: second } as Electron.HandlerDetails)).toEqual({ action: 'deny' });
+
+      expect(order).toEqual([
+        'focus',
+        `load:2:${first}`,
+        'focus',
+        'focus',
+        `load:2:${second}`,
+        'focus',
+      ]);
+      expect(win.loadURL).not.toHaveBeenCalled();
+    });
+
+    it('creates a missing account instead of navigating the source host', async () => {
+      mockHasAccount.mockReturnValue(false);
+      const win = makeFakeWindow('https://chat.google.com/u/0/');
+      const { createAccountWindow } = await import('../utils/account/accountWindowManager.js');
+      const feature = await import('./externalLinks.js');
+      feature.installExternalLinkGuards(
+        win.webContents as unknown as Electron.WebContents,
+        win as unknown as Electron.BrowserWindow
+      );
+
+      const handler = win.webContents.setWindowOpenHandler.mock.calls[0][0];
+      const result = handler({
+        url: 'https://chat.google.com/u/4/room/new',
+      } as Electron.HandlerDetails);
+
+      expect(result).toEqual({ action: 'deny' });
+      expect(createAccountWindow).toHaveBeenCalledWith('https://chat.google.com/u/4/room/new', 4);
+      expect(mockMarkAsBootstrap).toHaveBeenCalledWith(4);
+      expect(win.loadURL).not.toHaveBeenCalled();
+    });
+
     it('will-navigate prevents non-HTTP schemes (parity with window-open handler)', async () => {
       const win = makeFakeWindow('https://chat.google.com');
       const feature = await import('./externalLinks.js');
