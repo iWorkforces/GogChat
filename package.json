@@ -1,7 +1,7 @@
 {
   "name": "gogchat",
   "productName": "GogChat",
-  "version": "3.21.2",
+  "version": "3.21.3",
   "description": "GogChat is an unofficial macOS desktop wrapper for Google Chat, built with Electron and TypeScript.",
   "private": true,
   "repository": "https://github.com/iWorkforces/GogChat",
@@ -58,7 +58,7 @@
     "@electron/rebuild": "^4.2.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
-    "@rsbuild/core": "^2.2.4",
+    "@rsbuild/core": "^2.2.5",
     "@rslib/core": "^1.0.0",
     "@rspack/core": "^2.2.3",
     "@tsconfig/node24": "^24.0.5",
