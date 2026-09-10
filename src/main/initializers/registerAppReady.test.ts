@@ -287,6 +287,7 @@ describe('registerAppReady characterization', () => {
     expect(scheduledImmediates.length).toBe(1);
 
     flushImmediate();
+    await vi.waitFor(() => expect(mocks.runDeferredPhase).toHaveBeenCalled());
 
     const ui = mocks.order.indexOf('phase:ui');
     const warm = mocks.order.indexOf('warm-initial-icons');

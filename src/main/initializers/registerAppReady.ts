@@ -24,11 +24,6 @@ import {
 export { getMostRecentWindow };
 import { registerGlobalCleanups } from './registerGlobalCleanups.js';
 import { initializeStore } from '../config.js';
-import {
-  warmInitialIcons,
-  warmSoonDeferredIcons,
-  runDeferredPhase,
-} from '../utils/account/cacheWarmer.js';
 import { createTrackedInterval } from '../utils/lifecycle/resourceCleanup.js';
 import environment from '../../environment.js';
 import { runPhase } from '../utils/lifecycle/featureRunner.js';
@@ -209,28 +204,34 @@ export function registerAppReady(options: AppReadyOptions): void {
       // warmInitialIcons is moved here (off the critical path) — the window icon (256.png)
       // is already loaded on-demand in windowWrapper via getIconCache().getIcon().
       // All other warmed icons are consumed by deferred-only features (tray, badges, inOnline).
+      // Dynamic import keeps cacheWarmer + configProfiler out of lib/main/index.js
+      // (mainBundleSize budget).
       setImmediate(() => {
-        warmInitialIcons();
-        warmSoonDeferredIcons();
+        void (async () => {
+          const { warmInitialIcons, warmSoonDeferredIcons, runDeferredPhase } =
+            await import('../utils/account/cacheWarmer.js');
+          warmInitialIcons();
+          warmSoonDeferredIcons();
 
-        // visibility: sample per-renderer memory every 60s so later
-        // optimization phases (B/C) can be measured. Tracked via resourceCleanup
-        // so it is torn down on app shutdown.
-        if (!app.isPackaged) {
-          createTrackedInterval(
-            () => {
-              perfMonitor.sampleAllRenderers(accountWindowManager);
-            },
-            60 * 1000,
-            'renderer-memory-sampling'
-          );
-        }
+          // visibility: sample per-renderer memory every 60s so later
+          // optimization phases (B/C) can be measured. Tracked via resourceCleanup
+          // so it is torn down on app shutdown.
+          if (!app.isPackaged) {
+            createTrackedInterval(
+              () => {
+                perfMonitor.sampleAllRenderers(accountWindowManager);
+              },
+              60 * 1000,
+              'renderer-memory-sampling'
+            );
+          }
 
-        void runDeferredPhase({
-          context,
-          getMainWindow,
-          isDev: environment.isDev,
-        });
+          void runDeferredPhase({
+            context,
+            getMainWindow,
+            isDev: environment.isDev,
+          });
+        })();
       });
     })
     .catch((error: unknown) => {
