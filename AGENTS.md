@@ -26,23 +26,23 @@ macOS-first Electron wrapper for Google Chat (`https://chat.google.com`). Dual R
 
 ## WHERE TO LOOK
 
-| Task | Location | Notes |
-|------|----------|-------|
-| App entry | `src/main/index.ts` | Thin: V8 heap, single-instance, deep-link, ready/shutdown |
-| whenReady | `src/main/initializers/registerAppReady.ts` | Dynamic-imports `cacheWarmer` on `setImmediate` |
-| Feature specs | `src/main/initializers/{security,ui,deferred}.spec.ts` | Only registration path |
-| Generated plan | `src/main/generated/featurePlan.ts` | **Do not hand-edit** |
-| Feature runner | `src/main/utils/lifecycle/featureRunner.ts` | Walks generated batches |
-| BW accounts | `src/main/utils/account/accountWindowManager.ts` | Default backend |
-| WCV accounts | `src/main/utils/account/accountViewManager.ts` | Opt-in `app.useWebContentsView` |
-| WC navigation | `src/main/utils/account/accountNavigation.ts` | Never WCV host `loadURL` |
-| IPC names | `src/shared/constants.ts` | Never string literals |
-| Preload | `src/preload/index.ts` | CJS; no raw `ipcRenderer` on bridge |
-| Identity | `src/shared/appIdentity.ts` + `scripts/app-identity.cjs` | Lockstep with electron-builder |
-| Perf export | `src/main/utils/lifecycle/performanceFinalizer.ts` | One-shot; not `runDevPostDeferred` |
-| Budget | `scripts/check-perf-budget.js` | `mainBundleSize` 100KB gated |
-| Tests | `tests/AGENTS.md` | Four Playwright projects |
-| Packaging | `mac/AGENTS.md` + `scripts/AGENTS.md` | Dual DMG + guarded Windows |
+| Task           | Location                                                 | Notes                                                     |
+| -------------- | -------------------------------------------------------- | --------------------------------------------------------- |
+| App entry      | `src/main/index.ts`                                      | Thin: V8 heap, single-instance, deep-link, ready/shutdown |
+| whenReady      | `src/main/initializers/registerAppReady.ts`              | Dynamic-imports `cacheWarmer` on `setImmediate`           |
+| Feature specs  | `src/main/initializers/{security,ui,deferred}.spec.ts`   | Only registration path                                    |
+| Generated plan | `src/main/generated/featurePlan.ts`                      | **Do not hand-edit**                                      |
+| Feature runner | `src/main/utils/lifecycle/featureRunner.ts`              | Walks generated batches                                   |
+| BW accounts    | `src/main/utils/account/accountWindowManager.ts`         | Default backend                                           |
+| WCV accounts   | `src/main/utils/account/accountViewManager.ts`           | Opt-in `app.useWebContentsView`                           |
+| WC navigation  | `src/main/utils/account/accountNavigation.ts`            | Never WCV host `loadURL`                                  |
+| IPC names      | `src/shared/constants.ts`                                | Never string literals                                     |
+| Preload        | `src/preload/index.ts`                                   | CJS; no raw `ipcRenderer` on bridge                       |
+| Identity       | `src/shared/appIdentity.ts` + `scripts/app-identity.cjs` | Lockstep with electron-builder                            |
+| Perf export    | `src/main/utils/lifecycle/performanceFinalizer.ts`       | One-shot; not `runDevPostDeferred`                        |
+| Budget         | `scripts/check-perf-budget.js`                           | `mainBundleSize` 100KB gated                              |
+| Tests          | `tests/AGENTS.md`                                        | Four Playwright projects                                  |
+| Packaging      | `mac/AGENTS.md` + `scripts/AGENTS.md`                    | Dual DMG + guarded Windows                                |
 
 Child guides: `src/`, `src/main/` (+ features/initializers/utils/{account,config,ipc,lifecycle,platform,security}), `src/shared/` (+ types), `src/preload/`, `src/offline/`, `scripts/`, `tests/`, `mac/`, `resources/`. Skip `docs/`, `.github/workflows/`, `src/main/generated/`, `resources/icons/*` — parent + `scripts/` cover them.
 
@@ -50,16 +50,16 @@ Child guides: `src/`, `src/main/` (+ features/initializers/utils/{account,config
 
 Centrality is **grep-estimated** (no LSP/codegraph in this workspace).
 
-| Symbol | Type | Location | Refs (prod imports) | Role |
-|--------|------|----------|---------------------|------|
-| `IPC_CHANNELS` | const | `src/shared/constants.ts` | ~16 | Channel name hub |
-| `asType` | fn | `src/shared/typeUtils.ts` | ~22 | Allowed cast helper |
-| `asAccountIndex` | fn | `src/shared/types/branded.ts` | ~8 | Brand constructor |
-| `getAccountWindowManager` | fn | `accountWindowManager.ts` | 7 | Account singleton factory |
-| `loadAccountURL` | fn | `accountNavigation.ts` | 4 | WC-first navigation |
-| `perfMonitor` | const | `performanceMonitor.ts` | 4 | Startup markers |
-| `runPhase` | fn | `featureRunner.ts` | 2 | Phase execution |
-| `registerAppReady` | fn | `registerAppReady.ts` | 1 | whenReady owner |
+| Symbol                    | Type  | Location                      | Refs (prod imports) | Role                      |
+| ------------------------- | ----- | ----------------------------- | ------------------- | ------------------------- |
+| `IPC_CHANNELS`            | const | `src/shared/constants.ts`     | ~16                 | Channel name hub          |
+| `asType`                  | fn    | `src/shared/typeUtils.ts`     | ~22                 | Allowed cast helper       |
+| `asAccountIndex`          | fn    | `src/shared/types/branded.ts` | ~8                  | Brand constructor         |
+| `getAccountWindowManager` | fn    | `accountWindowManager.ts`     | 7                   | Account singleton factory |
+| `loadAccountURL`          | fn    | `accountNavigation.ts`        | 4                   | WC-first navigation       |
+| `perfMonitor`             | const | `performanceMonitor.ts`       | 4                   | Startup markers           |
+| `runPhase`                | fn    | `featureRunner.ts`            | 2                   | Phase execution           |
+| `registerAppReady`        | fn    | `registerAppReady.ts`         | 1                   | whenReady owner           |
 
 Hotspots (>400 prod lines): `accountViewManager.ts` (805), `accountWindowManager.ts` (800), `updateWindow.ts` (628), `appIconAurora.ts` (547), `performanceMonitor.ts` (467).
 
