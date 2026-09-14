@@ -24,20 +24,20 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 
 - `package-mac-arch.sh` - shared arch-pinned macOS release package helper (`arm64` or `x64`): `build:prod`, signing preflight, single-arch electron-builder with `--publish never`.
 - `mac-release-signing.js` / `verify-mac-release-signing.js` — credential pair policy + codesign/spctl/stapler on that job's `dist/`.
-- `verify-macos-package-artifacts.js` — DMG basenames, required arm64/x64, no `amd64`/`ia32`/`universal`.
+- `release-artifact-sidecar.js` — schema owner (`schemaVersion` 1). Fields: `schemaVersion`, `sourceSha`, `packageVersion`, `platform`, `arch`, `basename`, `size`, `sha256`. Extra/missing fields are malformed. Unsigned metadata, not an attestation or packaged-runtime proof.
+- `verify-macos-package-artifacts.js` — DMG basenames, required arm64/x64, no `amd64`/`ia32`/`universal`. After those checks pass, writes or validates one sidecar per accepted DMG when `--source-sha` and `--package-version` are both set.
 - `verify-packaged-dependency-closure.js` — runtime externals vs packaged fixture; classify `@rspack`/`@ast-grep`/`@rslib`. Run **before** removing payload.
 - `verify-packaged-preload.js` — packaged-presence only (`lib/preload/index.js` + relative CJS chunks). Does not prove execution (built-CJS fixture).
 - `app-identity.cjs` — `APP_ID` / `NOTARIZE_BUNDLE_ID` = `com.ocworkforces.gogchat`. Lockstep with `src/shared/appIdentity.ts` and `electron-builder.yml`. `notarize.cjs` uses this id only. `notarize-identity.test.js` forbids productFilename-derived / typo ids.
 - `after-pack.cjs` — strip/locale for darwin **arm64 and x64** (not universal). `remove-locales.js` is standalone (prefer after-pack).
-- `verify-windows-package-artifacts.js` / `verify-windows-signing-policy.js` — guarded NSIS names + `WIN_CSC_*` pair or explicit unsigned waiver.
-- `verify-release-artifacts.js` — both mac DMGs **and** both Windows setups before publish.
-- Contract tests: `package-scaffold.test.js`, `playwright-config.test.js` (four isolated Playwright projects), `release-workflow.test.js`, mac/Windows artifact+signing tests.
+- `verify-windows-package-artifacts.js` / `verify-windows-signing-policy.js` — guarded NSIS names + `WIN_CSC_*` pair or unsigned waiver; same post-check sidecar write/validate as macOS.
+- `verify-release-artifacts.js` — both mac DMGs **and** both Windows setups, each with a matching sidecar, before publish. Fails closed on missing, duplicate, orphaned, malformed, cross-source, cross-version, architecture-mismatched, size-mismatched, or digest-mismatched sidecar evidence. `SHA256SUMS.txt` is hashed from the validated output bytes.
+- Contract tests: `package-scaffold.test.js`, `playwright-config.test.js` (four isolated Playwright projects), `release-workflow.test.js`, `release-artifact-sidecar.test.js`, mac/Windows artifact+signing tests.
 
 ### Evidence and claims
 
 - `verify-remediation-evidence.js` / `verify-performance-claims.js` — core-remediation vs release-readiness receipts; package bytes ≠ startup wins.
-- `check-doc-claims.js` - audits documented AGENTS claims against source (singleton destroyers, lazy cleanups, branded helpers, feature isolation). Pure config readers (for example `accountLabelStore` get helpers) and pure helpers such as `accountNavigation.getAccountURL` belong on the destroyer allowlist when they are not process singletons. Architecture-scoped only — does not assert version strings or marketing TLS claims.
-- `hooks/pre-push` - blocks pushes on lint/check failures.
+- `check-doc-claims.js` - audits AGENTS claims (destroyers, lazy cleanups, branded helpers, feature isolation). Pure readers (`accountLabelStore` gets, `accountNavigation.getAccountURL`) stay on the destroyer allowlist. Architecture-scoped only. `hooks/pre-push` blocks lint/check failures.
 
 ## Build invariants
 
@@ -69,12 +69,12 @@ Scripts drive the dual Rsbuild pipeline, feature-plan generation, packaging, not
 
 ## Packaging
 
-DMG/arch pinning, artifact names, and `mac.target.arch` rules live in `mac/AGENTS.md`. Scripts here own verify/signing helpers and the release DAG. Dual-arch mac DMGs + guarded Windows NSIS are the release set; `verify-release-artifacts` fails closed if either mac arch is missing. `package:win:*` is release-engineering preparation, not a public support claim.
+DMG/arch pinning, artifact names, and `mac.target.arch` rules live in `mac/AGENTS.md`. Scripts here own verify/signing helpers and the release DAG. Release set = both mac DMGs + both Windows NSIS + four matching sidecars; aggregate fails closed on missing arch or sidecar identity mismatch. Local `package:*:artifacts` without identity flags stays listing-only. `package:win:*` is release-engineering preparation, not a public support claim. Do not write sidecars from `package-mac-arch.sh` or treat them as signatures.
 
 ### Current CI (do not invent extra gates)
 
 - **PR Check** (`.github/workflows/pr-check.yml`): frozen install → Electron binary → literal typecheck → `bun scripts/check-doc-claims.js` → `bash ./scripts/lint.sh` → literal Vitest coverage (no second unit run) → madge → `bun scripts/build-rsbuild.js` → Playwright `e2e`/`integration`/`performance`/`preload-artifact` → five-run headless (`GOGCHAT_PERF_RUNS=5 HEADLESS_TIMEOUT_MS=90000 node scripts/headless-startup.js`) → `node scripts/check-perf-budget.js performance-metrics.json` → always-upload metrics and `coverage-output.txt`. Contract: `scripts/pr-workflow.test.js`.
-- **Release** (`.github/workflows/release.yml`): `prepare-release` is read-only exact-SHA eligibility via `scripts/release-eligibility.js`. `inspectRemoteTag` peels annotated tags (`refs/tags/vX^{}`) to the commit SHA and `sanitizeReleaseTagName` rejects anything that is not `v?[A-Za-z0-9][A-Za-z0-9._-]*`. Assert `should_release` for absent/same-SHA (`true`) and wrong-SHA/tag-trigger (`false`). `qualify-release` then runs the PR-check gate set on that SHA. mac arm64/x64 and Windows x64/arm64 package jobs need both prepare and qualify and check out the emitted SHA. Aggregate verify needs all four builds. `create-release-tag` is the sole tag writer (`scripts/release-tag.js`): recheck remote, create if absent, retry if same SHA, fail if wrong SHA, never force-push/delete/move; push `refs/tags/<name>` only. Job concurrency is `create-release-tag-${tag}` with `cancel-in-progress: false`. Publish needs verified assets and the created tag; a publish failure leaves the qualified tag for a later retry. Only create-tag and publish have `contents: write`. Candidate tag is `v3.21.3` from `package.json`.
+- **Release** (`.github/workflows/release.yml`): `prepare-release` is read-only exact-SHA eligibility via `scripts/release-eligibility.js`. `inspectRemoteTag` peels annotated tags (`refs/tags/vX^{}`) to the commit SHA and `sanitizeReleaseTagName` rejects anything that is not `v?[A-Za-z0-9][A-Za-z0-9._-]*`. Assert `should_release` for absent/same-SHA (`true`) and wrong-SHA/tag-trigger (`false`). `qualify-release` then runs the PR-check gate set on that SHA. mac arm64/x64 and Windows x64/arm64 package jobs need both prepare and qualify and check out the emitted SHA. Each matrix job writes a versioned JSON sidecar after platform verification and uploads it with that arch’s uniquely named artifact. Aggregate verify needs all four builds plus matching sidecars, and receives the intended `source_sha` and `package_version`. `create-release-tag` is the sole tag writer (`scripts/release-tag.js`): recheck remote, create if absent, retry if same SHA, fail if wrong SHA, never force-push/delete/move; push `refs/tags/<name>` only. Job concurrency is `create-release-tag-${tag}` with `cancel-in-progress: false`. Publish needs verified assets and the created tag; a publish failure leaves the qualified tag for a later retry. Only create-tag and publish have `contents: write`. Candidate tag is `v3.21.4` from `package.json`.
 - Typecheck uses `@typescript/native` (TS 7). The `typescript` package on disk is 6.x and is **not** the typecheck binary.
 
 - Never call packaging scripts without building first. Never remove a dependency without a green closure report and disposable package smoke. Do not log signing/notarization secrets. Missing signing/auth credentials → `[blocked: credentials unavailable]`, not silent success.

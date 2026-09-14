@@ -37,6 +37,7 @@ describe('release workflow publish-once contract', () => {
 
     expect(prepareJob).toContain('node scripts/release-eligibility.js');
     expect(prepareJob).toContain('source_sha');
+    expect(prepareJob).toContain('package_version');
     expect(prepareJob).toContain('tag_name');
     expect(prepareJob).toContain('should_release');
     expect(prepareJob).toContain('persist-credentials: false');
@@ -115,10 +116,12 @@ describe('release workflow publish-once contract', () => {
     expect(macSigningPreflight).toContain('exit 1');
     expect(buildMacJob).not.toContain('bun run package -- --publish never');
     expect(buildMacJob).toContain(
-      'bun scripts/verify-macos-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }}'
+      'bun scripts/verify-macos-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }} --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version "${{ needs.prepare-release.outputs.package_version }}"'
     );
     expect(buildMacJob).toContain('name: release-macos-${{ matrix.arch }}');
-    expect(buildMacJob).toContain('path: dist/*-${{ matrix.arch }}.dmg');
+    expect(buildMacJob).toContain('dist/*-${{ matrix.arch }}.dmg');
+    expect(buildMacJob).toContain('dist/*-${{ matrix.arch }}.dmg.json');
+    expect(buildMacJob.match(/actions\/upload-artifact@/g) ?? []).toHaveLength(1);
     expect(buildMacJob).toContain('actions/upload-artifact@');
     expect(buildMacJob).not.toContain('softprops/action-gh-release');
     expect(buildMacJob).not.toMatch(/\b(amd64|ia32|universal)\b/);
@@ -152,8 +155,11 @@ describe('release workflow publish-once contract', () => {
     expect(buildWindowsJob).toContain('Get-AuthenticodeSignature -FilePath $installer.FullName');
     expect(buildWindowsJob).toContain("if ($signature.Status -ne 'Valid') {");
     expect(buildWindowsJob).toContain(
-      'bun scripts/verify-windows-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }}'
+      'bun scripts/verify-windows-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }} --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version "${{ needs.prepare-release.outputs.package_version }}"'
     );
+    expect(buildWindowsJob).toContain('dist/*windows-${{ matrix.arch }}-setup.exe');
+    expect(buildWindowsJob).toContain('dist/*windows-${{ matrix.arch }}-setup.exe.json');
+    expect(buildWindowsJob.match(/actions\/upload-artifact@/g) ?? []).toHaveLength(1);
     expect(buildWindowsJob).toContain('bun run package:win:signing-policy');
     expect(buildWindowsJob.indexOf('bun run package:win:signing-policy')).toBeLessThan(
       buildWindowsJob.indexOf('bun run package:win:${{ matrix.arch }}')
@@ -173,6 +179,9 @@ describe('release workflow publish-once contract', () => {
     );
     expect(signatureProofStep).toBeLessThan(
       buildWindowsJob.indexOf('bun scripts/verify-windows-package-artifacts.js')
+    );
+    expect(buildWindowsJob.indexOf('bun scripts/verify-windows-package-artifacts.js')).toBeLessThan(
+      buildWindowsJob.indexOf('actions/upload-artifact@')
     );
     expect(buildWindowsJob).toContain('actions/upload-artifact@');
     expect(buildWindowsJob).not.toContain('softprops/action-gh-release');
@@ -199,6 +208,9 @@ describe('release workflow publish-once contract', () => {
     expect(buildMacJob.indexOf(verifierCommand)).toBeLessThan(
       buildMacJob.indexOf('bun scripts/verify-macos-package-artifacts.js')
     );
+    expect(buildMacJob.indexOf('bun scripts/verify-macos-package-artifacts.js')).toBeLessThan(
+      buildMacJob.indexOf('actions/upload-artifact@')
+    );
     expect(buildWindowsJob).not.toContain('verify-mac-release-signing.js');
     expect(verifyJob).not.toContain('verify-mac-release-signing.js');
   });
@@ -214,6 +226,10 @@ describe('release workflow publish-once contract', () => {
     );
     expect(verifyJob).toContain('merge-multiple: true');
     expect(verifyJob).toContain('bun scripts/verify-release-artifacts.js');
+    expect(verifyJob).toContain('--source-sha ${{ needs.prepare-release.outputs.source_sha }}');
+    expect(verifyJob).toContain(
+      '--package-version "${{ needs.prepare-release.outputs.package_version }}"'
+    );
     expect(verifyJob).toContain('bun run package:win:signing-policy');
     expect(verifyJob).toContain('WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}');
     expect(verifyJob).not.toContain('AZURE_CLIENT_ID');

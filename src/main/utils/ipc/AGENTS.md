@@ -42,7 +42,7 @@ Prefer `defineIPC({ kind: 'on' | 'reply' | 'invoke' })` for new handlers. `creat
 
 - Renderer → main (`IPC_CHANNELS`): `UNREAD_COUNT`, `FAVICON_CHANGED`, `NOTIFICATION_SHOW`, `NOTIFICATION_CLICKED`, `CHECK_IF_ONLINE`, `PASSKEY_AUTH_FAILED`.
 - Main → renderer: `SEARCH_SHORTCUT`, `ONLINE_STATUS`.
-- Notification show handlers must validate payloads (including icon allowlist via shared validators), then use `nativeNotification` / `notificationFocus` — not ad-hoc `new Notification` outside those helpers (except the permission probe in `notificationAccess`).
+- Notification show handlers must validate payloads (including icon allowlist via shared validators), then use `nativeNotification` / `notificationFocus`. Known exceptions: `notificationAccess` permission probe and `inOnline.showOfflineNotification`. Unread/favicon use `registerFastHandler`, not `defineIPC`.
 
 ## Anti-patterns
 

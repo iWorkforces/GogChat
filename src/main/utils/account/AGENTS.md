@@ -58,7 +58,7 @@ This directory owns multi-account window/view backends and per-account session p
   - Parking a frontmost non-0 account promotes a visible fallback (prefer account-0). Refuse to park the last visible account when no fallback exists.
 - Memory-pressure dehydration **never** targets account-0 (BW pressure path aligned with AGENTS).
 - Keep backend-specific behavior behind the shared manager contract whenever possible.
-- Router hydration hooks must hydrate only when `isDehydrated===true`, not when merely non-visible.
+- BW `routeAccountWindow` hydrates only when `isDehydrated===true`. WCV does not use the router; `switchToAccount` also fronts hidden-live.
 
 ## Deferred phase / metrics hook
 

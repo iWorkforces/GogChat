@@ -113,16 +113,37 @@ export function evaluateEligibility({ ref, refName, sourceSha, packageVersion, r
   };
 }
 
+export function sanitizeGithubOutputValue(name, value) {
+  const text = String(value ?? '');
+  if (/[\r\n\0]/.test(text)) {
+    throw new Error(`${name} must not contain CR, LF, or NUL`);
+  }
+  return text;
+}
+
+export function sanitizePackageVersion(version) {
+  const text = String(version ?? '');
+  if (text.trim() === '') {
+    throw new Error('package version is required');
+  }
+  return sanitizeGithubOutputValue('package version', text);
+}
+
 export function formatGithubOutputs(result) {
   const lines = [
-    `tag_name=${result.tag_name}`,
-    `source_sha=${result.source_sha}`,
+    `tag_name=${sanitizeGithubOutputValue('tag_name', result.tag_name)}`,
+    `source_sha=${sanitizeGithubOutputValue('source_sha', result.source_sha)}`,
     `should_release=${result.should_release ? 'true' : 'false'}`,
     `eligible=${result.eligible ? 'true' : 'false'}`,
-    `classification=${result.classification}`,
+    `classification=${sanitizeGithubOutputValue('classification', result.classification)}`,
     `publish_intent=${result.publish_intent ? 'true' : 'false'}`,
     `mutation=${result.mutation ? 'true' : 'false'}`,
   ];
+  if (result.package_version) {
+    lines.push(
+      `package_version=${sanitizeGithubOutputValue('package_version', result.package_version)}`
+    );
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -140,9 +161,10 @@ export function parseArgs(argv) {
 export function main(argv = process.argv.slice(2), env = process.env) {
   const args = parseArgs(argv);
   const remote = args.remote ?? 'origin';
-  const packageVersion =
+  const packageVersion = sanitizePackageVersion(
     args['package-version'] ??
-    JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')).version;
+      JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')).version
+  );
   const sourceSha = args['source-sha'];
   const tagName = sanitizeReleaseTagName(
     String(args.ref ?? '').startsWith('refs/tags/')
@@ -157,6 +179,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     packageVersion,
     remoteTagSha,
   });
+  result.package_version = packageVersion;
 
   if (result.fail) {
     process.stderr.write(`${result.reason}\n`);

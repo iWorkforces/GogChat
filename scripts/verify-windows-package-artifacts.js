@@ -5,6 +5,8 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+import { syncAcceptedArtifactSidecars } from './release-artifact-sidecar.js';
+
 export const WINDOWS_INSTALLER_ARCHES = ['x64', 'arm64'];
 const FORBIDDEN_WINDOWS_ARCH_LABELS = ['amd64', 'ia32', 'universal'];
 
@@ -17,9 +19,11 @@ class UsageError extends Error {
 
 function usage() {
   return [
-    'Usage: bun scripts/verify-windows-package-artifacts.js [--dist <dir>] [--manifest] [--require-arch <x64|arm64>]',
+    'Usage: bun scripts/verify-windows-package-artifacts.js [--dist <dir>] [--manifest] [--require-arch <x64|arm64>] [--source-sha <sha>] [--package-version <version>]',
     '',
     'Lists generated Windows NSIS installer artifacts without publishing or mutating releases.',
+    'When --source-sha and --package-version are provided, writes or validates one',
+    'versioned JSON sidecar per accepted installer after filename and architecture checks.',
   ].join('\n');
 }
 
@@ -87,6 +91,8 @@ function parseArgs(argv) {
     help: false,
     manifest: false,
     requiredArches: [],
+    sourceSha: null,
+    packageVersion: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -107,11 +113,29 @@ function parseArgs(argv) {
       }
       parsed.requiredArches.push(value);
       index += 1;
+    } else if (arg === '--source-sha') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new UsageError('--source-sha requires a 40-character hex object id');
+      }
+      parsed.sourceSha = value;
+      index += 1;
+    } else if (arg === '--package-version') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new UsageError('--package-version requires a version string');
+      }
+      parsed.packageVersion = value;
+      index += 1;
     } else if (arg === '--help' || arg === '-h') {
       parsed.help = true;
     } else {
       throw new UsageError(`Unknown argument: ${arg}`);
     }
+  }
+
+  if ((parsed.sourceSha === null) !== (parsed.packageVersion === null) && parsed.help === false) {
+    throw new UsageError('--source-sha and --package-version must be provided together');
   }
 
   return parsed;
@@ -210,6 +234,20 @@ function runCli(argv) {
   if (violations.length > 0) {
     console.error(violations.join('\n'));
     process.exit(1);
+  }
+
+  if (parsed.sourceSha !== null && parsed.packageVersion !== null) {
+    const sidecarViolations = syncAcceptedArtifactSidecars({
+      distDir,
+      artifacts: manifest.installers,
+      platform: 'windows',
+      sourceSha: parsed.sourceSha,
+      packageVersion: parsed.packageVersion,
+    });
+    if (sidecarViolations.length > 0) {
+      console.error(sidecarViolations.join('\n'));
+      process.exit(1);
+    }
   }
 }
 

@@ -16,7 +16,7 @@ This directory contains main-process security wrappers and SafeStorage-backed ki
 ## CSP and webview constraints
 
 - `cspHeaderHandler.ts` performs targeted COEP/COOP stripping for Google domains.
-- It strips `frame-ancestors`/XFO only for benign hosts such as `accounts.google.com` and `ogs.google.com` (`BENIGN_CSP_BLOCKED_HOSTS`). `windowWrapper` also uses that list to suppress expected console/subframe noise.
+- It strips `frame-ancestors`/XFO only for benign hosts such as `accounts.google.com` and `ogs.google.com` (`BENIGN_CSP_BLOCKED_HOSTS`). Noise suppression uses that list via `benignLogFilter` / `windowUtils.attachHealthMonitoring`.
 - Do not wholesale replace Google CSP.
 - Current `windowWrapper` uses `webSecurity: true`. Historical rationale for older webview exceptions lives in `docs/windowWrapper-history.md` — read it before changing webview/network rules.
 
@@ -25,7 +25,7 @@ This directory contains main-process security wrappers and SafeStorage-backed ki
 - `permissionHandler.ts` allowlists only expected Chromium permissions such as notifications, mediaKeySystem, and geolocation (web permission layer — separate from OS notification authorization).
 - Trust algorithm: first present requesting identity must be trusted (`requestingOrigin` arg → `requestingUrl` → `securityOrigin`). **Never** use `embeddingOrigin` for allow decisions. Do not rescue an untrusted requesting URL via `securityOrigin`.
 - Media permission requests: deny empty/missing `mediaTypes`; deny lists with no `video`/`audio` (unknown-only types must not grant). Then AND TCC checks for each present type.
-- `mediaAccess.ts` deduplicates macOS TCC camera/mic prompts via `systemPreferences` and returns false in CI/headless contexts. Security-phase `mediaPermissions` schedules proactive TCC checks fire-and-forget (does not block window creation).
+- `mediaAccess.ts` deduplicates macOS TCC camera/mic prompts via `systemPreferences` and returns false when `CI=1`/`true`. Security-phase `mediaPermissions` schedules proactive TCC checks fire-and-forget (does not block window creation).
 - `notificationAccess.ts` owns **macOS OS-level** notification authorization (Electron has no `getNotificationAccessStatus` API):
   - Call `ensureNotificationPermission({ parentWindow })` from `windowWrapper` / WCV host on **`ready-to-show`**.
   - First-run short dialog when config flag is false and a parent window is provided: **Enable** / **System Settings** / **Not Now**.

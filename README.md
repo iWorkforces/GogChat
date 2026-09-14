@@ -1,8 +1,8 @@
 # GogChat
 
-GogChat is an unofficial macOS desktop wrapper for Google Chat, built with Electron and TypeScript. It loads `https://mail.google.com/chat/u/0` in isolated Electron sessions, adds native desktop integrations, and keeps the main-process startup path small through build-time feature planning.
+GogChat is an unofficial macOS desktop wrapper for Google Chat, built with Electron and TypeScript. It loads `https://chat.google.com` in isolated Electron sessions (`persist:account-N`), adds native desktop integrations, and keeps the main-process startup path small through build-time feature planning.
 
-> **Platform:** macOS — production packages both Apple Silicon (`arm64`) and Intel (`x64`) DMGs. Primary development and CI runners target Apple Silicon.
+> **Platform:** macOS — production CI packages separate Apple Silicon (`arm64`) and Intel (`x64`) DMGs. Primary development and CI runners target Apple Silicon. Dual-arch packaging is a delivery fact, not a claim of verified Intel runtime support.
 
 ## Features
 
@@ -15,6 +15,7 @@ GogChat is an unofficial macOS desktop wrapper for Google Chat, built with Elect
 - Optional fallback: Preferences → Notify on Unread Badge Increase (off by default) shows a generic banner when that account’s unread count rises while unfocused
 - Dock badge shows total unreads across accounts (capped at 99)
 - Preferences → Notification Settings… opens macOS Notifications for GogChat
+- Native About and Check for Updates dialogs (sandboxed `data:` windows)
 - Application menu and search shortcut integration
 - Auto-launch at login
 - Window state persistence
@@ -25,42 +26,42 @@ GogChat is an unofficial macOS desktop wrapper for Google Chat, built with Elect
 ### Multi-account runtime
 
 - Per-account `persist:account-N` Electron session partitions for cookie isolation
-- Multi-account windows managed by `accountWindowManager`
+- Dual backends behind `IAccountWindowManager`: BrowserWindow is the default; WebContentsView is opt-in via `app.useWebContentsView`
+- WebContents-first navigation (`loadAccountURL`); the WebContentsView host window is never navigated
 - Bootstrap login window promotion after authentication
-- Opt-in `WebContentsView` account backend behind the `app.useWebContentsView` config flag
-- Idle account session maintenance for cache cleanup
+- Idle account session maintenance for cache cleanup; memory-pressure dehydration never targets account 0
 
 ### Security
 
 - `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, and `webSecurity: true`
 - TLS trust is Chromium’s (no app-level custom certificate-pinning feature)
 - Encrypted `electron-store` configuration; macOS safeStorage / Keychain for security-sensitive flags
-- URL whitelist validation for navigation and external links
+- URL whitelist validation for navigation and external links (`validateExternalURL` + `shellWrapper`)
 - IPC channel constants, validators, rate limiting, and structured error handling
 - Targeted Content Security Policy header handling for embedded Google Chat pages (not a wholesale CSP rewrite)
 
 ### Performance and observability
 
-- Rsbuild/Rspack bundling with a single main-process entry and lazy deferred chunks
-- Non-blocking deferred feature phase after the first window is ready
-- Icon cache warmup and tiered icon loading
-- DNS/TCP/TLS preconnect for Google Chat-related hosts
-- Renderer V8 heap cap via `GOGCHAT_V8_HEAP_CAP_MB` (default: 512 MB)
+- Rsbuild/Rspack bundling with a single main-process entry and async-only deferred chunks (`lib/main/index.js` gated at 100 KB)
+- Non-blocking deferred feature phase after the first window is ready (`setImmediate` cache warmer)
+- Icon cache warmup and tiered icon loading (off the pre-window critical path)
+- Optional DNS/TCP/TLS preconnect for Google Chat-related hosts (`GOGCHAT_DISABLE_PRECONNECT=1` skips it)
+- Main-process V8 heap cap via `GOGCHAT_V8_HEAP_CAP_MB` (default: 512 MB)
 - Local-only CDP RUM telemetry, killable via secure flag
-- CI performance budget gate using headless startup metrics
+- CI performance budget gate using headless startup metrics (memory units are MB)
 
 ## Architecture
 
-GogChat is not structured like a default Electron starter app. The app uses a dual-build pipeline and declarative feature lifecycle.
+GogChat is not structured like a default Electron starter app. There is no `src/renderer`: the UI is remote Google Chat plus `src/offline/` and sandboxed About/Update `data:` dialogs. The app uses a dual-build pipeline and declarative feature lifecycle.
 
 ```text
 src/
-├── main/              # Electron main process
+├── main/              # Electron main process (thin index.ts)
 │   ├── features/      # Feature modules
 │   ├── initializers/  # App lifecycle + declarative feature specs
 │   ├── generated/     # Build-generated feature plan; do not edit by hand
 │   └── utils/         # Window/session/config/IPC/performance utilities
-├── preload/           # Sandbox-compatible CommonJS preload scripts
+├── preload/           # Sandbox-compatible CommonJS preload → window.gogchat
 ├── shared/            # Cross-process constants, validators, and types
 └── offline/           # Offline fallback assets copied into lib/offline
 ```
@@ -71,27 +72,31 @@ Feature registration is declarative:
 
 1. Feature specs live in `src/main/initializers/{security,ui,deferred}.spec.ts`.
 2. `scripts/featurePlanPlugin.js` parses those specs during the build.
-3. The plugin topologically sorts dependencies into batches and emits `src/main/generated/featurePlan.ts`.
+3. The plugin topologically sorts dependencies into batches (`security < critical < ui < deferred`) and emits `src/main/generated/featurePlan.ts`.
 4. `src/main/utils/lifecycle/featureRunner.ts` walks the generated plan at runtime.
 
-New features should be added as feature modules under `src/main/features/` and declared in the appropriate spec file. Do not register features in `src/main/index.ts`, and do not hand-edit generated files.
+`userAgent` is authored in `ui.spec.ts` with `phase: 'critical'` — the phase field, not the filename, decides when it runs. `*.spec.ts` under initializers is feature-plan input, not a test suite.
+
+New features should be added as feature modules under `src/main/features/` and declared in the appropriate spec file. Do not register features in `src/main/index.ts`, and do not hand-edit generated files. Feature-to-feature imports are forbidden except `menuActionRegistry.ts`.
 
 ### Build system
 
 `scripts/build-rsbuild.js` runs two Rsbuild passes:
 
-1. **Main process:** ESM, `electron-main` target, single entry at `src/main/index.ts`.
-2. **Preload scripts:** CommonJS, `electron-renderer` target, one entry per `src/preload/**/*.ts` file.
+1. **Main process:** ESM, `electron-main` target, single entry at `src/main/index.ts` → `lib/main/index.js`.
+2. **Preload scripts:** CommonJS, `electron-renderer` target, one entry per `src/preload/*.ts` file.
 
 The preload build must remain CommonJS because Electron sandboxed preload scripts cannot load ESM. The preload pass also keeps `cleanDistPath: false` so it does not wipe the main-process output.
+
+`bun run typecheck` runs `@typescript/native` (`tsc -b`). That emit writes into `lib/` and overwrites the Rsbuild bundle — measure `mainBundleSize` only after `bun run build:prod`. The on-disk `typescript` 6.x package is used only by the feature-plan parser.
 
 ## Development
 
 ### Prerequisites
 
-- macOS (Apple Silicon preferred for local development; Intel packaging supported)
+- macOS (Apple Silicon preferred for local development)
 - Node.js `>=24.16.0 <25.0.0`
-- Bun `>=1.3.13` (repository package manager: `bun@1.3.14`)
+- Bun `>=1.3.0` (repository package manager: `bun@1.4.2`)
 
 ### Setup
 
@@ -115,7 +120,7 @@ bun run build:watch
 # Build production output and launch Electron
 bun run start
 
-# Type-check the project
+# Type-check the project (@typescript/native / TS 7)
 bun run typecheck
 
 # Run Vitest
@@ -124,7 +129,7 @@ bun run test
 # Run Vitest once
 bun run test:run
 
-# Run coverage
+# Run coverage (94/92/94/94 on src/**/*.ts)
 bun run test:coverage
 
 # Run ESLint + Prettier checks
@@ -133,11 +138,8 @@ bun run lint:all
 # Auto-fix lint/format issues
 bun run lint:all:fix
 
-# Build an arm64 macOS DMG (default)
-bun run build:mac
-
-# Build an Intel x64 macOS DMG
-bun run build:mac:x64
+# Audit documented AGENTS.md claims
+bun run check:doc-claims
 
 # Arch-pinned macOS release packages (no publish side effect)
 bun run package:mac:arm64
@@ -146,12 +148,13 @@ bun run package:mac:x64
 
 ## Testing and quality gates
 
-- Unit tests are run with Vitest.
-- Playwright is available for Electron-oriented tests.
-- `bun run typecheck` runs `tsc -b`.
+- Default `bun run test` is Vitest only (colocated `*.test.ts` plus `scripts/**/*.test.js`).
+- Playwright is four isolated projects — `e2e`, `integration`, `performance`, `preload-artifact` — and needs `bun run build:prod` first. Import Electron fixtures from `tests/helpers/electron-test.ts`.
+- `bun run typecheck` runs `@typescript/native` `tsc -b`.
 - `bun run lint:all` runs the combined ESLint and Prettier checks.
 - `bun run check:doc-claims` validates documented claims that are covered by repository checks.
 - CI also checks circular dependencies with `madge` and runs the performance budget gate from `scripts/check-perf-budget.js` against `performance-metrics.json` produced by `scripts/headless-startup.js`.
+- Do not substitute evidence classes: source-unit ≠ built-CJS ≠ packaged-presence ≠ packaged-runtime ≠ headless ≠ workflow.
 
 ## Packaging and releases
 
@@ -175,9 +178,11 @@ bun run package:win:artifacts
 bun run package:win:signing-policy
 ```
 
-Release automation runs on GitHub Actions for `main` and `v*` tags. The split workflow prepares the tag, packages **both** macOS DMGs (`arm64` and `x64`) and native Windows CI installers, verifies aggregated artifacts, and uses one `publish-release` job for release upload.
+`package:mac:artifacts` / `package:win:artifacts` list and gate artifact names only. They do not pass identity flags, so they never write sidecars. Release CI calls `verify-macos-package-artifacts.js` / `verify-windows-package-artifacts.js` with `--source-sha` and `--package-version` after platform verification. Sidecars are unsigned metadata, not cryptographic attestations or packaged-runtime proof.
 
-macOS release assets are separate DMGs named `${productName}-${version}-arm64.dmg` and `${productName}-${version}-x64.dmg`. The public product remains a macOS desktop app; Windows release engineering/preparation is guarded and is not a public support claim. Support or publication claims for Windows require clean packaged smoke evidence on Windows x64 and real Windows arm64 before any user-facing wording changes.
+Release automation runs on GitHub Actions for `main` and `v*` tags. The workflow prepares an exact-SHA candidate, qualifies that SHA, packages **both** macOS DMGs (`arm64` and `x64`) and native Windows CI installers, writes one sidecar per binary, verifies the aggregated set, creates the tag from a single writer, and uses one `publish-release` job for upload.
+
+The published set is both mac DMGs, both Windows NSIS installers, four matching `*.json` sidecars, and `SHA256SUMS.txt`. macOS assets are named `${productName}-${version}-arm64.dmg` and `${productName}-${version}-x64.dmg`. The public product remains a macOS desktop app; Windows release engineering/preparation is guarded and is not a public support claim. Support or publication claims for Windows require clean packaged smoke evidence on Windows x64 and real Windows arm64 before any user-facing wording changes.
 
 Windows preparation uses separate NSIS installers named `${productName}-${version}-windows-x64-setup.exe` and `${productName}-${version}-windows-arm64-setup.exe`. Use `x64` in user-facing architecture labels, not `amd64`.
 
@@ -197,18 +202,18 @@ Notarization is handled by the electron-builder hooks when Apple credentials are
 - Use `configGet` / `configSet` for encrypted config access.
 - Store security-sensitive kill switches in `secureFlags.ts`, not regular config.
 - Import type-only symbols with `import type`.
-- Avoid barrel files and direct feature-to-feature imports.
+- Avoid barrel files and direct feature-to-feature imports (except `menuActionRegistry.ts`).
 
 ## Tech stack
 
-| Layer           | Technology           |
-| --------------- | -------------------- |
-| Runtime         | Electron 42          |
-| Language        | TypeScript 6         |
-| Package manager | Bun 1.3              |
-| Build           | Rsbuild / Rspack     |
-| Tests           | Vitest 4, Playwright |
-| Packaging       | electron-builder     |
+| Layer           | Technology                                    |
+| --------------- | --------------------------------------------- |
+| Runtime         | Electron `^44.3.0`                            |
+| Language        | TypeScript 7 typecheck (`@typescript/native`) |
+| Package manager | Bun `1.4.2`                                   |
+| Build           | Rsbuild / Rspack                              |
+| Tests           | Vitest 5, Playwright                          |
+| Packaging       | electron-builder                              |
 
 ## License
 

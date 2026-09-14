@@ -6,6 +6,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+import { collectReleaseArtifactSidecarEvidence } from './release-artifact-sidecar.js';
 import {
   findMacosDmgs,
   findMacosPackageArtifactViolations,
@@ -28,9 +29,10 @@ class UsageError extends Error {
 
 function usage() {
   return [
-    'Usage: bun scripts/verify-release-artifacts.js --input <dir> [--output <dir>]',
+    'Usage: bun scripts/verify-release-artifacts.js --input <dir> --source-sha <sha> --package-version <version> [--output <dir>]',
     '',
-    'Verifies aggregated macOS arm64/x64 DMG and Windows x64/arm64 NSIS setup artifacts before release publishing.',
+    'Verifies aggregated macOS arm64/x64 DMG and Windows x64/arm64 NSIS setup artifacts',
+    'and their versioned JSON sidecars before release publishing.',
   ].join('\n');
 }
 
@@ -83,7 +85,33 @@ function splitMissingViolations(violations, platformPrefix) {
   };
 }
 
-export function findReleaseArtifactViolations(inputDir) {
+function collectAcceptedReleaseArtifacts(inputDir) {
+  return [
+    ...findMacosDmgs(inputDir).map((dmg) => ({ ...dmg, platform: 'macos' })),
+    ...findWindowsInstallers(inputDir).map((installer) => ({
+      ...installer,
+      platform: 'windows',
+    })),
+  ];
+}
+
+function collectSidecarEvidence(inputDir, options = {}) {
+  try {
+    return collectReleaseArtifactSidecarEvidence({
+      inputDir,
+      artifacts: collectAcceptedReleaseArtifacts(inputDir),
+      expectedSourceSha: options.sourceSha,
+      expectedPackageVersion: options.packageVersion,
+    });
+  } catch (error) {
+    return {
+      violations: [`Failed to inspect sidecar evidence: ${error.message}`],
+      pairs: [],
+    };
+  }
+}
+
+export function findReleaseArtifactViolations(inputDir, options = {}) {
   const macViolations = splitMissingViolations(
     findMacosPackageArtifactViolations(inputDir, REQUIRED_MACOS_ARCHES),
     'macOS'
@@ -92,6 +120,7 @@ export function findReleaseArtifactViolations(inputDir) {
     findWindowsPackageArtifactViolations(inputDir, REQUIRED_WINDOWS_ARCHES),
     'Windows'
   );
+  const sidecarEvidence = collectSidecarEvidence(inputDir, options);
 
   return [
     ...macViolations.missing,
@@ -99,26 +128,26 @@ export function findReleaseArtifactViolations(inputDir) {
     ...findDuplicateArtifactFileNames(inputDir),
     ...macViolations.remaining,
     ...windowsViolations.remaining,
+    ...sidecarEvidence.violations,
   ];
 }
 
-function findVerifiedReleaseArtifacts(inputDir) {
-  const dmgArtifacts = findMacosDmgs(inputDir).map((dmg) => dmg.relativePath);
-  const windowsArtifacts = findWindowsInstallers(inputDir).map(
-    (installer) => installer.relativePath
-  );
-  return [...dmgArtifacts, ...windowsArtifacts].sort((left, right) => left.localeCompare(right));
+function findVerifiedReleaseArtifacts(inputDir, options = {}) {
+  const { pairs } = collectSidecarEvidence(inputDir, options);
+  return pairs
+    .flatMap((pair) => [pair.binaryRelativePath, pair.sidecarRelativePath])
+    .sort((left, right) => left.localeCompare(right));
 }
 
 function sha256File(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
-function copyVerifiedArtifacts(inputDir, outputDir) {
+function copyVerifiedArtifacts(inputDir, outputDir, options = {}) {
   fs.rmSync(outputDir, { recursive: true, force: true });
   fs.mkdirSync(outputDir, { recursive: true });
 
-  const artifacts = findVerifiedReleaseArtifacts(inputDir);
+  const artifacts = findVerifiedReleaseArtifacts(inputDir, options);
   const checksumLines = [];
   for (const artifact of artifacts) {
     const sourcePath = path.join(inputDir, artifact);
@@ -136,6 +165,8 @@ function parseArgs(argv) {
     help: false,
     inputDir: null,
     outputDir: null,
+    sourceSha: null,
+    packageVersion: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -153,6 +184,20 @@ function parseArgs(argv) {
         throw new UsageError('--output requires a directory path');
       }
       parsed.outputDir = value;
+      index += 1;
+    } else if (arg === '--source-sha') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new UsageError('--source-sha requires a 40-character hex object id');
+      }
+      parsed.sourceSha = value;
+      index += 1;
+    } else if (arg === '--package-version') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new UsageError('--package-version requires a version string');
+      }
+      parsed.packageVersion = value;
       index += 1;
     } else if (arg === '--help' || arg === '-h') {
       parsed.help = true;
@@ -173,9 +218,19 @@ function runCli(argv) {
   if (parsed.inputDir === null) {
     throw new UsageError('--input requires a directory path');
   }
+  if (parsed.sourceSha === null) {
+    throw new UsageError('--source-sha requires a 40-character hex object id');
+  }
+  if (parsed.packageVersion === null) {
+    throw new UsageError('--package-version requires a version string');
+  }
 
   const inputDir = path.resolve(process.cwd(), parsed.inputDir);
-  const violations = findReleaseArtifactViolations(inputDir);
+  const identity = {
+    sourceSha: parsed.sourceSha,
+    packageVersion: parsed.packageVersion,
+  };
+  const violations = findReleaseArtifactViolations(inputDir, identity);
   if (violations.length > 0) {
     console.error(violations.join('\n'));
     process.exit(1);
@@ -183,12 +238,14 @@ function runCli(argv) {
 
   if (parsed.outputDir !== null) {
     const outputDir = path.resolve(process.cwd(), parsed.outputDir);
-    const artifacts = copyVerifiedArtifacts(inputDir, outputDir);
+    const artifacts = copyVerifiedArtifacts(inputDir, outputDir, identity);
     console.log(`Verified ${artifacts.length} release artifacts into ${outputDir}`);
     return;
   }
 
-  console.log(JSON.stringify({ artifacts: findVerifiedReleaseArtifacts(inputDir) }, null, 2));
+  console.log(
+    JSON.stringify({ artifacts: findVerifiedReleaseArtifacts(inputDir, identity) }, null, 2)
+  );
 }
 
 const isCli = process.argv[1]

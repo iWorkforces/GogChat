@@ -22,7 +22,7 @@ This directory owns typed electron-store access and read-through caching for app
 | `useWebContentsView`                                                            | `false`                 | Opt-in WebContentsView account backend (BrowserWindow remains default; no flip without matrix evidence) |
 | `autoCheckForUpdates` / `autoLaunchAtLogin`                                     | `true`                  | Background update check; open-at-login                                                                  |
 | `startHidden` / `hideMenuBar` / `disableSpellChecker` / `suppressPasskeyDialog` | `false`                 | UX flags                                                                                                |
-| `memory.dehydrationThresholdMs`                                                 | schema-clamped 60s–600s | BrowserWindow idle dehydrate threshold                                                                  |
+| `memory.dehydrationThresholdMs`                                                 | schema number           | Clamp 60s–600s is in `accountWindowManager` at construct (restart to apply)                             |
 | `memory.v8HeapCapMB`                                                            | schema only             | **Not** read at startup. Heap cap is `GOGCHAT_V8_HEAP_CAP_MB` / default 512 before `app.ready`          |
 | `memory.diskCacheMaxMB`                                                         | schema only             | Documented, not yet enforced                                                                            |
 
