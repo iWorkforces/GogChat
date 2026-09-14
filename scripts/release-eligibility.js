@@ -123,6 +123,9 @@ export function formatGithubOutputs(result) {
     `publish_intent=${result.publish_intent ? 'true' : 'false'}`,
     `mutation=${result.mutation ? 'true' : 'false'}`,
   ];
+  if (result.package_version) {
+    lines.push(`package_version=${result.package_version}`);
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -157,6 +160,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     packageVersion,
     remoteTagSha,
   });
+  result.package_version = packageVersion;
 
   if (result.fail) {
     process.stderr.write(`${result.reason}\n`);

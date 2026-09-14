@@ -19,6 +19,7 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
       should_release: ${{ steps.release.outputs.should_release }}
       source_sha: ${{ steps.release.outputs.source_sha }}
+      package_version: ${{ steps.release.outputs.package_version }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -160,13 +161,15 @@ jobs:
         run: bun scripts/verify-mac-release-signing.js --dist dist
 
       - name: Verify macOS ${{ matrix.arch }} artifact
-        run: bun scripts/verify-macos-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }}
+        run: bun scripts/verify-macos-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }} --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version ${{ needs.prepare-release.outputs.package_version }}
 
       - name: Upload macOS ${{ matrix.arch }} DMG artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-macos-${{ matrix.arch }}
-          path: dist/*-${{ matrix.arch }}.dmg
+          path: |
+            dist/*-${{ matrix.arch }}.dmg
+            dist/*-${{ matrix.arch }}.dmg.json
           if-no-files-found: error
 
   build-windows:
@@ -243,13 +246,15 @@ jobs:
           Write-Host "Windows ${{ matrix.arch }} installer Authenticode signature is valid"
 
       - name: Verify Windows ${{ matrix.arch }} artifact
-        run: bun scripts/verify-windows-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }}
+        run: bun scripts/verify-windows-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }} --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version ${{ needs.prepare-release.outputs.package_version }}
 
       - name: Upload Windows ${{ matrix.arch }} artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-windows-${{ matrix.arch }}
-          path: dist/*windows-${{ matrix.arch }}-setup.exe
+          path: |
+            dist/*windows-${{ matrix.arch }}-setup.exe
+            dist/*windows-${{ matrix.arch }}-setup.exe.json
           if-no-files-found: error
 
   verify-release-artifacts:
@@ -289,7 +294,7 @@ jobs:
           WINDOWS_ALLOW_UNSIGNED_RELEASE: ${{ vars.WINDOWS_ALLOW_UNSIGNED_RELEASE }}
 
       - name: Verify aggregated release artifacts
-        run: bun scripts/verify-release-artifacts.js --input release-artifacts --output verified-release-assets
+        run: bun scripts/verify-release-artifacts.js --input release-artifacts --output verified-release-assets --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version ${{ needs.prepare-release.outputs.package_version }}
 
       - name: Upload verified release assets
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
