@@ -103,6 +103,30 @@ describe('verify-windows-package-artifacts helpers', () => {
     expect(JSON.parse(result.stdout)).toEqual({ installers: [] });
   });
 
+  it('lists accepted installers without writing sidecars when identity flags are omitted', () => {
+    fs.writeFileSync(path.join(tmpRoot, 'GogChat-3.15.1-windows-x64-setup.exe'), 'x64');
+    fs.writeFileSync(path.join(tmpRoot, 'GogChat-3.15.1-windows-arm64-setup.exe'), 'arm64');
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        'scripts/verify-windows-package-artifacts.js',
+        '--dist',
+        tmpRoot,
+        '--manifest',
+        '--require-arch',
+        'x64',
+        '--require-arch',
+        'arm64',
+      ],
+      { cwd: PROJECT_ROOT, encoding: 'utf-8' }
+    );
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).installers).toHaveLength(2);
+    expect(fs.readdirSync(tmpRoot).filter((name) => name.endsWith('.json'))).toEqual([]);
+  });
+
   it('prints CLI help without requiring package artifacts', () => {
     const result = spawnSync(
       process.execPath,

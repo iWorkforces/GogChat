@@ -6,10 +6,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-import {
-  findReleaseArtifactSidecarViolations,
-  sidecarFileName,
-} from './release-artifact-sidecar.js';
+import { collectReleaseArtifactSidecarEvidence } from './release-artifact-sidecar.js';
 import {
   findMacosDmgs,
   findMacosPackageArtifactViolations,
@@ -98,6 +95,22 @@ function collectAcceptedReleaseArtifacts(inputDir) {
   ];
 }
 
+function collectSidecarEvidence(inputDir, options = {}) {
+  try {
+    return collectReleaseArtifactSidecarEvidence({
+      inputDir,
+      artifacts: collectAcceptedReleaseArtifacts(inputDir),
+      expectedSourceSha: options.sourceSha,
+      expectedPackageVersion: options.packageVersion,
+    });
+  } catch (error) {
+    return {
+      violations: [`Failed to inspect sidecar evidence: ${error.message}`],
+      pairs: [],
+    };
+  }
+}
+
 export function findReleaseArtifactViolations(inputDir, options = {}) {
   const macViolations = splitMissingViolations(
     findMacosPackageArtifactViolations(inputDir, REQUIRED_MACOS_ARCHES),
@@ -107,6 +120,7 @@ export function findReleaseArtifactViolations(inputDir, options = {}) {
     findWindowsPackageArtifactViolations(inputDir, REQUIRED_WINDOWS_ARCHES),
     'Windows'
   );
+  const sidecarEvidence = collectSidecarEvidence(inputDir, options);
 
   return [
     ...macViolations.missing,
@@ -114,36 +128,26 @@ export function findReleaseArtifactViolations(inputDir, options = {}) {
     ...findDuplicateArtifactFileNames(inputDir),
     ...macViolations.remaining,
     ...windowsViolations.remaining,
-    ...findReleaseArtifactSidecarViolations({
-      inputDir,
-      artifacts: collectAcceptedReleaseArtifacts(inputDir),
-      expectedSourceSha: options.sourceSha,
-      expectedPackageVersion: options.packageVersion,
-    }),
+    ...sidecarEvidence.violations,
   ];
 }
 
-function findVerifiedReleaseArtifacts(inputDir) {
-  const binaries = collectAcceptedReleaseArtifacts(inputDir).map(
-    (artifact) => artifact.relativePath
-  );
-  const sidecars = binaries.map((relativePath) => {
-    const directory = path.posix.dirname(relativePath);
-    const sidecarName = sidecarFileName(path.posix.basename(relativePath));
-    return directory === '.' ? sidecarName : `${directory}/${sidecarName}`;
-  });
-  return [...binaries, ...sidecars].sort((left, right) => left.localeCompare(right));
+function findVerifiedReleaseArtifacts(inputDir, options = {}) {
+  const { pairs } = collectSidecarEvidence(inputDir, options);
+  return pairs
+    .flatMap((pair) => [pair.binaryRelativePath, pair.sidecarRelativePath])
+    .sort((left, right) => left.localeCompare(right));
 }
 
 function sha256File(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
-function copyVerifiedArtifacts(inputDir, outputDir) {
+function copyVerifiedArtifacts(inputDir, outputDir, options = {}) {
   fs.rmSync(outputDir, { recursive: true, force: true });
   fs.mkdirSync(outputDir, { recursive: true });
 
-  const artifacts = findVerifiedReleaseArtifacts(inputDir);
+  const artifacts = findVerifiedReleaseArtifacts(inputDir, options);
   const checksumLines = [];
   for (const artifact of artifacts) {
     const sourcePath = path.join(inputDir, artifact);
@@ -222,10 +226,11 @@ function runCli(argv) {
   }
 
   const inputDir = path.resolve(process.cwd(), parsed.inputDir);
-  const violations = findReleaseArtifactViolations(inputDir, {
+  const identity = {
     sourceSha: parsed.sourceSha,
     packageVersion: parsed.packageVersion,
-  });
+  };
+  const violations = findReleaseArtifactViolations(inputDir, identity);
   if (violations.length > 0) {
     console.error(violations.join('\n'));
     process.exit(1);
@@ -233,12 +238,14 @@ function runCli(argv) {
 
   if (parsed.outputDir !== null) {
     const outputDir = path.resolve(process.cwd(), parsed.outputDir);
-    const artifacts = copyVerifiedArtifacts(inputDir, outputDir);
+    const artifacts = copyVerifiedArtifacts(inputDir, outputDir, identity);
     console.log(`Verified ${artifacts.length} release artifacts into ${outputDir}`);
     return;
   }
 
-  console.log(JSON.stringify({ artifacts: findVerifiedReleaseArtifacts(inputDir) }, null, 2));
+  console.log(
+    JSON.stringify({ artifacts: findVerifiedReleaseArtifacts(inputDir, identity) }, null, 2)
+  );
 }
 
 const isCli = process.argv[1]

@@ -67,6 +67,43 @@ export function sha256File(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
+export function inspectReleaseArtifactFile(filePath, relativePath = path.basename(filePath)) {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) {
+      return { ok: false, violation: `Unreadable artifact ${relativePath}: not a regular file` };
+    }
+    if (stat.size <= 0) {
+      return { ok: false, violation: `Empty artifact ${relativePath}` };
+    }
+    return {
+      ok: true,
+      size: stat.size,
+      sha256: crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex'),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      violation: `Unreadable artifact ${relativePath}: ${error.code ?? error.message}`,
+    };
+  }
+}
+
+function readSidecarText(filePath, relativePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) {
+      return { ok: false, violation: `Unreadable sidecar ${relativePath}: not a regular file` };
+    }
+    return { ok: true, raw: fs.readFileSync(filePath, 'utf8') };
+  } catch (error) {
+    return {
+      ok: false,
+      violation: `Unreadable sidecar ${relativePath}: ${error.code ?? error.message}`,
+    };
+  }
+}
+
 export function buildReleaseArtifactSidecar({
   sourceSha,
   packageVersion,
@@ -89,6 +126,11 @@ export function buildReleaseArtifactSidecar({
     throw new Error('arch must be arm64 or x64');
   }
 
+  const inspected = inspectReleaseArtifactFile(filePath);
+  if (!inspected.ok) {
+    throw new Error(inspected.violation);
+  }
+
   return {
     schemaVersion: RELEASE_ARTIFACT_SIDECAR_SCHEMA_VERSION,
     sourceSha: normalizedSourceSha,
@@ -96,8 +138,8 @@ export function buildReleaseArtifactSidecar({
     platform,
     arch,
     basename: path.basename(filePath),
-    size: fs.statSync(filePath).size,
-    sha256: sha256File(filePath),
+    size: inspected.size,
+    sha256: inspected.sha256,
   };
 }
 
@@ -124,8 +166,8 @@ export function parseReleaseArtifactSidecar(raw, relativePath) {
   }
 
   const keys = Object.keys(value);
-  const unexpected = keys.filter((key) => !(key in SIDECAR_FIELD_TYPES)).sort();
-  const missing = Object.keys(SIDECAR_FIELD_TYPES).filter((key) => !(key in value));
+  const unexpected = keys.filter((key) => !Object.hasOwn(SIDECAR_FIELD_TYPES, key)).sort();
+  const missing = Object.keys(SIDECAR_FIELD_TYPES).filter((key) => !Object.hasOwn(value, key));
   const violations = [];
 
   if (unexpected.length > 0) {
@@ -137,7 +179,7 @@ export function parseReleaseArtifactSidecar(raw, relativePath) {
     violations.push(`Malformed sidecar ${relativePath}: missing fields ${missing.join(', ')}`);
   }
   for (const [key, typeName] of Object.entries(SIDECAR_FIELD_TYPES)) {
-    if (key in value && typeof value[key] !== typeName) {
+    if (Object.hasOwn(value, key) && typeof value[key] !== typeName) {
       violations.push(`Malformed sidecar ${relativePath}: ${key} must be a ${typeName}`);
     }
   }
@@ -179,10 +221,10 @@ export function parseReleaseArtifactSidecar(raw, relativePath) {
       violations: [`Malformed sidecar ${relativePath}: arch must be arm64 or x64`],
     };
   }
-  if (!Number.isInteger(value.size) || value.size < 0) {
+  if (!Number.isInteger(value.size) || value.size <= 0) {
     return {
       ok: false,
-      violations: [`Malformed sidecar ${relativePath}: size must be a non-negative integer`],
+      violations: [`Malformed sidecar ${relativePath}: size must be a positive integer`],
     };
   }
   if (!/^[0-9a-f]{64}$/i.test(value.sha256)) {
@@ -215,6 +257,11 @@ export function parseReleaseArtifactSidecar(raw, relativePath) {
 
 export function compareReleaseArtifactSidecar(sidecar, expected, relativePath) {
   const violations = [];
+  if (sidecar.schemaVersion !== expected.schemaVersion) {
+    violations.push(
+      `Malformed sidecar ${relativePath}: unsupported schemaVersion ${sidecar.schemaVersion}`
+    );
+  }
   if (sidecar.basename !== expected.basename) {
     violations.push(
       `Malformed sidecar ${relativePath}: basename ${sidecar.basename} does not match ${expected.basename}`
@@ -264,13 +311,14 @@ export function findReleaseArtifactSidecarFiles(rootDir) {
     .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 }
 
-export function findReleaseArtifactSidecarViolations({
+export function collectReleaseArtifactSidecarEvidence({
   inputDir,
   artifacts,
   expectedSourceSha,
   expectedPackageVersion,
 }) {
   const violations = [];
+  const pairs = [];
   const normalizedSourceSha = normalizeSourceSha(expectedSourceSha);
   const normalizedVersion = String(expectedPackageVersion ?? '').trim();
 
@@ -319,7 +367,7 @@ export function findReleaseArtifactSidecarViolations({
   }
 
   if (normalizedSourceSha === null || normalizedVersion === '') {
-    return violations;
+    return { violations, pairs };
   }
 
   for (const basename of [...artifactsByBasename.keys()].sort((left, right) =>
@@ -332,27 +380,56 @@ export function findReleaseArtifactSidecarViolations({
     }
 
     const artifact = artifactMatches[0];
-    const expected = buildReleaseArtifactSidecar({
+    const sidecar = matches[0];
+    const inspected = inspectReleaseArtifactFile(
+      path.join(inputDir, artifact.relativePath),
+      artifact.relativePath
+    );
+    if (!inspected.ok) {
+      violations.push(inspected.violation);
+      continue;
+    }
+
+    const expected = {
+      schemaVersion: RELEASE_ARTIFACT_SIDECAR_SCHEMA_VERSION,
       sourceSha: normalizedSourceSha,
       packageVersion: normalizedVersion,
       platform: artifact.platform,
       arch: artifact.arch,
-      filePath: path.join(inputDir, artifact.relativePath),
-    });
-    const parsed = parseReleaseArtifactSidecar(
-      fs.readFileSync(matches[0].filePath, 'utf8'),
-      matches[0].relativePath
-    );
+      basename,
+      size: inspected.size,
+      sha256: inspected.sha256,
+    };
+    const sidecarText = readSidecarText(sidecar.filePath, sidecar.relativePath);
+    if (!sidecarText.ok) {
+      violations.push(sidecarText.violation);
+      continue;
+    }
+    const parsed = parseReleaseArtifactSidecar(sidecarText.raw, sidecar.relativePath);
     if (!parsed.ok) {
       violations.push(...parsed.violations);
       continue;
     }
-    violations.push(
-      ...compareReleaseArtifactSidecar(parsed.sidecar, expected, matches[0].relativePath)
+    const fieldViolations = compareReleaseArtifactSidecar(
+      parsed.sidecar,
+      expected,
+      sidecar.relativePath
     );
+    if (fieldViolations.length > 0) {
+      violations.push(...fieldViolations);
+      continue;
+    }
+    pairs.push({
+      binaryRelativePath: artifact.relativePath,
+      sidecarRelativePath: sidecar.relativePath,
+    });
   }
 
-  return violations;
+  return { violations, pairs };
+}
+
+export function findReleaseArtifactSidecarViolations(options) {
+  return collectReleaseArtifactSidecarEvidence(options).violations;
 }
 
 export function syncAcceptedArtifactSidecars({
@@ -374,13 +451,21 @@ export function syncAcceptedArtifactSidecars({
   const violations = [];
   for (const artifact of artifacts) {
     const filePath = path.join(distDir, artifact.relativePath);
-    const expected = buildReleaseArtifactSidecar({
+    const inspected = inspectReleaseArtifactFile(filePath, artifact.relativePath);
+    if (!inspected.ok) {
+      violations.push(inspected.violation);
+      continue;
+    }
+    const expected = {
+      schemaVersion: RELEASE_ARTIFACT_SIDECAR_SCHEMA_VERSION,
       sourceSha: normalizedSourceSha,
       packageVersion: normalizedVersion,
       platform,
       arch: artifact.arch,
-      filePath,
-    });
+      basename: path.basename(filePath),
+      size: inspected.size,
+      sha256: inspected.sha256,
+    };
     const sidecarPath = sidecarPathFor(filePath);
     if (!fs.existsSync(sidecarPath)) {
       writeReleaseArtifactSidecar(filePath, expected);
@@ -388,7 +473,12 @@ export function syncAcceptedArtifactSidecars({
     }
 
     const relativePath = normalizeRelativePath(path.relative(distDir, sidecarPath));
-    const parsed = parseReleaseArtifactSidecar(fs.readFileSync(sidecarPath, 'utf8'), relativePath);
+    const sidecarText = readSidecarText(sidecarPath, relativePath);
+    if (!sidecarText.ok) {
+      violations.push(sidecarText.violation);
+      continue;
+    }
+    const parsed = parseReleaseArtifactSidecar(sidecarText.raw, relativePath);
     if (!parsed.ok) {
       violations.push(...parsed.violations);
       continue;

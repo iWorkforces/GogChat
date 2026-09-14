@@ -252,6 +252,45 @@ describe('verify-release-artifacts aggregation helper', () => {
       .digest('hex');
     expect(checksums).toContain(`${dmgDigest}  GogChat-3.15.1-x64.dmg`);
     expect(checksums).toContain(`${installerDigest}  GogChat-3.15.1-windows-x64-setup.exe`);
+    const sidecarDigest = crypto
+      .createHash('sha256')
+      .update(fs.readFileSync(path.join(outputDir, 'GogChat-3.15.1-x64.dmg.json')))
+      .digest('hex');
+    expect(checksums).toContain(`${sidecarDigest}  GogChat-3.15.1-x64.dmg.json`);
+  });
+
+  it('copies a unique non-sibling sidecar from its discovered path', () => {
+    const outputDir = path.join(tmpRoot, 'verified');
+    const nestedDir = path.join(tmpRoot, 'macos');
+    fs.mkdirSync(nestedDir, { recursive: true });
+    fs.writeFileSync(path.join(nestedDir, ARTIFACTS.macArm.name), ARTIFACTS.macArm.contents);
+    writeSidecar(tmpRoot, ARTIFACTS.macArm);
+    writeBinary(tmpRoot, ARTIFACTS.macX64);
+    writeSidecar(tmpRoot, ARTIFACTS.macX64);
+    writeBinary(tmpRoot, ARTIFACTS.winX64);
+    writeSidecar(tmpRoot, ARTIFACTS.winX64);
+    writeBinary(tmpRoot, ARTIFACTS.winArm);
+    writeSidecar(tmpRoot, ARTIFACTS.winArm);
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        'scripts/verify-release-artifacts.js',
+        '--input',
+        tmpRoot,
+        '--output',
+        outputDir,
+        '--source-sha',
+        SOURCE_SHA,
+        '--package-version',
+        PACKAGE_VERSION,
+      ],
+      { cwd: PROJECT_ROOT, encoding: 'utf-8' }
+    );
+
+    expect(result.status).toBe(0);
+    expect(fs.existsSync(path.join(outputDir, ARTIFACTS.macArm.name))).toBe(true);
+    expect(fs.existsSync(path.join(outputDir, `${ARTIFACTS.macArm.name}.json`))).toBe(true);
   });
 
   it('requires source SHA and package version on the CLI', () => {

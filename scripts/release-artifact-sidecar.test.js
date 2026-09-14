@@ -8,9 +8,24 @@ import {
   RELEASE_ARTIFACT_SIDECAR_SCHEMA_VERSION,
   buildReleaseArtifactSidecar,
   compareReleaseArtifactSidecar,
+  inspectReleaseArtifactFile,
   parseReleaseArtifactSidecar,
   serializeReleaseArtifactSidecar,
 } from './release-artifact-sidecar.js';
+
+function validSidecar(overrides = {}) {
+  return {
+    schemaVersion: RELEASE_ARTIFACT_SIDECAR_SCHEMA_VERSION,
+    sourceSha: SOURCE_SHA,
+    packageVersion: '3.21.4',
+    platform: 'macos',
+    arch: 'arm64',
+    basename: 'GogChat-3.21.4-arm64.dmg',
+    size: 7,
+    sha256: 'a'.repeat(64),
+    ...overrides,
+  };
+}
 
 const SOURCE_SHA = 'f'.repeat(40);
 
@@ -68,6 +83,65 @@ describe('release-artifact-sidecar', () => {
       'Malformed sidecar partial.json: unexpected fields extra',
       'Malformed sidecar partial.json: missing fields sourceSha, packageVersion, platform, arch, basename, size, sha256',
     ]);
+    expect(
+      parseReleaseArtifactSidecar(
+        JSON.stringify(validSidecar({ constructor: 'nope', toString: 'nope' })),
+        'proto.json'
+      ).violations
+    ).toEqual(['Malformed sidecar proto.json: unexpected fields constructor, toString']);
+  });
+
+  it('rejects unsupported schema, empty identity, path basenames, and invalid size or digest', () => {
+    expect(
+      parseReleaseArtifactSidecar(JSON.stringify(validSidecar({ schemaVersion: 2 })), 'v.json')
+    ).toMatchObject({
+      ok: false,
+      violations: ['Malformed sidecar v.json: unsupported schemaVersion 2'],
+    });
+    expect(
+      parseReleaseArtifactSidecar(
+        JSON.stringify(validSidecar({ sourceSha: 'not-a-sha' })),
+        's.json'
+      ).violations
+    ).toEqual(['Malformed sidecar s.json: sourceSha must be a 40-character hex object id']);
+    expect(
+      parseReleaseArtifactSidecar(JSON.stringify(validSidecar({ packageVersion: '   ' })), 'p.json')
+        .violations
+    ).toEqual(['Malformed sidecar p.json: packageVersion must be a non-empty string']);
+    expect(
+      parseReleaseArtifactSidecar(
+        JSON.stringify(validSidecar({ basename: 'nested/GogChat-3.21.4-arm64.dmg' })),
+        'b.json'
+      ).violations
+    ).toEqual(['Malformed sidecar b.json: basename must be a file name']);
+    expect(
+      parseReleaseArtifactSidecar(JSON.stringify(validSidecar({ size: 0 })), 'z.json').violations
+    ).toEqual(['Malformed sidecar z.json: size must be a positive integer']);
+    expect(
+      parseReleaseArtifactSidecar(JSON.stringify(validSidecar({ size: 1.5 })), 'f.json').violations
+    ).toEqual(['Malformed sidecar f.json: size must be a positive integer']);
+    expect(
+      parseReleaseArtifactSidecar(JSON.stringify(validSidecar({ sha256: 'deadbeef' })), 'h.json')
+        .violations
+    ).toEqual(['Malformed sidecar h.json: sha256 must be a 64-character hex digest']);
+  });
+
+  it('rejects empty producer files before a sidecar is written', () => {
+    const filePath = path.join(tmpRoot, 'GogChat-3.21.4-arm64.dmg');
+    fs.writeFileSync(filePath, '');
+    expect(inspectReleaseArtifactFile(filePath, 'GogChat-3.21.4-arm64.dmg')).toEqual({
+      ok: false,
+      violation: 'Empty artifact GogChat-3.21.4-arm64.dmg',
+    });
+    expect(() =>
+      buildReleaseArtifactSidecar({
+        sourceSha: SOURCE_SHA,
+        packageVersion: '3.21.4',
+        platform: 'macos',
+        arch: 'arm64',
+        filePath,
+      })
+    ).toThrow('Empty artifact GogChat-3.21.4-arm64.dmg');
   });
 
   it('reports field mismatches against the expected producer sidecar', () => {

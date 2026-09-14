@@ -107,6 +107,30 @@ describe('verify-macos-package-artifacts', () => {
     expect(missing.stderr).toContain('Missing required macOS DMG arch: x64');
   });
 
+  it('lists accepted DMGs without writing sidecars when identity flags are omitted', () => {
+    fs.writeFileSync(path.join(tmpRoot, 'GogChat-3.17.0-arm64.dmg'), 'arm64');
+    fs.writeFileSync(path.join(tmpRoot, 'GogChat-3.17.0-x64.dmg'), 'x64');
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        'scripts/verify-macos-package-artifacts.js',
+        '--dist',
+        tmpRoot,
+        '--manifest',
+        '--require-arch',
+        'arm64',
+        '--require-arch',
+        'x64',
+      ],
+      { cwd: PROJECT_ROOT, encoding: 'utf-8' }
+    );
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).dmgs).toHaveLength(2);
+    expect(fs.readdirSync(tmpRoot).filter((name) => name.endsWith('.json'))).toEqual([]);
+  });
+
   it('writes one deterministic sidecar after filename and architecture checks succeed', () => {
     const dmgName = 'GogChat-3.17.0-arm64.dmg';
     const dmgPath = path.join(tmpRoot, dmgName);
