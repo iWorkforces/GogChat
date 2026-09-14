@@ -7,6 +7,10 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import {
+  findReleaseArtifactSidecarViolations,
+  sidecarFileName,
+} from './release-artifact-sidecar.js';
+import {
   findMacosDmgs,
   findMacosPackageArtifactViolations,
   MACOS_DMG_ARCHES,
@@ -28,9 +32,10 @@ class UsageError extends Error {
 
 function usage() {
   return [
-    'Usage: bun scripts/verify-release-artifacts.js --input <dir> [--output <dir>]',
+    'Usage: bun scripts/verify-release-artifacts.js --input <dir> --source-sha <sha> --package-version <version> [--output <dir>]',
     '',
-    'Verifies aggregated macOS arm64/x64 DMG and Windows x64/arm64 NSIS setup artifacts before release publishing.',
+    'Verifies aggregated macOS arm64/x64 DMG and Windows x64/arm64 NSIS setup artifacts',
+    'and their versioned JSON sidecars before release publishing.',
   ].join('\n');
 }
 
@@ -83,7 +88,17 @@ function splitMissingViolations(violations, platformPrefix) {
   };
 }
 
-export function findReleaseArtifactViolations(inputDir) {
+function collectAcceptedReleaseArtifacts(inputDir) {
+  return [
+    ...findMacosDmgs(inputDir).map((dmg) => ({ ...dmg, platform: 'macos' })),
+    ...findWindowsInstallers(inputDir).map((installer) => ({
+      ...installer,
+      platform: 'windows',
+    })),
+  ];
+}
+
+export function findReleaseArtifactViolations(inputDir, options = {}) {
   const macViolations = splitMissingViolations(
     findMacosPackageArtifactViolations(inputDir, REQUIRED_MACOS_ARCHES),
     'macOS'
@@ -99,15 +114,25 @@ export function findReleaseArtifactViolations(inputDir) {
     ...findDuplicateArtifactFileNames(inputDir),
     ...macViolations.remaining,
     ...windowsViolations.remaining,
+    ...findReleaseArtifactSidecarViolations({
+      inputDir,
+      artifacts: collectAcceptedReleaseArtifacts(inputDir),
+      expectedSourceSha: options.sourceSha,
+      expectedPackageVersion: options.packageVersion,
+    }),
   ];
 }
 
 function findVerifiedReleaseArtifacts(inputDir) {
-  const dmgArtifacts = findMacosDmgs(inputDir).map((dmg) => dmg.relativePath);
-  const windowsArtifacts = findWindowsInstallers(inputDir).map(
-    (installer) => installer.relativePath
+  const binaries = collectAcceptedReleaseArtifacts(inputDir).map(
+    (artifact) => artifact.relativePath
   );
-  return [...dmgArtifacts, ...windowsArtifacts].sort((left, right) => left.localeCompare(right));
+  const sidecars = binaries.map((relativePath) => {
+    const directory = path.posix.dirname(relativePath);
+    const sidecarName = sidecarFileName(path.posix.basename(relativePath));
+    return directory === '.' ? sidecarName : `${directory}/${sidecarName}`;
+  });
+  return [...binaries, ...sidecars].sort((left, right) => left.localeCompare(right));
 }
 
 function sha256File(filePath) {
@@ -136,6 +161,8 @@ function parseArgs(argv) {
     help: false,
     inputDir: null,
     outputDir: null,
+    sourceSha: null,
+    packageVersion: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -153,6 +180,20 @@ function parseArgs(argv) {
         throw new UsageError('--output requires a directory path');
       }
       parsed.outputDir = value;
+      index += 1;
+    } else if (arg === '--source-sha') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new UsageError('--source-sha requires a 40-character hex object id');
+      }
+      parsed.sourceSha = value;
+      index += 1;
+    } else if (arg === '--package-version') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new UsageError('--package-version requires a version string');
+      }
+      parsed.packageVersion = value;
       index += 1;
     } else if (arg === '--help' || arg === '-h') {
       parsed.help = true;
@@ -173,9 +214,18 @@ function runCli(argv) {
   if (parsed.inputDir === null) {
     throw new UsageError('--input requires a directory path');
   }
+  if (parsed.sourceSha === null) {
+    throw new UsageError('--source-sha requires a 40-character hex object id');
+  }
+  if (parsed.packageVersion === null) {
+    throw new UsageError('--package-version requires a version string');
+  }
 
   const inputDir = path.resolve(process.cwd(), parsed.inputDir);
-  const violations = findReleaseArtifactViolations(inputDir);
+  const violations = findReleaseArtifactViolations(inputDir, {
+    sourceSha: parsed.sourceSha,
+    packageVersion: parsed.packageVersion,
+  });
   if (violations.length > 0) {
     console.error(violations.join('\n'));
     process.exit(1);

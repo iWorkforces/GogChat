@@ -6,12 +6,20 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  RELEASE_ARTIFACT_SIDECAR_SCHEMA_VERSION,
+  parseReleaseArtifactSidecar,
+  serializeReleaseArtifactSidecar,
+  sha256File,
+} from './release-artifact-sidecar.js';
+import {
   detectWindowsInstallerArch,
   findWindowsInstallers,
   findWindowsPackageArtifactViolations,
 } from './verify-windows-package-artifacts.js';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '..');
+const SOURCE_SHA = 'b'.repeat(40);
+const PACKAGE_VERSION = '3.15.1';
 
 describe('verify-windows-package-artifacts helpers', () => {
   let tmpRoot;
@@ -108,5 +116,138 @@ describe('verify-windows-package-artifacts helpers', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('Usage: bun scripts/verify-windows-package-artifacts.js');
     expect(result.stdout).toContain('--require-arch <x64|arm64>');
+  });
+
+  it('writes one deterministic sidecar after filename and architecture checks succeed', () => {
+    const installerName = 'GogChat-3.15.1-windows-x64-setup.exe';
+    const installerPath = path.join(tmpRoot, installerName);
+    fs.writeFileSync(installerPath, 'x64-setup');
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        'scripts/verify-windows-package-artifacts.js',
+        '--dist',
+        tmpRoot,
+        '--manifest',
+        '--require-arch',
+        'x64',
+        '--source-sha',
+        SOURCE_SHA,
+        '--package-version',
+        PACKAGE_VERSION,
+      ],
+      { cwd: PROJECT_ROOT, encoding: 'utf-8' }
+    );
+
+    expect(result.status).toBe(0);
+    const sidecarPath = `${installerPath}.json`;
+    expect(fs.existsSync(sidecarPath)).toBe(true);
+    const parsed = parseReleaseArtifactSidecar(
+      fs.readFileSync(sidecarPath, 'utf-8'),
+      `${installerName}.json`
+    );
+    expect(parsed).toEqual({
+      ok: true,
+      sidecar: {
+        schemaVersion: RELEASE_ARTIFACT_SIDECAR_SCHEMA_VERSION,
+        sourceSha: SOURCE_SHA,
+        packageVersion: PACKAGE_VERSION,
+        platform: 'windows',
+        arch: 'x64',
+        basename: installerName,
+        size: 9,
+        sha256: sha256File(installerPath),
+      },
+    });
+    expect(fs.readFileSync(sidecarPath, 'utf-8')).toBe(
+      serializeReleaseArtifactSidecar(parsed.sidecar)
+    );
+  });
+
+  it('does not write sidecars when filename or architecture checks fail', () => {
+    fs.writeFileSync(path.join(tmpRoot, 'GogChat-3.15.1-windows-x64-setup.exe'), 'x64');
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        'scripts/verify-windows-package-artifacts.js',
+        '--dist',
+        tmpRoot,
+        '--require-arch',
+        'arm64',
+        '--source-sha',
+        SOURCE_SHA,
+        '--package-version',
+        PACKAGE_VERSION,
+      ],
+      { cwd: PROJECT_ROOT, encoding: 'utf-8' }
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Missing required Windows installer arch: arm64');
+    expect(fs.readdirSync(tmpRoot).filter((name) => name.endsWith('.json'))).toEqual([]);
+  });
+
+  it('validates an existing matching sidecar and rejects a tampered size', () => {
+    const installerName = 'GogChat-3.15.1-windows-arm64-setup.exe';
+    const installerPath = path.join(tmpRoot, installerName);
+    fs.writeFileSync(installerPath, 'arm64-setup');
+    const created = spawnSync(
+      process.execPath,
+      [
+        'scripts/verify-windows-package-artifacts.js',
+        '--dist',
+        tmpRoot,
+        '--require-arch',
+        'arm64',
+        '--source-sha',
+        SOURCE_SHA,
+        '--package-version',
+        PACKAGE_VERSION,
+      ],
+      { cwd: PROJECT_ROOT, encoding: 'utf-8' }
+    );
+    expect(created.status).toBe(0);
+
+    const matching = spawnSync(
+      process.execPath,
+      [
+        'scripts/verify-windows-package-artifacts.js',
+        '--dist',
+        tmpRoot,
+        '--require-arch',
+        'arm64',
+        '--source-sha',
+        SOURCE_SHA,
+        '--package-version',
+        PACKAGE_VERSION,
+      ],
+      { cwd: PROJECT_ROOT, encoding: 'utf-8' }
+    );
+    expect(matching.status).toBe(0);
+
+    const sidecarPath = `${installerPath}.json`;
+    const sidecar = JSON.parse(fs.readFileSync(sidecarPath, 'utf-8'));
+    sidecar.size = sidecar.size + 1;
+    fs.writeFileSync(sidecarPath, serializeReleaseArtifactSidecar(sidecar));
+
+    const tampered = spawnSync(
+      process.execPath,
+      [
+        'scripts/verify-windows-package-artifacts.js',
+        '--dist',
+        tmpRoot,
+        '--require-arch',
+        'arm64',
+        '--source-sha',
+        SOURCE_SHA,
+        '--package-version',
+        PACKAGE_VERSION,
+      ],
+      { cwd: PROJECT_ROOT, encoding: 'utf-8' }
+    );
+    expect(tampered.status).toBe(1);
+    expect(tampered.stderr).toContain(`Size-mismatched sidecar ${installerName}.json`);
   });
 });
