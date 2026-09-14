@@ -116,7 +116,7 @@ describe('release workflow publish-once contract', () => {
     expect(macSigningPreflight).toContain('exit 1');
     expect(buildMacJob).not.toContain('bun run package -- --publish never');
     expect(buildMacJob).toContain(
-      'bun scripts/verify-macos-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }} --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version ${{ needs.prepare-release.outputs.package_version }}'
+      'bun scripts/verify-macos-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }} --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version "${{ needs.prepare-release.outputs.package_version }}"'
     );
     expect(buildMacJob).toContain('name: release-macos-${{ matrix.arch }}');
     expect(buildMacJob).toContain('dist/*-${{ matrix.arch }}.dmg');
@@ -155,7 +155,7 @@ describe('release workflow publish-once contract', () => {
     expect(buildWindowsJob).toContain('Get-AuthenticodeSignature -FilePath $installer.FullName');
     expect(buildWindowsJob).toContain("if ($signature.Status -ne 'Valid') {");
     expect(buildWindowsJob).toContain(
-      'bun scripts/verify-windows-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }} --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version ${{ needs.prepare-release.outputs.package_version }}'
+      'bun scripts/verify-windows-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }} --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version "${{ needs.prepare-release.outputs.package_version }}"'
     );
     expect(buildWindowsJob).toContain('dist/*windows-${{ matrix.arch }}-setup.exe');
     expect(buildWindowsJob).toContain('dist/*windows-${{ matrix.arch }}-setup.exe.json');
@@ -179,6 +179,9 @@ describe('release workflow publish-once contract', () => {
     );
     expect(signatureProofStep).toBeLessThan(
       buildWindowsJob.indexOf('bun scripts/verify-windows-package-artifacts.js')
+    );
+    expect(buildWindowsJob.indexOf('bun scripts/verify-windows-package-artifacts.js')).toBeLessThan(
+      buildWindowsJob.indexOf('actions/upload-artifact@')
     );
     expect(buildWindowsJob).toContain('actions/upload-artifact@');
     expect(buildWindowsJob).not.toContain('softprops/action-gh-release');
@@ -205,6 +208,9 @@ describe('release workflow publish-once contract', () => {
     expect(buildMacJob.indexOf(verifierCommand)).toBeLessThan(
       buildMacJob.indexOf('bun scripts/verify-macos-package-artifacts.js')
     );
+    expect(buildMacJob.indexOf('bun scripts/verify-macos-package-artifacts.js')).toBeLessThan(
+      buildMacJob.indexOf('actions/upload-artifact@')
+    );
     expect(buildWindowsJob).not.toContain('verify-mac-release-signing.js');
     expect(verifyJob).not.toContain('verify-mac-release-signing.js');
   });
@@ -222,7 +228,7 @@ describe('release workflow publish-once contract', () => {
     expect(verifyJob).toContain('bun scripts/verify-release-artifacts.js');
     expect(verifyJob).toContain('--source-sha ${{ needs.prepare-release.outputs.source_sha }}');
     expect(verifyJob).toContain(
-      '--package-version ${{ needs.prepare-release.outputs.package_version }}'
+      '--package-version "${{ needs.prepare-release.outputs.package_version }}"'
     );
     expect(verifyJob).toContain('bun run package:win:signing-policy');
     expect(verifyJob).toContain('WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}');

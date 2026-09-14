@@ -161,7 +161,7 @@ jobs:
         run: bun scripts/verify-mac-release-signing.js --dist dist
 
       - name: Verify macOS ${{ matrix.arch }} artifact
-        run: bun scripts/verify-macos-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }} --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version ${{ needs.prepare-release.outputs.package_version }}
+        run: bun scripts/verify-macos-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }} --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version "${{ needs.prepare-release.outputs.package_version }}"
 
       - name: Upload macOS ${{ matrix.arch }} DMG artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -246,7 +246,7 @@ jobs:
           Write-Host "Windows ${{ matrix.arch }} installer Authenticode signature is valid"
 
       - name: Verify Windows ${{ matrix.arch }} artifact
-        run: bun scripts/verify-windows-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }} --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version ${{ needs.prepare-release.outputs.package_version }}
+        run: bun scripts/verify-windows-package-artifacts.js --dist dist --manifest --require-arch ${{ matrix.arch }} --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version "${{ needs.prepare-release.outputs.package_version }}"
 
       - name: Upload Windows ${{ matrix.arch }} artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -294,7 +294,7 @@ jobs:
           WINDOWS_ALLOW_UNSIGNED_RELEASE: ${{ vars.WINDOWS_ALLOW_UNSIGNED_RELEASE }}
 
       - name: Verify aggregated release artifacts
-        run: bun scripts/verify-release-artifacts.js --input release-artifacts --output verified-release-assets --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version ${{ needs.prepare-release.outputs.package_version }}
+        run: bun scripts/verify-release-artifacts.js --input release-artifacts --output verified-release-assets --source-sha ${{ needs.prepare-release.outputs.source_sha }} --package-version "${{ needs.prepare-release.outputs.package_version }}"
 
       - name: Upload verified release assets
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

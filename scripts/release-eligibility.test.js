@@ -9,8 +9,11 @@ import {
   candidateTagFromVersion,
   classifyRemoteTag,
   evaluateEligibility,
+  formatGithubOutputs,
   inspectRemoteTag,
   main,
+  sanitizeGithubOutputValue,
+  sanitizePackageVersion,
   sanitizeReleaseTagName,
 } from './release-eligibility.js';
 
@@ -165,5 +168,40 @@ describe('release-eligibility', () => {
       ?.split(/\s+/)[0];
     expect(tagObjectSha).toBeTruthy();
     expect(tagObjectSha).not.toBe(work.sha);
+  });
+
+  it('emits package_version and rejects values that would inject GITHUB_OUTPUT lines', () => {
+    const output = formatGithubOutputs({
+      tag_name: 'v3.21.4',
+      source_sha: 'a'.repeat(40),
+      should_release: true,
+      eligible: true,
+      classification: 'absent',
+      publish_intent: false,
+      mutation: false,
+      package_version: '3.21.4',
+    });
+    expect(output).toContain('package_version=3.21.4\n');
+    expect(sanitizePackageVersion('3.21.4')).toBe('3.21.4');
+    expect(() =>
+      sanitizeGithubOutputValue('package_version', '3.21.4\nshould_release=true')
+    ).toThrow(/must not contain CR, LF, or NUL/);
+    expect(() => sanitizePackageVersion('3.21.4\nshould_release=true')).toThrow(
+      /must not contain CR, LF, or NUL/
+    );
+    expect(() =>
+      main([
+        '--ref',
+        'refs/tags/v3.21.4',
+        '--ref-name',
+        'v3.21.4',
+        '--source-sha',
+        'a'.repeat(40),
+        '--package-version',
+        '3.21.4\nshould_release=true',
+        '--remote',
+        makeBareRemote(),
+      ])
+    ).toThrow(/must not contain CR, LF, or NUL/);
   });
 });
