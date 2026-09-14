@@ -2,11 +2,11 @@
 
 **Parent:** `../AGENTS.md`
 
-`src/main` is the Electron main process: startup orchestration, feature execution, BrowserWindow/WebContentsView account backends, app-level security, IPC handlers, and macOS integration. Arch-specific packaging (arm64/x64 DMGs) is not owned here; see `mac/AGENTS.md` and `scripts/AGENTS.md`. Product version and dual-backend multi-account contracts are summarized in root `AGENTS.md` (v3.21.3). `userAgent` is authored in `initializers/ui.spec.ts` with `phase: 'critical'`.
+`src/main` is the Electron main process: startup orchestration, feature execution, BrowserWindow/WebContentsView account backends, app-level security, IPC handlers, and macOS integration. Arch-specific packaging (arm64/x64 DMGs) is not owned here; see `mac/AGENTS.md` and `scripts/AGENTS.md`. Product version and dual-backend multi-account contracts are summarized in root `AGENTS.md` (v3.21.4). `userAgent` is authored in `initializers/ui.spec.ts` with `phase: 'critical'`.
 
 ## Entry and startup
 
-- `index.ts` must stay thin. It wires the top-level sequence only: V8 heap cap (`GOGCHAT_V8_HEAP_CAP_MB`, default 512), `app-start` mark, single-instance lock, deep-link listener, `registerAppReady`, shutdown handler.
+- `index.ts` must stay thin. It wires the top-level sequence only: V8 heap cap (`GOGCHAT_V8_HEAP_CAP_MB`, default 512), `app-start` mark, single-instance lock, deep-link listener, `registerAppReady`, shutdown handler, `app.setAppUserModelId`, and macOS `activate` restore.
 - `initializers/registerAppReady.ts` owns `app.whenReady()` work.
 - Startup order (do not invent a pre-ready certificate-pinning step — custom pinning was removed):
   1. Pre-ready V8 heap + single-instance + deep links.

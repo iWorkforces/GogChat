@@ -58,7 +58,7 @@ This directory owns runtime lifecycle mechanics: feature execution, shared featu
 
 - Consume `src/main/generated/featurePlan.ts`; do not infer ordering at runtime.
 - Preserve phase boundaries and dependency-batch semantics.
-- Propagate useful typed errors with `{ cause }` rather than swallowing failures.
+- Required-phase failures rethrow the original reason; do not invent a `{ cause }` wrapper here.
 
 ## Anti-patterns
 

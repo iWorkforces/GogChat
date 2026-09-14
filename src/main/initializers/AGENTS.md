@@ -8,7 +8,7 @@ This directory is the canonical home for app startup/shutdown sequencing and bui
 
 - `registerAppReady.ts` - owns `app.whenReady()` sequencing (phases, store, account-0, finalizer arming, deferred schedule).
 - `registerShutdown.ts` - async shutdown path before `app.exit()`.
-- `registerGlobalCleanups.ts` - lazy `require()` of cleanup owners (avoid startup import cycles).
+- `registerGlobalCleanups.ts` - lazy `import()` of cleanup owners (one leftover `require()` for session maintenance; avoid startup import cycles).
 - `singletonDestroyers.ts` / `shutdownDiagnostics.ts` - ordered teardown helpers used by shutdown. About/Update destroyers and shutdown diagnostics are **dynamic-imported** (keep aurora HTML and diagnostic log strings out of the main entry); then perf/IPC/icon singletons.
 - `security.spec.ts`, `ui.spec.ts`, `deferred.spec.ts` - declarative startup plan input (`FeatureSpec` from `utils/lifecycle/featureConfigTypes.ts`). `ui.spec.ts` is mixed: it owns **critical** `userAgent` plus UI `singleInstance` / `deepLinkHandler`.
 - `registerAppReady.test.ts` characterizes ordering against unchanged production: security ∥ global cleanup, critical ∥ store, preconnect before account-0, account WebContents (not WCV host) owns load markers, UI before detached `setImmediate` deferred, deferred rejection does not relabel readiness, required security failure skips account/UI/deferred. Do not treat leftover production comments about “cert pinning + permissions” as current behavior — pinning is gone.
@@ -52,10 +52,11 @@ Shutdown is deadline-bounded: 2,000 ms per stage and an independent 8,000 ms ove
 Shutdown order is intentional:
 
 1. `cleanupAll(ctx)` in reverse initialization order.
-2. Snapshot `peekAccountWindowManager()?.listAccountIndices()` then destroy the account window manager. Diagnostics must not call `getAccountWindowManager()` (that recreates an empty singleton).
-3. Run shutdown diagnostics with the snapshotted indices (`logShutdownDiagnostics({ accountIndices })`).
-4. Destroy singleton utilities.
-5. `app.exit()`.
+2. Global resource cleanup via `getCleanupManager()`.
+3. Snapshot `peekAccountWindowManager()?.listAccountIndices()` then destroy the account window manager. Diagnostics must not call `getAccountWindowManager()` (that recreates an empty singleton).
+4. Run shutdown diagnostics with the snapshotted indices (`logShutdownDiagnostics({ accountIndices })`).
+5. Destroy singleton utilities.
+6. `app.exit()`.
 
 Never introduce a second shutdown owner or call `app.quit()` from cleanup code.
 

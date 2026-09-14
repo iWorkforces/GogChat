@@ -73,4 +73,4 @@ PR Check sequence lives in `scripts/AGENTS.md`. Default `bun run test` is Vitest
 - Do not make e2e tests order-dependent; workers are one today but tests should remain isolated.
 - Do not invent measured medians or claim backend winners without valid benchmark cells.
 - Do not treat package-byte reductions as startup improvements in assertions or fixtures.
-- Do not accept a single macOS DMG as a complete release set after dual-arch packaging landed.
+- Do not accept a single macOS DMG as a complete release set. Publish gate is both mac DMGs + both Windows NSIS + four matching unsigned sidecars (`release-artifact-sidecar.test.js`). Sidecars are not packaged-runtime proof.

@@ -10,11 +10,11 @@ This directory owns platform integration: tray, dock/taskbar badges, native noti
 - Capability gates live in `platformDetection.ts` (`SUPPORTED_PLATFORM_NAMES`, overlay/dock/tray/autolaunch flags). Feature specs use `platforms: [SUPPORTED_PLATFORM_NAMES.macOS]` for `openAtLogin` and `enforceMacOSAppLocation`.
 - `platformHelpers.enforceMacOSAppLocation()` is the deferred feature body (not under `features/`). Packaged apps not under `/Applications/` call `app.quit()`.
 - Tray/badge coupling is one-way through `trayIconState.setTrayUnread()`.
-- Badge image composition belongs in `badgeHelpers.ts` using `nativeImage` primitives. Dock badge sum is capped at `BADGE.DISPLAY_MAX` (99).
+- Dock badge sum is `app.setBadgeCount`, capped at `BADGE.DISPLAY_MAX` (99). Tray uses pre-rendered template/type PNGs via `trayIconState` / `iconCache` — `badgeHelpers` does not compose `nativeImage`.
 - `nativeNotification.ts` owns Electron `Notification` show, tag de-dupe, auto-dismiss, subtitle/groupId options, and bridge vs unread-delta source marking.
 - `notificationFocus.ts` resolves click focus via IPC sender → `IAccountWindowManager.focusAccount` (BW + WCV).
 - Unread-delta OS banners in `badgeHelpers` suppress only when the host/window is focused **and** `manager.isAccountVisible(accountIndex)` (WCV: hidden-live secondary must still notify while another account is frontmost).
-- `accountNotificationIdentity.ts` builds account-aware title/body/tag/subtitle/groupId; identity always comes from the IPC sender (or badge account index), never from payload free text alone.
+- `accountNotificationIdentity.ts` builds label/tag/groupId and maps IPC sender → account. Title/body stay caller-supplied; `nativeNotification.buildAccountAwareNotificationPayload` assembles the payload. Identity never comes from payload free text.
 - `accountLabelStore.ts` / `accountLabelDialog.ts` persist optional custom labels (`app.accountLabels`) for notification subtitles (Preferences → Account Labels). Store helpers are config readers/writers, not process singletons with destroyers.
 - `helpMenuBuilder.ts` consumes feature actions through `features/menuActionRegistry.ts` (`aboutPanel`, `checkForUpdates`, troubleshooting actions); it should not import feature modules directly.
 - Window defaults live in `windowUtils.ts` (`getWindowDefaults`) used by account managers and `windowWrapper`.
