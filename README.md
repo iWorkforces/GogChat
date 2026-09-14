@@ -178,7 +178,7 @@ bun run package:win:artifacts
 bun run package:win:signing-policy
 ```
 
-`package:mac:artifacts` / `package:win:artifacts` list and gate artifact names. They write versioned JSON sidecars only when `--source-sha` and `--package-version` are passed (release CI does this). Sidecars are unsigned metadata, not cryptographic attestations or packaged-runtime proof.
+`package:mac:artifacts` / `package:win:artifacts` list and gate artifact names only. They do not pass identity flags, so they never write sidecars. Release CI calls `verify-macos-package-artifacts.js` / `verify-windows-package-artifacts.js` with `--source-sha` and `--package-version` after platform verification. Sidecars are unsigned metadata, not cryptographic attestations or packaged-runtime proof.
 
 Release automation runs on GitHub Actions for `main` and `v*` tags. The workflow prepares an exact-SHA candidate, qualifies that SHA, packages **both** macOS DMGs (`arm64` and `x64`) and native Windows CI installers, writes one sidecar per binary, verifies the aggregated set, creates the tag from a single writer, and uses one `publish-release` job for upload.
 
